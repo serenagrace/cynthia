@@ -2,3 +2,8 @@ env
 .env
 __pycache__
 */__pycache__
+tags
+build
+*.egg-info
+.mypy_cache
+*/.mypy_cache

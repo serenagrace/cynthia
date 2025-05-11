@@ -1,0 +1,8 @@
+[build-system]
+requires = ["setuptools >= 77.0.3"]
+build-backend = "setuptools.build_meta"
+[project]
+name="cynthia"
+version="0.0.0"
+[tool.setuptools]
+packages = ["bot", "context"]
