@@ -1,6 +1,8 @@
 from pathlib import Path
 import yaml
 
+from .defaults import Defaults
+
 
 class ConfigLoader:
     def __init__(self, filename):
@@ -10,5 +12,5 @@ class ConfigLoader:
 
     def __call__(self):
         with open(self.filename, "r") as f:
-            config = yaml.load(f, Loader=yaml.Loader)
+            config = {**Defaults.config, **yaml.load(f, Loader=yaml.Loader)}
         return config
