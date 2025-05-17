@@ -22,7 +22,7 @@ class Namespace:
             self._nspace_dict[attr] = val
 
     def __getattribute__(self, attr):
-        if attr in ("_nspace_dict", "__dict__", "keys", "items", "values"):
+        if attr in ("_nspace_dict", "__dict__", "keys", "items", "values", "get"):
             return super().__getattribute__(attr)
         elif attr in self.__dict__:
             return super().__getattribute__(attr)
@@ -31,7 +31,7 @@ class Namespace:
         return self._nspace_dict[attr]
 
     def get(self, attr, default):
-        return self._nspace_dict(attr, default)
+        return self._nspace_dict.get(attr, default)
 
     def items(self):
         return self._nspace_dict.items()

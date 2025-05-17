@@ -1,4 +1,4 @@
 class Defaults:
     env = {"DISCORD_BOT_TOKEN": None}
-    config = {"silent": False, "debug": False, "users": []}
+    config = {"silent": False, "debug": False, "owner": None, "users": []}
     context = {}
