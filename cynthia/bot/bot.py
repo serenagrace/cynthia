@@ -4,7 +4,7 @@ from .messenger import Messenger
 from .applications import CommandTree
 
 
-class Bot(commands.bot.Bot):
+class Bot(discord.Client):
     def __init__(self, config, *, onexit=None):
         self.config = config
         self.messenger = Messenger(self)
@@ -13,11 +13,10 @@ class Bot(commands.bot.Bot):
         intents = discord.Intents.default()
         intents.message_content = True
         super().__init__(
-            command_prefix="/",
             intents=intents,
             status=discord.Status.online,
-            tree_cls=CommandTree,
         )
+        self.tree = CommandTree(self)
 
     async def on_ready(self):
         if n := self.tree.load_commands():

@@ -22,7 +22,7 @@ class CommandTree(discord.app_commands.CommandTree):
                     for command in application:
                         self.add_command(command)
                 else:
-                    self.add_command(application())
+                    self.add_command(application)
         return len(self.get_commands())
 
     @property
