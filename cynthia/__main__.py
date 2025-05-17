@@ -1,5 +1,6 @@
 from context import Context
 from bot import Bot
+from exceptions import *
 
 _context = Context("config.yaml")
 
@@ -8,3 +9,5 @@ if _context.env.DISCORD_BOT_TOKEN is None:
     raise ValueError("Must specify 'DISCORD_BOT_TOKEN' in .env file.")
 
 bot.run(_context.env.DISCORD_BOT_TOKEN)
+
+print(bot.kill_reason)

@@ -4,7 +4,7 @@ import importlib
 
 class CommandTree(discord.app_commands.CommandTree):
 
-    __modules = ["config"]
+    __modules = ["config", "control"]
     __loaded_modules = []
 
     def load_commands(self):

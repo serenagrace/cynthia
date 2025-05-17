@@ -1,14 +1,11 @@
 import discord
-from typing import Literal
 from discord import app_commands
-
-MissingValue = object()
 
 
 @app_commands.command()
 async def cget(interaction: discord.Interaction, key: str):
-    value = interaction.client.config.get(key, MissingValue)
-    if value is MissingValue:
+    value = interaction.client.config.get(key, discord.utils.MISSING)
+    if value is discord.utils.MISSING:
         await interaction.response.send_message(
             f"Invalid key `{key}` not found in config."
         )
@@ -25,8 +22,8 @@ async def cset(
     force: bool = False,
     reload: bool = False,
 ):
-    value = interaction.client.config.get(key, MissingValue)
-    if value is MissingValue:
+    value = interaction.client.config.get(key, discord.utils.MISSING)
+    if value is discord.utils.MISSING:
         if not force:
             await interaction.response.send_message(
                 f"Invalid key `{key}` not found in config."
