@@ -1,5 +1,7 @@
 UNSPECIFIED = object()
 
+from cynthia.utils.types import force_obj_is_list
+
 
 class Namespace:
     def __init__(self, _dict=None):
@@ -43,6 +45,10 @@ class Namespace:
 
     def set(self, attr, val):
         self._nspace_dict[attr] = val
+
+    def append(self, attr, val):
+        self._nspace_dict[attr] = force_obj_is_list(self._nspace_dict.get(attr, None))
+        self._nspace_dict[attr].append(val)
 
     def items(self):
         return self._nspace_dict.items()
