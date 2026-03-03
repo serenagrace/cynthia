@@ -1,16 +1,17 @@
 import discord
-from discord.ext import commands
 from .messenger import Messenger
 from .applications import CommandTree
 
 
 class Bot(discord.Client):
-    def __init__(self, config, *, onexit=None):
-        self.config = config
+    def __init__(self, context, *, onexit=None):
+        self.config = context.config
+        self.app_meta = context.app_meta
         self.messenger = Messenger(self)
         self.onexit = onexit
-        self.owner = config.owner
+        self.owner = self.config.owner
         self.kill_reason = None
+        self.verify = lambda code: False
         intents = discord.Intents.default()
         intents.message_content = True
         super().__init__(
@@ -20,13 +21,25 @@ class Bot(discord.Client):
         self.tree = CommandTree(self)
 
     async def on_ready(self):
+        print("Fetching command modules...")
+        n = 0
         if n := self.tree.load_commands():
             print(f"Loading {n} commands...", end="")
             await self.tree.sync()
             print(" Done.")
-        msg = "Logged on as", self.user.name
+        msg = f"Logged on as {self.user.name}\n"
+        msg += f"Version: {self.app_meta.git_hash}\n"
+        msg += f"Updated: {self.app_meta.git_timestamp}\n"
+        msg += f"Launched: {self.app_meta.run_timestamp}\n"
+        if n:
+            msg += f"Loaded {n} commands from ({len(self.tree.loaded_modules)}/{len(self.tree.modules)}) modules.\n"
         await self.messenger.msg_owner(msg)
-        print(await self.tree.fetch_commands())
+        print("Loaded commands:")
+        print(
+            "\n".join(
+                f" - {command.name}" for command in await self.tree.fetch_commands()
+            )
+        )
 
     async def on_message(self, message):
         if message.author.id == self.user.id:

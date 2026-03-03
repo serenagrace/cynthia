@@ -1,7 +1,7 @@
 import discord
 from typing import Literal
 from discord import app_commands
-from exceptions import ExitCynthia
+from cynthia.exceptions import ExitCynthia
 
 
 @app_commands.command()
@@ -15,7 +15,11 @@ async def shutdown(interaction: discord.Interaction):
 
 @app_commands.command()
 async def restart(interaction: discord.Interaction):
-    pass
+    await interaction.response.send_message("Restarting...")
+    try:
+        raise ExitCynthia("Restart")
+    except ExitCynthia as e:
+        await interaction.client.__aexit__(type(e), e, e.__traceback__)
 
 
 @app_commands.command()
