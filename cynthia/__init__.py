@@ -1,2 +1,2 @@
-import context
-import bot
+import cynthia.context
+import cynthia.bot

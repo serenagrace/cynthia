@@ -9,6 +9,7 @@ black==25.1.0
 build==1.4.0
 click==8.1.8
 colorama==0.4.6
+cynthia
 discord.py==2.5.2
 frozenlist==1.6.0
 grapheme==0.6.0

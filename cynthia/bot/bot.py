@@ -44,8 +44,8 @@ class Bot(discord.Client):
     async def on_message(self, message):
         if message.author.id == self.user.id:
             return
-        print(message.author.id, self.config.users)
-        if message.author.id not in self.config.users:
+        print(message.author.id, self.config.privileged_users)
+        if message.author.id not in self.config.privileged_users:
             return
         await self.messenger.respond(message)
 
