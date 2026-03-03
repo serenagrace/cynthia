@@ -52,6 +52,7 @@ async def gather_results():
         ping_status("github.com"),
         ping_status("google.com"),
         ping_status("ALVIS"),
+        ping_status("rokutv"),
     ]
 
     results = []
