@@ -15,6 +15,6 @@ fi
 
 
 set -x
-pip3 install -q -r requirements.txt > /dev/null
-pip3 install -q -e cynthia > /dev/null
+pip3 install -q -r requirements.txt
+pip3 install -q -e cynthia
 set +x
