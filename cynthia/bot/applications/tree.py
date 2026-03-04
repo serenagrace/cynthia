@@ -1,14 +1,17 @@
 import discord.app_commands
 import importlib
+from pathlib import Path
 
 
 class CommandTree(discord.app_commands.CommandTree):
 
-    __modules = ["config", "control", "status", "shell", "drive", "test", "help", "roku"]
+    __directory = Path(__file__).parent
+    __modules = [ module.stem for module in Path(__file__).parent.glob("*.py") if module.stem != "__init__" and module.stem != "tree" ]
     __loaded_modules = []
+    __loaded_commands = []
 
     def load_commands(self):
-        print(f"{len(self.modules)} command modules found.")
+        print(f"{len(self.modules)} command modules found in {self.application_directory}.")
         for module in self.modules:
             print(f"Loading applications from module: {module} ...", end="")
             application = None
@@ -24,8 +27,10 @@ class CommandTree(discord.app_commands.CommandTree):
                 if hasattr(application, "__iter__"):
                     for command in application:
                         self.add_command(command)
+                        self.__loaded_commands.append(f"{module}.{command.name}")
                 else:
                     self.add_command(application)
+                    self.__loaded_commands.append(f"{module}.{command.name}")
                 print(" Done.")
             else:
                 print(f" ERR.\n\tNo application found in module: {module}")
@@ -38,3 +43,11 @@ class CommandTree(discord.app_commands.CommandTree):
     @property
     def loaded_modules(self):
         return self.__loaded_modules
+
+    @property
+    def application_directory(self):
+        return self.__directory
+
+    @property
+    def loaded_commands(self):
+        return self.__loaded_commands
