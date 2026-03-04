@@ -1,7 +1,6 @@
 import discord
 from discord import app_commands
 import asyncio
-import json
 
 
 async def ping_status(host: str) -> list:
@@ -76,5 +75,13 @@ async def status(interaction: discord.Interaction):
     )
     await interaction.followup.send(message)
 
+@app_commands.command()
+async def loaded_modules(interaction: discord.Interaction):
+    await interaction.client.messenger.send_list(interaction, f"Loaded ({len(interaction.client.tree.loaded_modules)}/{len(interaction.client.tree.modules)}) Modules:", interaction.client.tree.loaded_modules)
 
-__application__ = [status]
+@app_commands.command()
+async def loaded_commands(interaction: discord.Interaction):
+    await interaction.client.messenger.send_list(interaction, f"Loaded {len(interaction.client.tree.loaded_commands)} Commands:", interaction.client.tree.loaded_commands)
+
+
+__application__ = [status, loaded_modules, loaded_commands]

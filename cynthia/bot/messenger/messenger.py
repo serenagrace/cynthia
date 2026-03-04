@@ -12,6 +12,14 @@ class Messenger:
     async def send_msg(self, send_context, msg):
         await send_context.send(msg, silent=self.bot.config.silent)
 
+    async def send_list(self, send_context, title, items):
+        if not items:
+            await send_context.response.send_message(f"{title}\n*(Empty.)*")
+            return
+
+        formatted_items = "\n".join(f" - {item}" for item in items)
+        await send_context.response.send_message(f"{title}\n{formatted_items}")
+
     async def respond(self, message):
         # don't respond to ourselves
         if message.author == self.bot.user:
