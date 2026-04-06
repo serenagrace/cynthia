@@ -1,4 +1,5 @@
 import pyotp
+import discord
 from typing import Callable
 from discord import app_commands
 
@@ -12,7 +13,7 @@ def verify_factory(secret: str) -> Callable[[str], bool]:
 
 
 def privileged_only():
-    async def predicate(interaction: app_commands.Interaction) -> bool:
+    async def predicate(interaction: discord.Interaction) -> bool:
         if interaction.user.id not in interaction.client.config.privileged_users:
             await interaction.response.send_message(
                 "You do not have permission to use this command.", ephemeral=True

@@ -2,6 +2,7 @@ from .context import Context
 from .bot import Bot
 from .exceptions import *
 from .utils.auth import verify_factory
+from .utils.db import Database
 
 import sys
 from pathlib import Path
@@ -12,6 +13,8 @@ def main():
     while not _exit:
         _exit = True
         _context = Context("config.yaml")
+
+        db = Database(_context.config.drive_path)
 
         bot = Bot(_context)
         if _context.env.DISCORD_BOT_TOKEN is None:
