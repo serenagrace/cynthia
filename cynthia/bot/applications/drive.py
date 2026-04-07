@@ -3,9 +3,11 @@ from pathlib import Path
 from discord import app_commands
 from typing import Optional
 from datetime import datetime
+from cynthia.utils.auth import drive_permission
 
 
 @app_commands.command()
+@drive_permission()
 async def upload(
     interaction: discord.Interaction,
     filename: Optional[str],
@@ -34,6 +36,7 @@ async def upload(
 
 
 @app_commands.context_menu(name="Upload to Drive")
+@drive_permission()
 async def upload_context_menu(interaction: discord.Interaction, message: discord.Message):
     await interaction.response.defer()
     drive_path = interaction.client.config.get("drive_path", None)
@@ -63,6 +66,7 @@ async def upload_context_menu(interaction: discord.Interaction, message: discord
     await interaction.followup.send(f"Attachment saved to {save_path}.")
 
 @app_commands.command()
+@drive_permission()
 async def download(interaction: discord.Interaction, filename: str):
     interaction.response.defer()
     drive_path = interaction.client.config.get("drive_path", None)

@@ -10,11 +10,15 @@ async def help(interaction: discord.Interaction):
     available_commands = []
     for cmd in commands:
         command = interaction.client.tree.get_command(cmd.name)
+        if not command:
+            continue
         checks = command.checks
         if command.checks:
-            if await asyncio.gather(*[check(interaction) for check in checks]):
+            if all(await asyncio.gather(*[check(interaction) for check in checks])):
+                print("Command passed checks: ", cmd.name)
                 available_commands.append(f"- /{cmd.name}")
         else:
+            print("Command has no checks: ", cmd.name)
             available_commands.append(f"- /{cmd.name}")
     if available_commands:
         help_message = "Available commands:\n" + "\n".join(available_commands)

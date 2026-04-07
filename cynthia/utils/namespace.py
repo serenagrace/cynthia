@@ -32,6 +32,7 @@ class Namespace:
             "values",
             "get",
             "set",
+            "dict",
         ):
             return super().__getattribute__(attr)
         elif attr in self.__dict__:
@@ -58,3 +59,6 @@ class Namespace:
 
     def keys(self):
         return self._nspace_dict.keys()
+
+    def dict(self):
+        return self._nspace_dict

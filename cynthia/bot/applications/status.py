@@ -44,7 +44,16 @@ async def systemctl_status(service: str) -> list:
     }
 
 
-async def gather_results():
+async def bool_status(name: str, value: bool):
+    return {
+        "service": name,
+        "color": "green" if value else "red",
+        "code": 0 if value else 1,
+        "msg": "True" if value else "False"
+    }
+
+
+async def gather_results(client):
     tasks = [
         systemctl_status("pihole-FTL.service"),
         ping_status("discord.com"),
@@ -52,6 +61,7 @@ async def gather_results():
         ping_status("google.com"),
         ping_status("ALVIS"),
         ping_status("rokutv"),
+        bool_status("Drive Available", client.logging_enabled),
     ]
 
     results = []
@@ -66,7 +76,7 @@ async def gather_results():
 @app_commands.command()
 async def status(interaction: discord.Interaction):
     await interaction.response.defer()
-    final_statuses = await gather_results()
+    final_statuses = await gather_results(interaction.client)
     message = "\n".join(
         [
             f" - :{status['color']}_circle: {status['service']}"

@@ -31,6 +31,8 @@ def main():
 
         print(bot.kill_reason)
 
+        _context.update_config(bot.config.dict())
+
         try:
             if bot.kill_reason[1].args[0] == "Restart":
                 _exit = False

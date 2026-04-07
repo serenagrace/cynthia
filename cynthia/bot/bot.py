@@ -1,4 +1,6 @@
 import discord
+import gzip
+from pathlib import Path
 from .messenger import Messenger
 from .applications import CommandTree
 
@@ -8,7 +10,11 @@ class Bot(discord.Client):
         self.config = context.config
         self.app_meta = context.app_meta
         self.messenger = Messenger(self)
-        self.onexit = onexit
+        self.onexit = []
+        if onexit is not None:
+            self.onexit.append(onexit)
+
+        self.onmessage = {}
         self.owner = self.config.owner
         self.kill_reason = None
         self.verify = lambda code: False
@@ -19,6 +25,27 @@ class Bot(discord.Client):
             status=discord.Status.online,
         )
         self.tree = CommandTree(self)
+
+        self.logging_enabled = False
+        if self.config.drive_path is not None:
+            log_path = Path(self.config.drive_path) / 'message.log.gz'
+            if log_path.parent.exists():
+                with gzip.open(log_path, "at", encoding="utf-8") as f:
+                    f.write(f"! Logging started at {self.app_meta.run_timestamp}\n")
+
+                self.log_path = log_path
+                self.logging_enabled = True
+                self.onexit.append(lambda _: self.log_write(f"! Logging stopped at {self.app_meta.run_timestamp}\n"))
+
+    def log_write(self, entry):
+        if not self.logging_enabled:
+            return
+        with gzip.open(self.log_path, "at", encoding="utf-8") as f:
+            f.write(entry)
+
+    def log_message(self, message):
+        log_entry = "{message.created_at}:{message.channel}:{message.author}:{message.jump_url}:{message.content}\n"
+        self.log_write(log_entry)
 
     async def on_ready(self):
         print("Fetching command modules...")
@@ -44,7 +71,10 @@ class Bot(discord.Client):
     async def on_message(self, message):
         if message.author.id == self.user.id:
             return
-        print(message.author.id, self.config.privileged_users)
+
+        for unit in self.onmessage:
+            await unit(message)
+
         if message.author.id not in self.config.privileged_users:
             return
         await self.messenger.respond(message)
@@ -62,9 +92,12 @@ class Bot(discord.Client):
             else:
                 self.kill_reason = (exc_type, exc_val, exc_tb)
         if self.onexit is not None:
+            exit_tasks = self.onexit
+            self.onexit = None
             if not self.is_closed():
                 await self.messenger.msg_owner("Cynthia is closing. Running cleanup...")
-            self.onexit(self.config)
+            for func in exit_tasks:
+                func(self)
             if not self.is_closed():
                 await self.messenger.msg_owner("Cleanup complete.")
         if not self.is_closed():
