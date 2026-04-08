@@ -13,7 +13,7 @@ async def upload(
     filename: Optional[str],
     attachment: discord.Attachment,
 ) -> None:
-    interaction.response.defer()
+    await interaction.response.defer(ephemeral=True)
     drive_path = interaction.client.config.get("drive_path", None)
     if drive_path is None:
         await interaction.followup.send("Drive path not configured.")
@@ -37,8 +37,10 @@ async def upload(
 
 @app_commands.context_menu(name="Upload to Drive")
 @drive_permission()
-async def upload_context_menu(interaction: discord.Interaction, message: discord.Message):
-    await interaction.response.defer()
+async def upload_context_menu(
+    interaction: discord.Interaction, message: discord.Message
+):
+    await interaction.response.defer(ephemeral=True)
     drive_path = interaction.client.config.get("drive_path", None)
     if drive_path is None:
         await interaction.followup.send("Drive path not configured.")
@@ -55,7 +57,9 @@ async def upload_context_menu(interaction: discord.Interaction, message: discord
         try:
             with open(save_path, "w") as f:
                 f.write(content)
-            await interaction.followup.send(f"Message id {message.id} content saved to `{str(save_path)}`.")
+            await interaction.followup.send(
+                f"Message id {message.id} content saved to `{str(save_path)}`."
+            )
         except Exception as e:
             await interaction.followup.send(f"Failed to save message content: {e}")
         return
@@ -64,6 +68,7 @@ async def upload_context_menu(interaction: discord.Interaction, message: discord
     with open(save_path, "w") as f:
         await attachment.save(f)
     await interaction.followup.send(f"Attachment saved to {save_path}.")
+
 
 @app_commands.command()
 @drive_permission()

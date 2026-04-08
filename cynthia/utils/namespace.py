@@ -11,10 +11,25 @@ class Namespace:
 
         self._nspace_dict = {}
         for k, v in _dict.items():
+            if isinstance(k, str):
+                k = k.replace(" ", "_")
             self._nspace_dict[k] = v
 
     def __setattr__(self, attr, val):
-        if attr in ("_nspace_dict", "__dict__", "keys", "items", "values"):
+        if attr in (
+            "_nspace_dict",
+            "__dict__",
+            "keys",
+            "items",
+            "values",
+            "get",
+            "set",
+            "dict",
+            "append",
+            "__setitem__",
+            "__getitem__",
+            "__contains__",
+        ):
             super().__setattr__(attr, val)
         elif attr in self.__dict__:
             raise KeyError(
@@ -33,6 +48,10 @@ class Namespace:
             "get",
             "set",
             "dict",
+            "append",
+            "__setitem__",
+            "__getitem__",
+            "__contains__",
         ):
             return super().__getattribute__(attr)
         elif attr in self.__dict__:
@@ -62,3 +81,12 @@ class Namespace:
 
     def dict(self):
         return self._nspace_dict
+
+    def __setitem__(self, key, value):
+        self._nspace_dict[key] = value
+
+    def __getitem__(self, key):
+        return self._nspace_dict[key]
+
+    def __contains__(self, key):
+        return key in self._nspace_dict

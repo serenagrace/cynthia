@@ -8,3 +8,4 @@ build
 .mypy_cache
 */.mypy_cache
 cynthia/dist/
+config.yaml

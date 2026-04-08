@@ -49,7 +49,7 @@ async def bool_status(name: str, value: bool):
         "service": name,
         "color": "green" if value else "red",
         "code": 0 if value else 1,
-        "msg": "True" if value else "False"
+        "msg": "True" if value else "False",
     }
 
 
@@ -85,13 +85,23 @@ async def status(interaction: discord.Interaction):
     )
     await interaction.followup.send(message)
 
+
 @app_commands.command()
 async def loaded_modules(interaction: discord.Interaction):
-    await interaction.client.messenger.send_list(interaction, f"Loaded ({len(interaction.client.tree.loaded_modules)}/{len(interaction.client.tree.modules)}) Modules:", interaction.client.tree.loaded_modules)
+    await interaction.client.messenger.send_list(
+        interaction,
+        f"Loaded ({len(interaction.client.tree.loaded_modules)}/{len(interaction.client.tree.modules)}) Modules:",
+        interaction.client.tree.loaded_modules,
+    )
+
 
 @app_commands.command()
 async def loaded_commands(interaction: discord.Interaction):
-    await interaction.client.messenger.send_list(interaction, f"Loaded {len(interaction.client.tree.loaded_commands)} Commands:", interaction.client.tree.loaded_commands)
+    await interaction.client.messenger.send_list(
+        interaction,
+        f"Loaded {len(interaction.client.tree.loaded_commands)} Commands:",
+        interaction.client.tree.loaded_commands,
+    )
 
 
 __application__ = [status, loaded_modules, loaded_commands]

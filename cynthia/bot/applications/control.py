@@ -27,8 +27,15 @@ async def restart(interaction: discord.Interaction):
 
 @app_commands.command()
 @privileged_only()
+async def reload(interaction: discord.Interaction):
+    await interaction.response.defer(thinking=True, ephemeral=True)
+    await interaction.client.reload_tree(interaction)
+
+
+@app_commands.command()
+@privileged_only()
 async def upgrade(interaction: discord.Interaction):
     pass
 
 
-__application__ = [shutdown, restart, upgrade]
+__application__ = [shutdown, restart, upgrade, reload]

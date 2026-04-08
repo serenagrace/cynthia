@@ -17,6 +17,7 @@ def privileged_only():
         if interaction.user.id in interaction.client.config.privileged_users:
             return True
         return False
+
     return app_commands.check(predicate)
 
 
@@ -25,6 +26,7 @@ def nxbt_permission():
         if interaction.user.id in interaction.client.config.nxbt_users:
             return True
         return False
+
     return app_commands.check(predicate)
 
 
@@ -33,4 +35,5 @@ def drive_permission():
         if interaction.user.id in interaction.client.config.drive_users:
             return True
         return False
+
     return app_commands.check(predicate)

@@ -7,6 +7,7 @@ from .utils.db import Database
 import sys
 from pathlib import Path
 
+
 def main():
     _exit = False
 
