@@ -28,7 +28,15 @@ async def connect(interaction: discord.Interaction):
         await interaction.followup.send("Already connected to Nintendo Switch!")
         return
 
-    await asyncio.to_thread(nx.wait_for_connection, controller)
+    try:
+        await asyncio.wait_for(
+            asyncio.to_thread(nx.wait_for_connection, controller), timeout=30
+        )
+    except TimeoutError:
+        await interaction.followup.send("Connection timed out.")
+        nx.remove_controller(controller)
+        interaction.client.nxbt_controller = None
+        return
     await interaction.followup.send("Connected to Nintendo Switch!")
 
     await Macro(None, [Input(nxbt.Buttons.A, up_duration=1.0), nxbt.Buttons.B]).play(
@@ -36,12 +44,17 @@ async def connect(interaction: discord.Interaction):
     )
 
     async def cleanup(client):
+        print("Nxbt cleanup")
         nx = getattr(client, "nxbt", None)
         controller = getattr(client, "nxbt_controller", None)
-        await MACROS["cleanup"].play(nx, controller)
-        nx.remove_controller(controller)
-        client.nxbt = None
+        try:
+            await asyncio.wait_for(MACROS["cleanup"].play(nx, controller), timeout=15)
+        except TimeoutError:
+            pass
+        # nx.remove_controller(controller)
+        print("Controller removed")
         client.nxbt_controller = None
+        client.nxbt = None
 
     interaction.client.onexit["nxbt"] = cleanup
     return
@@ -57,9 +70,9 @@ async def disconnect(interaction: discord.Interaction):
         interaction.followup.send("Done.")
         return
 
-    interaction.client.onexit["nxbt"](interaction.client)
+    await interaction.client.onexit["nxbt"](interaction.client)
     interaction.client.onexit["nxbt"] = None
-    interaction.client = None
+    del interaction.client.onexit["nxbt"]
 
     await interaction.followup.send("Disconnected from Nintendo Switch.")
 

@@ -1,7 +1,11 @@
 import nxbt
 import asyncio
+import pickle
+from pathlib import Path
 
 from cynthia.utils.strings import shift, unshift
+
+PICKLE_PATH = Path("macros.pkl")
 
 CHAR_MAP = {
     "a": nxbt.Buttons.A,
@@ -30,7 +34,9 @@ CHAR_MAP = {
 
 
 class Input:
-    def __init__(self, input_list=None, down_duration=0.15, up_duration=0.15):
+    def __init__(
+        self, input_list=None, down_duration=0.15, up_duration=0.15, block=True
+    ):
         if input_list is None:
             self.input_list = None
         elif not isinstance(input_list, list):
@@ -38,6 +44,7 @@ class Input:
         self.input_list = input_list
         self.down_duration = down_duration
         self.up_duration = up_duration
+        self.block = block
 
     async def play(self, nx, controller):
         if self.input_list is None:
@@ -49,6 +56,7 @@ class Input:
             self.input_list,
             down=self.down_duration,
             up=self.up_duration,
+            block=self.block,
         )
 
 
@@ -66,6 +74,7 @@ class Macro:
 
     def parse_inputs(self, inputs):
         self.clear()
+        force = False
 
         if isinstance(inputs, str):
             if inputs.startswith("$"):
@@ -74,7 +83,10 @@ class Macro:
                     macro_name = (
                         lines[0].strip().replace(" ", "_").replace("$", "").lower()
                     )
-                    content = "\n".join(lines[1:])
+                    if macro_name.startswith("!"):
+                        force = True
+                        macro_name = macro_name.replace("!", "")
+                    inputs = "\n".join(lines[1:])
                     if self.name is None:
                         self.name = macro_name
 
@@ -95,8 +107,8 @@ class Macro:
                     down_duration = 1.0
                 line, matched = detect_and_remove(line, "tap")
                 if matched:
-                    down_duration = 0.10
-                    up_duration = 0.10
+                    down_duration = 0.07
+                    up_duration = 0.07
 
                 for macro, _input in MACROS.items():
                     line, matched = detect_and_remove(line, macro)
@@ -118,7 +130,7 @@ class Macro:
             ]
 
         if self.name:
-            if self.name.lower() not in MACROS.keys():
+            if force or self.name.lower() not in MACROS.keys():
                 MACROS[self.name.lower()] = self
 
     def clear(self):
@@ -127,11 +139,13 @@ class Macro:
     async def play(self, nx, controller):
         if nx is None or controller is None:
             return
+        if nx.state[controller]["state"] != "connected":
+            return
         for _input in self.input_list:
             await _input.play(nx, controller)
 
 
-MACROS["wait"] = (Input(None, down_duration=1, up_duration=0),)
+MACROS["wait"] = Input(None, down_duration=1, up_duration=0)
 zoom = Macro("zoom", "tap home\ntap home")
 cleanup = Macro(
     "cleanup",
@@ -145,6 +159,23 @@ cleanup = Macro(
         nxbt.Buttons.DPAD_RIGHT,
         nxbt.Buttons.DPAD_RIGHT,
         Input(nxbt.Buttons.A, up_duration=1.5),
-        nxbt.Buttons.A,
+        Input(nxbt.Buttons.A, up_duration=0, block=False),
     ],
 )
+
+
+def load_macros(drive_path):
+    pickle_path = drive_path / PICKLE_PATH
+    if pickle_path.exists() and pickle_path.is_file():
+        with open(pickle_path, "rb") as f:
+            _macros = pickle.load(f)
+            for key, value in _macros.items():
+                if key not in MACROS.keys():
+                    MACROS[key] = value
+
+
+def save_macros(drive_path):
+    if drive_path.exists() and drive_path.is_dir():
+        pickle_path = drive_path / PICKLE_PATH
+        with open(pickle_path, "wb") as f:
+            pickle.dump(MACROS, f)

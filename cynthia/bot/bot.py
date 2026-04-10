@@ -1,8 +1,10 @@
+import asyncio
 import discord
 import gzip
 from pathlib import Path
 from .messenger import Messenger
 from .applications import CommandTree
+from cynthia.utils.nxbt_utils import load_macros, save_macros
 
 
 class Bot(discord.Client):
@@ -34,10 +36,20 @@ class Bot(discord.Client):
 
                 self.log_path = log_path
                 self.logging_enabled = True
-                self.onexit["logging"] = self.log_stop
 
-    async def log_stop(self, *args, **kwargs):
-        self.log_write(f"! Logging stopped at {self.app_meta.run_timestamp}\n")
+                async def log_stop(*args, **kwargs):
+                    self.log_write(
+                        f"! Logging stopped at {self.app_meta.run_timestamp}\n"
+                    )
+
+                self.onexit["logging"] = log_stop
+
+            load_macros(Path(self.config.drive_path))
+
+            async def macro_cleanup(client):
+                save_macros(Path(client.config.drive_path))
+
+            self.onexit["macros"] = macro_cleanup
 
     def log_write(self, entry):
         if not self.logging_enabled:
@@ -57,16 +69,24 @@ class Bot(discord.Client):
             print(f"Loading {n} commands...")
             await self.tree.sync()
             print("Done.")
-        msg = "Reloaded command tree.\n"
-        msg += f"Version: {self.app_meta.git_hash}\n"
-        msg += f"Updated: {self.app_meta.git_timestamp}\n"
-        msg += f"Launched: {self.app_meta.run_timestamp}\n"
+        embed = discord.Embed(
+            title="Cynthia Online.",
+            url="https://github.com/serenagrace/cynthia",
+            color=0xD700FF,
+        )
+        embed.add_field(name="Launch Time:", value=f"{self.app_meta.run_timestamp}")
+        embed.set_footer(
+            text=f"#{self.app_meta.git_hash} {self.app_meta.git_timestamp}"
+        )
         if n:
-            msg += f"Loaded {n} commands from ({len(self.tree.loaded_modules)}/{len(self.tree.modules)}) modules.\n"
+            embed.add_field(
+                name="Loaded Commands:",
+                value=f"{n} from ({len(self.tree.loaded_modules)}/{len(self.tree.modules)}) modules",
+            )
         if interaction is not None:
-            await interaction.followup.send(msg)
+            await interaction.followup.send(embed=embed)
         else:
-            await self.messenger.msg_owner(msg)
+            await self.messenger.msg_owner(embed)
         print("Loaded commands:")
         print(
             "\n".join(
@@ -102,13 +122,19 @@ class Bot(discord.Client):
                 self.kill_reason = (exc_type, exc_val, exc_tb)
         if self.onexit is not None:
             exit_tasks = self.onexit.values()
-            self.onexit = {}
+            self.onexit = None
             if not self.is_closed():
                 await self.messenger.msg_owner("Cynthia is closing. Running cleanup...")
             for func in exit_tasks:
-                await func(self)
+                try:
+                    await asyncio.wait_for(func(self), timeout=30)
+                except TimeoutError:
+                    print("Warning: cleanup task timed out.")
             if not self.is_closed():
-                await self.messenger.msg_owner("Cleanup complete.")
+                try:
+                    await self.messenger.msg_owner("Cleanup complete.")
+                except:
+                    pass
         if not self.is_closed():
             await self.messenger.msg_owner("Cynthia will now exit.")
         await super().__aexit__(exc_type, exc_val, exc_tb)

@@ -10,6 +10,7 @@ class CommandTree(discord.app_commands.CommandTree):
         super().__init__(client)
 
     def load_commands(self):
+        importlib.invalidate_caches()
         self.clear_commands()
         self.__directory = Path(__file__).parent
         self.__modules = [

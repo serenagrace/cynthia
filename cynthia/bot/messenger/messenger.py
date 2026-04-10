@@ -1,3 +1,4 @@
+import discord
 from .response_matrix import ResponseMatrix
 
 
@@ -10,7 +11,10 @@ class Messenger:
         await self.send_msg(user_owner, msg)
 
     async def send_msg(self, send_context, msg):
-        await send_context.send(msg, silent=self.bot.config.silent)
+        if isinstance(msg, discord.Embed):
+            await send_context.send(embed=msg, silent=self.bot.config.silent)
+        else:
+            await send_context.send(msg, silent=self.bot.config.silent)
 
     async def send_list(self, send_context, title, items):
         if not items:
