@@ -50,14 +50,20 @@ class Input:
         if self.input_list is None:
             await asyncio.sleep(self.down_duration + self.up_duration)
             return
-        await asyncio.to_thread(
-            nx.press_buttons,
-            controller,
-            self.input_list,
-            down=self.down_duration,
-            up=self.up_duration,
-            block=self.block,
-        )
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(
+                    nx.press_buttons,
+                    controller,
+                    self.input_list,
+                    down=self.down_duration,
+                    up=self.up_duration,
+                    block=self.block,
+                ),
+                timeout=self.down_duration + self.up_duration + 1,
+            )
+        except TimeoutError:
+            pass
 
 
 tap_home = Input(nxbt.Buttons.HOME, down_duration=0.1, up_duration=0.05)
@@ -67,16 +73,17 @@ MACROS = {}
 
 class Macro:
 
-    def __init__(self, name: str = None, inputs=None):
+    def __init__(self, inputs=None, *_, name: str = None, force=False):
         self.name = name
+        self.original_str = None
         if inputs is not None:
-            self.parse_inputs(inputs)
+            self.parse_inputs(inputs, force)
 
-    def parse_inputs(self, inputs):
+    def parse_inputs(self, inputs, force=False):
         self.clear()
-        force = False
 
         if isinstance(inputs, str):
+            self.original_str = inputs
             if inputs.startswith("$"):
                 lines = inputs.split("\n")
                 if len(lines) > 1:
@@ -107,10 +114,10 @@ class Macro:
                     down_duration = 1.0
                 line, matched = detect_and_remove(line, "tap")
                 if matched:
-                    down_duration = 0.07
-                    up_duration = 0.07
+                    down_duration = 0.05
+                    up_duration = 0.02
 
-                for macro, _input in MACROS.items():
+                for macro, _input in sorted(MACROS.items(), key=lambda x: -len(x[0])):
                     line, matched = detect_and_remove(line, macro)
                     if matched:
                         self.input_list.append(_input)
@@ -133,6 +140,14 @@ class Macro:
             if force or self.name.lower() not in MACROS.keys():
                 MACROS[self.name.lower()] = self
 
+    def redefine(self):
+        if self.original_str is not None:
+            self.parse_inputs(self.original_str, force=True)
+
+    def get(self):
+        if getattr(self, "original_str", None) is not None:
+            return self.original_str
+
     def clear(self):
         self.input_list = list()
 
@@ -146,9 +161,8 @@ class Macro:
 
 
 MACROS["wait"] = Input(None, down_duration=1, up_duration=0)
-zoom = Macro("zoom", "tap home\ntap home")
+zoom = Macro("tap home\ntap home", name="zoom")
 cleanup = Macro(
-    "cleanup",
     [
         Input(nxbt.Buttons.HOME, up_duration=1.0),
         nxbt.Buttons.DPAD_DOWN,
@@ -161,6 +175,7 @@ cleanup = Macro(
         Input(nxbt.Buttons.A, up_duration=1.5),
         Input(nxbt.Buttons.A, up_duration=0, block=False),
     ],
+    name="cleanup",
 )
 
 

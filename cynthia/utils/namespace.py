@@ -57,7 +57,8 @@ class Namespace:
         elif attr in self.__dict__:
             return super().__getattribute__(attr)
         if attr not in self._nspace_dict.keys():
-            raise KeyError()
+            print(f"Namespace key `{attr}` not found.")
+            raise KeyError(f"Specified key `{attr}` not found in namespace.")
         return self._nspace_dict[attr]
 
     def get(self, attr, default):
@@ -86,6 +87,9 @@ class Namespace:
         self._nspace_dict[key] = value
 
     def __getitem__(self, key):
+        if key not in self._nspace_dict:
+            print(f"Namespace key `{key}` not found.")
+            raise KeyError("Specified key `{key}` not found in namespace.")
         return self._nspace_dict[key]
 
     def __contains__(self, key):

@@ -9,3 +9,5 @@ build
 */.mypy_cache
 cynthia/dist/
 config.yaml
+config.yaml.bak
+message.log.gz

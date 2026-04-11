@@ -1,3 +1,5 @@
+from cynthia.utils.namespace import Namespace
+
 SHIFT_PAIRS = [
     ("!", "1"),
     ("@", "2"),
@@ -22,6 +24,19 @@ SHIFT_PAIRS = [
     ("?", "/"),
 ]
 
+ANSI_COLORS = Namespace(
+    {
+        "BLACK": "\033[30m",
+        "RED": "\033[31m",
+        "GREEN": "\033[32m",
+        "YELLOW": "\033[33m",
+        "BLUE": "\033[34m",
+        "MAGENTA": "\033[35m",
+        "CYAN": "\033[36m",
+        "WHITE": "\033[37m",
+    }
+)
+
 
 def unshift(string: str, exclude=None):
     string = string.lower()
@@ -42,3 +57,9 @@ def shift(string: str):
     for shifted, unshifted in SHIFT_PAIRS:
         string = string.replace(unshifted, shifted)
     return string
+
+
+def color_str(string: str, color_code: str):
+    if color_code.upper() not in ANSI_COLORS.keys():
+        return string
+    return f"{ANSI_COLORS[color_code.upper()]}{string}\033[0m"

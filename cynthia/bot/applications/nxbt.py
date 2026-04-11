@@ -2,7 +2,7 @@ import discord
 from discord import app_commands
 from cynthia.utils.auth import nxbt_permission, privileged_only
 from cynthia.utils.nxbt_utils import CHAR_MAP, MACROS, Macro, Input
-from ..onmessage import OnMessage
+from cynthia.utils.onmessage import OnMessage, ONMESSAGE
 import asyncio
 import nxbt
 
@@ -39,19 +39,30 @@ async def connect(interaction: discord.Interaction):
         return
     await interaction.followup.send("Connected to Nintendo Switch!")
 
-    await Macro(None, [Input(nxbt.Buttons.A, up_duration=1.0), nxbt.Buttons.B]).play(
-        nx, controller
-    )
+    await Macro(
+        [Input(nxbt.Buttons.A, up_duration=1.0), nxbt.Buttons.B, nxbt.Buttons.HOME]
+    ).play(nx, controller)
 
     async def cleanup(client):
         print("Nxbt cleanup")
         nx = getattr(client, "nxbt", None)
         controller = getattr(client, "nxbt_controller", None)
+        if nx is None or controller is None:
+            print("Skipping nxbt cleanup due to no controller")
+            return
+            self.action = action
         try:
+            print("Playing cleanup macro")
             await asyncio.wait_for(MACROS["cleanup"].play(nx, controller), timeout=15)
         except TimeoutError:
-            pass
-        # nx.remove_controller(controller)
+            print("Cleanup macro timed out.")
+        await asyncio.sleep(1)
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(nx.remove_controller, controller), timeout=10
+            )
+        except TimeoutError:
+            print("Removing controller timed out.")
         print("Controller removed")
         client.nxbt_controller = None
         client.nxbt = None
@@ -70,9 +81,18 @@ async def disconnect(interaction: discord.Interaction):
         interaction.followup.send("Done.")
         return
 
-    await interaction.client.onexit["nxbt"](interaction.client)
+    cleanup = getattr(interaction.client.onexit, "nxbt", None)
+    if cleanup is not None:
+        await interaction.client.onexit["nxbt"](interaction.client)
+    print("Setting onexit None")
     interaction.client.onexit["nxbt"] = None
+    print("delling onexit")
     del interaction.client.onexit["nxbt"]
+
+    controller = getattr(interaction.client, "nxbt_controller", None)
+    if controller is not None:
+        nx.remove_controller(controller)
+        del interaction.client.nxbt_controller
 
     await interaction.followup.send("Disconnected from Nintendo Switch.")
 
@@ -134,22 +154,17 @@ async def use_channel_as_input(interaction: discord.Interaction):
         )
         return
 
-    def condition(message: discord.Message):
-        return (
-            interaction.channel_id == interaction.channel_id
-            and message.guild_id == interaction.guild_id
-        )
-
     async def action(client, message):
         nx = getattr(client, "nxbt", None)
         controller = getattr(client, "nxbt_controller", None)
 
-        content = message.content
-        macro = Macro(None, message.content)
+        if nx is None or controller is None:
+            return
+
+        macro = Macro(message.content)
         await macro.play(nx, controller)
 
-    interaction.client.onmessage["nxbt_input"] = OnMessage(
-        interaction.client,
+    ONMESSAGE["nxbt_input"] = OnMessage(
         action=action,
         channel=interaction.channel_id,
         guild=interaction.guild_id,
@@ -164,9 +179,52 @@ async def use_channel_as_input(interaction: discord.Interaction):
 @privileged_only()
 async def stop_using_channel_as_input(interaction: discord.Interaction):
     await interaction.response.defer(thinking=False, ephemeral=True)
-    if "nxbt_input" in interaction.client.onmessage:
-        del interaction.client.onmessage["nxbt_input"]
+    if "nxbt_input" in ONMESSAGE:
+        del ONMESSAGE["nxbt_input"]
     await interaction.followup.send("Stopped accepting channel input.")
+
+
+@app_commands.command()
+@privileged_only()
+async def redefine(interaction: discord.Interaction, name: str):
+    await interaction.response.defer(thinking=False, ephemeral=True)
+    macro = MACROS.get(name.lower(), None)
+    if macro is None:
+        await interaction.followup.send(f"No macro found with name '{name}'.")
+        return
+    macro.redefine()
+    await interaction.followup.send(f"Macro '{name}' redefined.")
+
+
+@app_commands.context_menu(name="Define Macro")
+@privileged_only()
+async def define_macro(interaction: discord.Interaction, message: discord.Message):
+    await interaction.response.defer(thinking=False, ephemeral=True)
+    content = message.content
+    macro = Macro(content, force=True)
+    if macro.name is None:
+        await interaction.followup.send(
+            "No macro name detected. Please include a name in the macro definition."
+        )
+        return
+    await interaction.followup.send(f"Macro '{macro.name}' defined.")
+
+
+@app_commands.command()
+@privileged_only()
+async def get_macro(interaction: discord.Interaction, macro: str):
+    await interaction.response.defer()
+    macro_obj = MACROS.get(macro.lower(), None)
+    if macro_obj is None:
+        await interaction.followup.send(f"No macro found with name '{macro}'.")
+        return
+    macro_str = macro_obj.get()
+    if macro_str is None:
+        await interaction.followup.send(
+            f"Macro '{macro}' has no original string representation."
+        )
+        return
+    await interaction.followup.send(f"```{macro_str}```")
 
 
 __application__ = (
@@ -175,4 +233,7 @@ __application__ = (
     switch,
     use_channel_as_input,
     stop_using_channel_as_input,
+    redefine,
+    define_macro,
+    get_macro,
 )

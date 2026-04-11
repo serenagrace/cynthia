@@ -5,6 +5,13 @@ from pathlib import Path
 from .messenger import Messenger
 from .applications import CommandTree
 from cynthia.utils.nxbt_utils import load_macros, save_macros
+from cynthia.utils.logger import Logger
+from cynthia.utils.onmessage import load_onmessage, save_onmessage, ONMESSAGE
+from cynthia.utils.strings import color_str
+import logging
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 
 class Bot(discord.Client):
@@ -16,7 +23,6 @@ class Bot(discord.Client):
         if onexit is not None:
             self.onexit["user"] = onexit
 
-        self.onmessage = {}
         self.owner = self.config.owner
         self.kill_reason = None
         self.verify = lambda code: False
@@ -28,47 +34,33 @@ class Bot(discord.Client):
         )
         self.logging_enabled = False
         self.tree = CommandTree(self)
-        if self.config.drive_path is not None:
-            log_path = Path(self.config.drive_path) / "message.log.gz"
-            if log_path.parent.exists():
-                with gzip.open(log_path, "at", encoding="utf-8") as f:
-                    f.write(f"! Logging started at {self.app_meta.run_timestamp}\n")
-
-                self.log_path = log_path
-                self.logging_enabled = True
-
-                async def log_stop(*args, **kwargs):
-                    self.log_write(
-                        f"! Logging stopped at {self.app_meta.run_timestamp}\n"
-                    )
-
-                self.onexit["logging"] = log_stop
+        drive_path = getattr(self.config, "drive_path", None)
+        if drive_path is not None:
+            drive_path = Path(drive_path)
+        self.logger = Logger(drive_path)
+        if self.logger.logging_enabled:
+            self.onexit["logging"] = self.logger.log_stop
 
             load_macros(Path(self.config.drive_path))
+            load_onmessage(Path(self.config.drive_path))
 
-            async def macro_cleanup(client):
-                save_macros(Path(client.config.drive_path))
+            async def macro_cleanup(*_):
+                save_macros(drive_path)
+
+            async def onmessage_cleanup(*_):
+                save_onmessage(drive_path)
 
             self.onexit["macros"] = macro_cleanup
-
-    def log_write(self, entry):
-        if not self.logging_enabled:
-            return
-        with gzip.open(self.log_path, "at", encoding="utf-8") as f:
-            f.write(entry)
-
-    def log_message(self, message):
-        log_entry = "{message.created_at}:{message.channel}:{message.author}:{message.jump_url}:{message.content}\n"
-        self.log_write(log_entry)
+            self.onexit["onmessage"] = onmessage_cleanup
 
     async def reload_tree(self, interaction=None):
-        print("Fetching command modules...")
+        logger.info("Fetching command modules...")
         n = 0
         n = self.tree.load_commands()
         if n:
-            print(f"Loading {n} commands...")
+            logger.info(f"Loading {n} commands...")
             await self.tree.sync()
-            print("Done.")
+            logger.info("Done.")
         embed = discord.Embed(
             title="Cynthia Online.",
             url="https://github.com/serenagrace/cynthia",
@@ -87,8 +79,8 @@ class Bot(discord.Client):
             await interaction.followup.send(embed=embed)
         else:
             await self.messenger.msg_owner(embed)
-        print("Loaded commands:")
-        print(
+        logger.info("Loaded commands:")
+        logger.debug(
             "\n".join(
                 f" - {command.name}" for command in await self.tree.fetch_commands()
             )
@@ -96,13 +88,15 @@ class Bot(discord.Client):
 
     async def on_ready(self):
         await self.reload_tree()
+        logger.info(color_str("Ready.", "yellow"))
 
     async def on_message(self, message):
         if message.author.id == self.user.id:
             return
 
-        for unit in self.onmessage.values():
-            await unit(message)
+        for key, unit in ONMESSAGE.items():
+            logger.debug(f"Running onmessage unit: {key}")
+            await unit.call(self, message)
 
         if message.author.id not in self.config.privileged_users:
             return
@@ -112,7 +106,6 @@ class Bot(discord.Client):
         raise ExceptionType()
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        print("__aexit__")
         if exc_type is not None:
             if self.kill_reason is not None:
                 if not isinstance(self.kill_reason, list):
@@ -129,7 +122,7 @@ class Bot(discord.Client):
                 try:
                     await asyncio.wait_for(func(self), timeout=30)
                 except TimeoutError:
-                    print("Warning: cleanup task timed out.")
+                    logger.warn("Warning: cleanup task timed out.")
             if not self.is_closed():
                 try:
                     await self.messenger.msg_owner("Cleanup complete.")
