@@ -11,3 +11,4 @@ cynthia/dist/
 config.yaml
 config.yaml.bak
 message.log.gz
+dist/
