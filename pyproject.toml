@@ -3,15 +3,20 @@ requires = ["setuptools >= 77.0.3"]
 build-backend = "setuptools.build_meta"
 [project]
 name="cynthia"
-version="0.0.0"
+version="1.0.0"
+requires-python="==3.14.11"
 dependencies = [
     "about-time==4.2.1",
     "cynthia",
     "discord-py",
     "grapheme==0.6.0",
+    "nxbt",
+    "opencv-python",
     "python-dotenv==1.1.0",
     "pyyaml==6.0.2",
     "pyotp",
+    "rapidfuzz",
+    "requests",
     "roku"
 ]
 
