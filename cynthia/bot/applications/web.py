@@ -15,7 +15,7 @@ logger.setLevel(logging.DEBUG)
 
 def format_text(string, upgraded=False):
     string = re.sub(
-        r"\[(?P<a>[^\|]+)\|(?P<b>[^\]]+)\]",
+        r"\[(?P<a>[^\|]*)\|(?P<b>[^\]]*)\]",
         r"\g<b>" if upgraded else r"\g<a>",
         string,
         flags=re.MULTILINE,
