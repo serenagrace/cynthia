@@ -11,17 +11,17 @@ class PokemonDB:
         with open(csv_path, newline="", encoding="utf-8") as csvfile:
             reader = csv.DictReader(csvfile)
             for row in reader:
-                name = row["Pokemon"]
+                name = row["Pokemon"].lower()
                 self.pokemon_data[name] = Namespace(row)
 
     def apps(self):
         @app_commands.command()
         async def pokemon(interaction: discord.Interaction, species: str):
             species = species.replace("_", " ")
-            if species not in self.pokemon_data:
+            if species.lower() not in self.pokemon_data:
                 await interaction.response.send_message("Invalid species.")
                 return
-            pokemon_info = self.pokemon_data[species]
+            pokemon_info = self.pokemon_data[species.lower()]
             embed = discord.Embed(
                 title=pokemon_info.Pokemon, description=pokemon_info.Species
             )
@@ -35,10 +35,10 @@ class PokemonDB:
         @app_commands.command()
         async def ev(interaction: discord.Interaction, species: str):
             species = species.replace("_", " ")
-            if species not in self.pokemon_data:
+            if species.lower() not in self.pokemon_data:
                 await interaction.response.send_message("Invalid species.")
                 return
-            pokemon_info = self.pokemon_data[species]
+            pokemon_info = self.pokemon_data[species.lower()]
             await interaction.response.send_message(
                 f"**{pokemon_info.Pokemon}** yields {pokemon_info.EV_Yield}"
             )
@@ -48,11 +48,13 @@ class PokemonDB:
         async def pokemon_autocomplete(interaction: discord.Interaction, current: str):
             current = current.replace("_", " ")
             choices = [
-                app_commands.Choice(name=species, value=species)
+                app_commands.Choice(
+                    name=self.pokemon_data[species].Pokemon, value=species
+                )
                 for species in self.pokemon_data.keys()
-                if current.lower() in species.lower()
+                if current.lower() in species
             ]
-            return choices[:25]
+            return choices[:10]
 
         return (pokemon, ev)
 

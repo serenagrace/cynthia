@@ -30,6 +30,18 @@ def nxbt_permission():
     return app_commands.check(predicate)
 
 
+def nxbt_connected():
+    async def predicate(interaction: discord.Interaction) -> bool:
+        nx = getattr(interaction.client, "nxbt", None)
+        controller = getattr(interaction.client, "nxbt_controller", None)
+        if nx is not None and controller is not None:
+            if nx.state[controller]["state"] == "connected":
+                return True
+        return False
+
+    return app_commands.check(predicate)
+
+
 def drive_permission():
     async def predicate(interaction: discord.Interaction) -> bool:
         if interaction.user.id in interaction.client.config.drive_users:

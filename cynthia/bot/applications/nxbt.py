@@ -1,6 +1,6 @@
 import discord
 from discord import app_commands
-from cynthia.utils.auth import nxbt_permission, privileged_only
+from cynthia.utils.auth import nxbt_permission, privileged_only, nxbt_connected
 from cynthia.utils.nxbt_utils import CHAR_MAP, MACROS, Macro, Input
 from cynthia.utils.onmessage import OnMessage, ONMESSAGE
 import asyncio
@@ -99,6 +99,7 @@ async def disconnect(interaction: discord.Interaction):
 
 @app_commands.command()
 @nxbt_permission()
+@nxbt_connected()
 @app_commands.choices(
     action=[
         app_commands.Choice(name="A", value="A"),
@@ -154,20 +155,11 @@ async def use_channel_as_input(interaction: discord.Interaction):
         )
         return
 
-    async def action(client, message):
-        nx = getattr(client, "nxbt", None)
-        controller = getattr(client, "nxbt_controller", None)
-
-        if nx is None or controller is None:
-            return
-
-        macro = Macro(message.content)
-        await macro.play(nx, controller)
-
-    ONMESSAGE["nxbt_input"] = OnMessage(
-        action=action,
-        channel=interaction.channel_id,
-        guild=interaction.guild_id,
+    ONMESSAGE[f"nxbt_{interaction.guild_id}_{interaction.channel_id}"] = OnMessage(
+        type="nxbt",
+        action_type="nxbt",
+        channel=interaction.channel,
+        guild=interaction.guild,
     )
 
     await interaction.followup.send(
@@ -175,29 +167,37 @@ async def use_channel_as_input(interaction: discord.Interaction):
     )
 
 
+# TODO: make channel/guild optional arguments
 @app_commands.command()
 @privileged_only()
 async def stop_using_channel_as_input(interaction: discord.Interaction):
     await interaction.response.defer(thinking=False, ephemeral=True)
-    if "nxbt_input" in ONMESSAGE:
-        del ONMESSAGE["nxbt_input"]
+    onmessage_key = f"nxbt_{interaction.guild_id}_{interaction.channel_id}"
+    if onmessage_key in ONMESSAGE:
+        del ONMESSAGE[onmessage_key]
     await interaction.followup.send("Stopped accepting channel input.")
 
 
 @app_commands.command()
 @privileged_only()
-async def redefine(interaction: discord.Interaction, name: str):
+async def redefine(interaction: discord.Interaction, macro: str):
     await interaction.response.defer(thinking=False, ephemeral=True)
-    macro = MACROS.get(name.lower(), None)
-    if macro is None:
-        await interaction.followup.send(f"No macro found with name '{name}'.")
+    macro_obj = MACROS.get(macro.lower(), None)
+    if macro_obj is None:
+        await interaction.followup.send(f"No macro found with name '{macro}'.")
         return
-    macro.redefine()
-    await interaction.followup.send(f"Macro '{name}' redefined.")
+    macro_str = macro_obj.get()
+    if macro_str is None:
+        await interaction.followup.send(
+            f"Macro '{macro}' has no original string representation."
+        )
+        return
+    macro_obj.redefine()
+    await interaction.followup.send(f"Macro '{macro}' redefined.")
 
 
 @app_commands.context_menu(name="Define Macro")
-@privileged_only()
+@nxbt_permission()
 async def define_macro(interaction: discord.Interaction, message: discord.Message):
     await interaction.response.defer(thinking=False, ephemeral=True)
     content = message.content
@@ -210,8 +210,26 @@ async def define_macro(interaction: discord.Interaction, message: discord.Messag
     await interaction.followup.send(f"Macro '{macro.name}' defined.")
 
 
+@app_commands.context_menu(name="Play Macro")
+@nxbt_permission()
+@nxbt_connected()
+async def play_macro(interaction: discord.Interaction, message: discord.Message):
+    await interaction.response.defer(thinking=False, ephemeral=True)
+    content = message.content
+    macro = Macro(content)
+    nx = getattr(interaction.client, "nxbt", None)
+    controller = getattr(interaction.client, "nxbt_controller", None)
+    if nx is None or controller is None:
+        await interaction.followup.send(
+            "Not connected to Nintendo Switch. Use /connect to connect."
+        )
+        return
+    await macro.play(nx, controller)
+    await interaction.followup.send("Macro played.")
+
+
 @app_commands.command()
-@privileged_only()
+@nxbt_permission()
 async def get_macro(interaction: discord.Interaction, macro: str):
     await interaction.response.defer()
     macro_obj = MACROS.get(macro.lower(), None)
@@ -227,6 +245,32 @@ async def get_macro(interaction: discord.Interaction, macro: str):
     await interaction.followup.send(f"```{macro_str}```")
 
 
+@app_commands.command()
+@nxbt_permission()
+async def show(interaction: discord.Interaction):
+    await interaction.response.defer()
+
+    uvc = getattr(interaction.client, "uvc", None)
+    if uvc is not None:
+        png = await uvc.read_frame()
+        if png is not None:
+            await interaction.followup.send(file=png)
+            return
+
+    await interaction.followup.send("Failed to read frame from UVC device.")
+
+
+@redefine.autocomplete("macro")
+@get_macro.autocomplete("macro")
+async def macro_autocomplete(interaction: discord.Interaction, current: str):
+    choices = [
+        app_commands.Choice(name=macro_name, value=macro_name)
+        for macro_name in MACROS.keys()
+        if current.lower() in macro_name
+    ]
+    return choices[:10]
+
+
 __application__ = (
     connect,
     disconnect,
@@ -236,4 +280,6 @@ __application__ = (
     redefine,
     define_macro,
     get_macro,
+    play_macro,
+    show,
 )

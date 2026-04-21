@@ -21,7 +21,7 @@ async def shutdown(interaction: discord.Interaction):
 @privileged_only()
 async def restart(interaction: discord.Interaction):
     await interaction.response.send_message("Restarting...")
-    save_onmessage(Path(interaction.client.config.drive_path))
+    save_onmessage(interaction.client.database)
     try:
         raise ExitCynthia("Restart")
     except ExitCynthia as e:
@@ -50,12 +50,12 @@ async def log_channel(interaction: discord.Interaction):
             "This command can only be used in a guild channel."
         )
         return
-    key = f"log_channel_{interaction.channel_id}_{interaction.guild_id}"
+    key = f"log_{interaction.guild_id}_{interaction.channel_id}"
     if key not in ONMESSAGE:
         ONMESSAGE[key] = OnMessage(
             getattr(interaction.client, "logger", None),
-            channel=interaction.channel_id,
-            guild=interaction.guild_id,
+            channel=interaction.channel,
+            guild=interaction.guild,
         )
         await interaction.followup.send(
             "This channel is now set as a log channel. All messages sent here will be logged."
@@ -70,7 +70,7 @@ async def log_channel(interaction: discord.Interaction):
 @privileged_only()
 async def stop_log_channel(interaction: discord.Interaction):
     await interaction.response.defer(thinking=True, ephemeral=True)
-    key = f"log_channel_{interaction.channel_id}_{interaction.guild_id}"
+    key = f"log_{interaction.guild_id}_{interaction.channel_id}"
     if key in ONMESSAGE:
         del ONMESSAGE[key]
         await interaction.followup.send(
@@ -88,8 +88,8 @@ async def get_log_channels(interaction: discord.Interaction):
     logged_guilds = 0
     logged_channels = 0
     for key in ONMESSAGE.keys():
-        if key.startswith("log_channel_"):
-            channel_id, guild_id = key.split("_")[2:]
+        if key.startswith("log_"):
+            guild_id, channel_id = key.split("_")[1:]
             if int(guild_id) in log_channels.keys():
                 log_channels[int(guild_id)].append(int(channel_id))
                 logged_channels += 1

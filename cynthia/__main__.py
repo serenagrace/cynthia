@@ -2,7 +2,6 @@ from .context import Context
 from .bot import Bot
 from .exceptions import *
 from .utils.auth import verify_factory
-from .utils.db import Database
 import logging
 
 import sys
@@ -16,8 +15,6 @@ logging.getLogger("nxbt").setLevel(logging.INFO)
 def main():
 
     _context = Context("config.yaml")
-
-    db = Database(_context.config.drive_path)
 
     bot = Bot(_context)
     if _context.env.DISCORD_BOT_TOKEN is None:

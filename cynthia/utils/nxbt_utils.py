@@ -1,11 +1,10 @@
 import nxbt
 import asyncio
 import pickle
-from pathlib import Path
 
 from cynthia.utils.strings import shift, unshift
 
-PICKLE_PATH = Path("macros.pkl")
+PICKLE_PATH = "macros.pkl"
 
 CHAR_MAP = {
     "a": nxbt.Buttons.A,
@@ -115,7 +114,7 @@ class Macro:
                 line, matched = detect_and_remove(line, "tap")
                 if matched:
                     down_duration = 0.05
-                    up_duration = 0.02
+                    up_duration = 0
 
                 for macro, _input in sorted(MACROS.items(), key=lambda x: -len(x[0])):
                     line, matched = detect_and_remove(line, macro)
@@ -179,18 +178,16 @@ cleanup = Macro(
 )
 
 
-def load_macros(drive_path):
-    pickle_path = drive_path / PICKLE_PATH
-    if pickle_path.exists() and pickle_path.is_file():
-        with open(pickle_path, "rb") as f:
+def load_macros(drive):
+    if drive.enabled and drive.exists(PICKLE_PATH, is_file=True):
+        with drive.open(PICKLE_PATH, "rb") as f:
             _macros = pickle.load(f)
             for key, value in _macros.items():
                 if key not in MACROS.keys():
                     MACROS[key] = value
 
 
-def save_macros(drive_path):
-    if drive_path.exists() and drive_path.is_dir():
-        pickle_path = drive_path / PICKLE_PATH
-        with open(pickle_path, "wb") as f:
+def save_macros(drive):
+    if drive.enabled:
+        with drive.open(PICKLE_PATH, "wb") as f:
             pickle.dump(MACROS, f)
