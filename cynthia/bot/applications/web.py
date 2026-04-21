@@ -175,9 +175,11 @@ class Compendium:
                         self.message = None
 
                     async def on_timeout(self):
-                        _embed = self.message.embeds[0]
                         if self.message:
-                            await self.message.edit(embed=_embed, view=None)
+                            try:
+                               await self.message.edit(embed=_embed, view=None)
+                            except discord.HTTPException:
+                                pass
 
                     @discord.ui.button(
                         label="Smith", emoji="🔨", style=discord.ButtonStyle.gray
@@ -203,17 +205,18 @@ class Compendium:
                             )
                             _embed.description = format_text(self.card_info["Text"])
 
-                        self.message = await interaction.response.edit_message(
+                        await interaction.response.edit_message(
                             embed=_embed,
                             view=self,
                         )
+                        self.message = await interaction.original_response()
 
                 view = SmithView(self, card_info)
                 message = await interaction.response.send_message(
                     embed=embed,
                     view=view,
                 )
-                view.message = message
+                view.message = await interaction.original_response()
 
             elif query in self.relic_data.keys():
                 relic_info = self.relic_data[query]
@@ -244,7 +247,7 @@ class Compendium:
             ]
             return choices[:10]
 
-        return compendium
+        return compendium, compendium_reload
 
 
 __application__ = Compendium
