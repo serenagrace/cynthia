@@ -1,8 +1,3 @@
-CyNTHIA Discord Assistant
+CINTH+IA Discord Assistant
 =========================
-Cynosure
-Network
-Terminal
-Home
-Interface
-Assistant
+Customizable Internal Network Task Handler + Interactive Assistant
