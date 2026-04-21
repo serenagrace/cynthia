@@ -177,7 +177,8 @@ class Compendium:
                     async def on_timeout(self):
                         if self.message:
                             try:
-                               await self.message.edit(embed=_embed, view=None)
+                                _embed = self.message.embeds[0]
+                                await self.message.edit(embed=_embed, view=None)
                             except discord.HTTPException:
                                 pass
 
