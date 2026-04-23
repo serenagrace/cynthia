@@ -2,6 +2,7 @@ import discord
 from discord import app_commands
 from rapidfuzz import process
 from cynthia.utils.namespace import Namespace
+from datetime import datetime
 import logging
 import requests
 import re
@@ -101,7 +102,15 @@ class Compendium:
 
                 card_data = re.sub(r",\n\s*}", "\n}", card_data, flags=re.MULTILINE)
 
-                self.card_data |= json.loads(card_data)
+                for key, value in json.loads(card_data):
+                    testdict = self.card_data[key]
+                    testdict["updatetime"] = None
+                    del testdict["updatetime"]
+                    if self.card_data[key] != value:
+                        self.card_data[key] = value
+                        self.card_data[key][
+                            "updatetime"
+                        ] = datetime.now.astimezone().strftime()
 
         if self.drive.enabled:
             with self.drive.open("card_data.json", "w") as f:
@@ -137,7 +146,15 @@ class Compendium:
 
             relic_data = re.sub(r",\n\s*}", "\n}", relic_data, flags=re.MULTILINE)
 
-            self.relic_data |= json.loads(relic_data)
+            for key, value in json.loads(card_data):
+                testdict = self.relic_data[key]
+                testdict["updatetime"] = None
+                del testdict["updatetime"]
+                if self.relic_data[key] != value:
+                    self.relic_data[key] = value
+                    self.relic_data[key][
+                        "updatetime"
+                    ] = datetime.now.astimezone().strftime()
 
         if self.drive.enabled:
             with self.drive.open("relic_data.json", "w") as f:
@@ -163,7 +180,9 @@ class Compendium:
                     description=format_text(card_info["Text"]),
                     colour=self.COLORS[card_info["Color"]],
                 )
-                embed.set_footer(text=f"{card_info['Rarity']} {card_info['Type']}")
+                embed.set_footer(
+                    text=f"{card_info['Rarity']} {card_info['Type']} (Updated: {card_info['updatetime']})"
+                )
                 embed.set_image(url=self.img_url + card_info["Image"])
 
                 class SmithView(discord.ui.View):
@@ -231,7 +250,9 @@ class Compendium:
                     colour=self.COLORS[relic_info.get("Character", "Colorless")],
                 )
                 embed.set_thumbnail(url=self.img_url + relic_info["Image"])
-                embed.set_footer(text=f"{relic_info['Rarity']} Relic")
+                embed.set_footer(
+                    text=f"{relic_info['Rarity']} Relic (Updated: {relic_info['updatetime']})"
+                )
                 await interaction.response.send_message(embed=embed)
             else:
                 await interaction.response.send_message(
