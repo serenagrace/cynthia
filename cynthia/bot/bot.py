@@ -3,7 +3,7 @@ import discord
 import gzip
 from pathlib import Path
 from .messenger import Messenger
-from .applications import CommandTree
+from .applications import CommandTree, TreeLoadException
 from cynthia.utils.db import Database
 from cynthia.utils.drive import Drive
 from cynthia.utils.logger import Logger
@@ -64,9 +64,11 @@ class Bot(discord.Client):
     async def reload_tree(self, interaction=None):
         _logger.info("Fetching command modules...")
         n = 0
-        n = self.tree.load_commands()
+        n, errors = self.tree.load_commands()
         if n:
             _logger.info(f"Loading {n} commands...")
+            for error in errors:
+                _logger.error(error)
             await self.tree.sync()
             _logger.info("Done.")
         embed = discord.Embed(
@@ -81,12 +83,19 @@ class Bot(discord.Client):
         if n:
             embed.add_field(
                 name="Loaded Commands:",
-                value=f"{n} from ({len(self.tree.loaded_modules)}/{len(self.tree.modules)}) modules",
+                value=f"{n} from {'⚠️' if len(self.tree.loaded_modules) != len(self.tree.modules) else ''}({len(self.tree.loaded_modules)}/{len(self.tree.modules)}) modules",
+            )
+        if len(errors):
+            embed.add_field(
+                name="Errors:",
+                value="-"
+                + "\n-".join(errors[:3])
+                + ("\n..." if len(errors > 2) else ""),
             )
         if interaction is not None:
             await interaction.followup.send(embed=embed)
         else:
-            await self.messenger.msg_owner(embed)
+            await self.messenger.msg_owner(embed, alert=True)
         _logger.info("Loaded commands.")
         _logger.debug(
             "\n"

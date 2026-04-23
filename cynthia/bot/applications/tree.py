@@ -3,6 +3,11 @@ import importlib
 from pathlib import Path
 
 
+class TreeLoadError(Exception):
+    def __init__(self, message):
+        super().__init__(message)
+
+
 class CommandTree(discord.app_commands.CommandTree):
 
     def __init__(self, client):
@@ -18,11 +23,12 @@ class CommandTree(discord.app_commands.CommandTree):
             for module in Path(__file__).parent.glob("*.py")
             if module.stem != "__init__" and module.stem != "tree"
         ]
-        print(
+        logger.debug(
             f"{len(self.modules)} command modules found in {self.application_directory}."
         )
+        errors = []
         for module in self.modules:
-            print(f"Loading applications from module: {module} ...", end="")
+            logger.debug(f"Loading applications from module: {module} ...")
             application = None
             try:
                 if module in self.__previously_loaded_modules:
@@ -34,8 +40,12 @@ class CommandTree(discord.app_commands.CommandTree):
                         "." + module, "cynthia.bot.applications"
                     ).__application__
             except (ImportError, FileNotFoundError, ValueError, KeyError) as e:
-                print(f" ERR.\n\tFailed to load application from module: {module}")
-                print(f"\tError: {e}")
+                error = (
+                    f" ERR.\n\tFailed to load application from module: {module}\n"
+                    + f"\tError: {e}"
+                )
+                logger.error(error)
+                errors += error
             if application is not None:
                 if hasattr(application, "apps"):
                     _application = application(self.client)
@@ -48,10 +58,10 @@ class CommandTree(discord.app_commands.CommandTree):
                 else:
                     self.add_command(application)
                     self.__loaded_commands.append(f"{module}.{command.name}")
-                print("Done")
+                logger.debug("Done")
             else:
-                print(f" ERR.\n\tNo application found in module: {module}")
-        return len(self.get_commands())
+                logger.error(f" ERR.\n\tNo application found in module: {module}")
+        return len(self.get_commands()), errors
 
     def clear_commands(self):
         self.__previously_loaded_modules = getattr(self, "__loaded_modules", list())
