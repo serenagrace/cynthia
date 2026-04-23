@@ -1,1 +1,1 @@
-from .tree import CommandTree
+from .tree import CommandTree, TreeLoadError

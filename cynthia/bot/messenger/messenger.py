@@ -8,7 +8,7 @@ class Messenger:
 
     async def msg_owner(self, msg, *, silent=False, alert=False):
         user_owner = await self.bot.fetch_user(self.bot.config.owner)
-        await self.send_msg(user_owner, msg, silent, alert)
+        await self.send_msg(user_owner, msg, silent=silent, alert=alert)
 
     async def send_msg(self, send_context, msg, *, silent=False, alert=False):
         if isinstance(msg, discord.Embed):
