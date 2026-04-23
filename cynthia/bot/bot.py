@@ -3,7 +3,7 @@ import discord
 import gzip
 from pathlib import Path
 from .messenger import Messenger
-from .applications import CommandTree, TreeLoadException
+from .applications import CommandTree, TreeLoadError
 from cynthia.utils.db import Database
 from cynthia.utils.drive import Drive
 from cynthia.utils.logger import Logger

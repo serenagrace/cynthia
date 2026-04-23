@@ -102,15 +102,15 @@ class Compendium:
 
                 card_data = re.sub(r",\n\s*}", "\n}", card_data, flags=re.MULTILINE)
 
-                for key, value in json.loads(card_data):
-                    testdict = self.card_data[key]
+                for key, value in json.loads(card_data).items():
+                    testdict = self.card_data.get(key, dict())
                     testdict["updatetime"] = None
                     del testdict["updatetime"]
-                    if self.card_data[key] != value:
+                    if testdict != value:
                         self.card_data[key] = value
-                        self.card_data[key][
-                            "updatetime"
-                        ] = datetime.now.astimezone().strftime()
+                        self.card_data[key]["updatetime"] = (
+                            datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
+                        )
 
         if self.drive.enabled:
             with self.drive.open("card_data.json", "w") as f:
@@ -146,15 +146,15 @@ class Compendium:
 
             relic_data = re.sub(r",\n\s*}", "\n}", relic_data, flags=re.MULTILINE)
 
-            for key, value in json.loads(card_data):
-                testdict = self.relic_data[key]
+            for key, value in json.loads(relic_data).items():
+                testdict = self.relic_data.get(key, dict())
                 testdict["updatetime"] = None
                 del testdict["updatetime"]
-                if self.relic_data[key] != value:
+                if testdict != value:
                     self.relic_data[key] = value
-                    self.relic_data[key][
-                        "updatetime"
-                    ] = datetime.now.astimezone().strftime()
+                    self.relic_data[key]["updatetime"] = (
+                        datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
+                    )
 
         if self.drive.enabled:
             with self.drive.open("relic_data.json", "w") as f:
