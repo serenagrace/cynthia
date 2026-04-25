@@ -48,7 +48,7 @@ class Compendium:
             "Colorless",
         ]
     ]
-    relic_data_url = "https://slaythespire.wiki.gg/wiki/Module:Relics/data?action=raw"
+    relic_data_url = "https://slaythespire.wiki.gg/wiki/Module:Relics/StS2_data?action=raw"
 
     COLORS = Namespace(
         {
