@@ -2,8 +2,25 @@ UNSPECIFIED = object()
 
 from cynthia.utils.types import force_obj_is_list
 
+INFRA_MEMBERS = (
+    "_nspace_dict",
+    "__dict__",
+    "keys",
+    "items",
+    "values",
+    "get",
+    "set",
+    "dict",
+    "len",
+    "append",
+    "__setitem__",
+    "__getitem__",
+    "__contains__",
+)
+
 
 class Namespace:
+
     def __init__(self, _dict=None):
 
         if _dict is None:
@@ -16,20 +33,7 @@ class Namespace:
             self._nspace_dict[k] = v
 
     def __setattr__(self, attr, val):
-        if attr in (
-            "_nspace_dict",
-            "__dict__",
-            "keys",
-            "items",
-            "values",
-            "get",
-            "set",
-            "dict",
-            "append",
-            "__setitem__",
-            "__getitem__",
-            "__contains__",
-        ):
+        if attr in INFRA_MEMBERS:
             super().__setattr__(attr, val)
         elif attr in self.__dict__:
             raise KeyError(
@@ -39,20 +43,7 @@ class Namespace:
             self._nspace_dict[attr] = val
 
     def __getattribute__(self, attr):
-        if attr in (
-            "_nspace_dict",
-            "__dict__",
-            "keys",
-            "items",
-            "values",
-            "get",
-            "set",
-            "dict",
-            "append",
-            "__setitem__",
-            "__getitem__",
-            "__contains__",
-        ):
+        if attr in INFRA_MEMBERS:
             return super().__getattribute__(attr)
         elif attr in self.__dict__:
             return super().__getattribute__(attr)
@@ -94,3 +85,6 @@ class Namespace:
 
     def __contains__(self, key):
         return key in self._nspace_dict
+
+    def __len__(self):
+        return len(self._nspace_dict.keys())

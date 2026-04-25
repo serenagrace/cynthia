@@ -3,7 +3,7 @@ requires = ["setuptools >= 77.0.3"]
 build-backend = "setuptools.build_meta"
 [project]
 name="cynthia"
-version="1.0.2"
+version="1.1.0"
 requires-python="==3.14.11"
 dependencies = [
     "about-time==4.2.1",
@@ -26,3 +26,9 @@ cynthia="cynthia.__main__:main"
 [tool.setuptools]
 py-modules=["cynthia"]
 
+[tool.commitizen]
+name = "cz_conventional_commits"
+tag_format = "$version"
+version_scheme = "pep440"
+version_provider = "pep621"
+update_changelog_on_bump = true

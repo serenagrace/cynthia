@@ -4,6 +4,7 @@ import io
 import subprocess
 import logging
 import discord
+from .daemon import Daemon
 
 logger = logging.getLogger(__name__)
 
@@ -11,7 +12,7 @@ logger = logging.getLogger(__name__)
 ELGATO_USB_ID = "0fd9:009b"
 
 
-class UVC:
+class UVC(Daemon):
     def __init__(self):
         self.cap = None
 
@@ -39,7 +40,7 @@ class UVC:
 
         try:
             async with asyncio.timeout(5):
-                logging.debug("Attempting to read frame from UVC device.")
+                logger.debug("Attempting to read frame from UVC device.")
                 while not good_img:
                     self.cap.grab()  # Grab the latest frame to clear the buffer
                     ret, frame = self.cap.read()
