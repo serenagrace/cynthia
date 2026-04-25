@@ -1,9 +1,9 @@
 import logging
-from pathlib import path
+from pathlib import Path
 import importlib
 import multiprocessing
 
-from cynthia.daemon import Daemon
+from .daemon import Daemon
 from cynthia.utils.namespace import Namespace
 
 logger = logging.getLogger(__name__)
@@ -17,9 +17,11 @@ class DMan:
         self.__loaded_modules = list()
         self.__loaded_daemons = Namespace()
         self.__previously_loaded_modules = list()
+        self.load_daemons()
 
     def load_daemons(self):
         importlib.invalidate_caches()
+        self.clear_daemons()
 
         self.__directory = Path(__file__).parent
         self.__modules = [
@@ -56,7 +58,7 @@ class DMan:
                     lambda key: not key.startswith("__"), dir(daemons_module)
                 )
                 daemons = filter(
-                    lambda obj: issubclass(obj, Daemon),
+                    lambda obj: isinstance(obj, type) and issubclass(obj, Daemon),
                     [getattr(daemons_module, key) for key in public_objects],
                 )
                 for daemon in daemons:
@@ -66,12 +68,14 @@ class DMan:
                 logger.debug("Done")
             else:
                 logger.error(f" ERR.\n\tNo daemon found in module: {module}")
-        return len(self.get_daemons()), errors
+        return len(self.loaded_daemons), errors
 
     def clear_daemons(self):
         self.__previously_loaded_modules = getattr(self, "__loaded_modules", list())
         self.__loaded_modules = list()
         self.__loaded_daemons = Namespace()
+
+        # TODO: Trigger Daemon __onexit__
 
     @property
     def modules(self):
@@ -87,4 +91,8 @@ class DMan:
 
     @property
     def loaded_daemons(self):
+        return self.__loaded_daemons
+
+    @property
+    def daemons(self):
         return self.__loaded_daemons

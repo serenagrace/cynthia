@@ -4,13 +4,13 @@ import gzip
 from pathlib import Path
 from .messenger import Messenger
 from .applications import CommandTree, TreeLoadError
+from cynthia.daemons import DMan
 from cynthia.utils.db import Database
 from cynthia.utils.drive import Drive
 from cynthia.utils.logger import Logger
 from cynthia.utils.nxbt_utils import load_macros, save_macros
 from cynthia.utils.onmessage import load_onmessage, save_onmessage, ONMESSAGE
 from cynthia.utils.strings import color_str
-from cynthia.utils.uvc import UVC
 import logging
 
 _logger = logging.getLogger(__name__)
@@ -24,7 +24,8 @@ class Bot(discord.Client):
         self.messenger = Messenger(self)
         self.drive = Drive(self.config.drive_path)
         self.database = Database(self.drive)
-        self.uvc = UVC()
+        self.dman = DMan()
+        self.uvc = self.dman.daemons.UVC()
         self.onexit = {}
         if onexit is not None:
             self.onexit["user"] = onexit
