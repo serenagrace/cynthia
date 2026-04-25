@@ -167,7 +167,7 @@ class Compendium:
             self.build_card_data()
             self.build_relic_data()
 
-            await interaction.response.followup("Reloaded compendium data.")
+            await interaction.followup.send("Reloaded compendium data.")
 
         @app_commands.command()
         async def compendium(interaction, query: str):
