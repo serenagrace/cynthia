@@ -1,7 +1,7 @@
 import logging
 from pathlib import Path
 import importlib
-import multiprocessing
+from multiprocessing import Process, Value
 
 from .daemon import Daemon
 from cynthia.utils.namespace import Namespace

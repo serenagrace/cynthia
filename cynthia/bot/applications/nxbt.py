@@ -4,6 +4,7 @@ from cynthia.utils.auth import nxbt_permission, privileged_only, nxbt_connected
 from cynthia.utils.nxbt_utils import CHAR_MAP, MACROS, Macro, Input
 from cynthia.utils.onmessage import OnMessage, ONMESSAGE
 import asyncio
+import io
 import nxbt
 
 
@@ -252,9 +253,12 @@ async def show(interaction: discord.Interaction):
 
     uvc = getattr(interaction.client, "uvc", None)
     if uvc is not None:
-        png = await uvc.read_frame()
+        embed, buffer = uvc.ns.embed, uvc.ns.png
+        io_buf = io.BytesIO(buffer)
+        io_buf.seek(0)
+        png = discord.File(fp=io_buf, filename="frame.png")
         if png is not None:
-            await interaction.followup.send(file=png)
+            await interaction.followup.send(embed=embed, file=png)
             return
 
     await interaction.followup.send("Failed to read frame from UVC device.")
