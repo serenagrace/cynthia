@@ -16,7 +16,7 @@ dependencies = [
     "pyyaml==6.0.2",
     "pyotp",
     "rapidfuzz",
-    "requests",
+    "requests-async",
     "roku"
 ]
 

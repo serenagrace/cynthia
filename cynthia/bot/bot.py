@@ -60,7 +60,7 @@ class Bot(discord.Client):
     async def reload_tree(self, interaction=None):
         _logger.info("Fetching command modules...")
         n = 0
-        n, errors = self.tree.load_commands()
+        n, errors = await self.tree.load_commands()
         if n:
             _logger.info(f"Loading {n} commands...")
             for error in errors:

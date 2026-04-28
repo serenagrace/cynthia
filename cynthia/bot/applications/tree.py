@@ -18,7 +18,7 @@ class CommandTree(discord.app_commands.CommandTree):
         self.client = client
         super().__init__(client)
 
-    def load_commands(self):
+    async def load_commands(self):
         importlib.invalidate_caches()
         self.clear_commands()
         self.__directory = Path(__file__).parent
@@ -53,15 +53,29 @@ class CommandTree(discord.app_commands.CommandTree):
             if application is not None:
                 if hasattr(application, "apps"):
                     _application = application(self.client)
+                    if hasattr(_applcation, "__ainit__"):
+                        await _application.__ainit__()
                     application = _application.apps()
-                self.__loaded_modules.append(module)
                 if hasattr(application, "__iter__"):
                     for command in application:
-                        self.add_command(command)
-                        self.__loaded_commands.append(f"{module}.{command.name}")
+                        if hasattr(command, "apps"):
+                            _subapplication = command(self.client)
+                            if hasattr(_subapplication, "__ainit__"):
+                                await _subapplication.__ainit__()
+                            subapplication = _subapplication.apps()
+                            if hasattr(subapplication, "__iter__"):
+                                for subcommand in subapplication:
+                                    self.add_command(subcommand)
+                                    self.__loaded_commands.append(
+                                        f"{module}.{command.__class__.__name__}.{subcommand.name}"
+                                    )
+                        else:
+                            self.add_command(command)
+                            self.__loaded_commands.append(f"{module}.{command.name}")
                 else:
                     self.add_command(application)
                     self.__loaded_commands.append(f"{module}.{command.name}")
+                self.__loaded_modules.append(module)
                 logger.debug("Done")
             else:
                 logger.error(f" ERR.\n\tNo application found in module: {module}")

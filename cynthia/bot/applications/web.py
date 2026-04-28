@@ -4,54 +4,74 @@ from rapidfuzz import process
 from cynthia.utils.namespace import Namespace
 from datetime import datetime
 import logging
-import requests
+import requests_async as requests
 import re
+import csv
 import json
 
-logging.getLogger("urllib3").setLevel(logging.INFO)
+logging.getLogger("httpcore").setLevel(logging.INFO)
+logging.getLogger("httpx").setLevel(logging.INFO)
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 
-def format_text(string, upgraded=False):
-    string = re.sub(
-        r"\[(?P<a>[^\|]*)\|(?P<b>[^\]]*)\]",
-        r"\g<b>" if upgraded else r"\g<a>",
-        string,
-        flags=re.MULTILINE,
-    )
-    string = string.replace("<br>", "\n")
-    string = string.replace("@IE", "🔴")
-    string = string.replace("@SE", "🟢")
-    string = string.replace("@RE", "🟠")
-    string = string.replace("@NE", "🟣")
-    string = string.replace("@DE", "🔵")
-    string = string.replace("@ST", "⭐")
-    string = re.sub(r"\$([a-zA-Z]+)", r"**\g<1>**", string)
-    return string
-
-
 class Compendium:
+    children = []
+
+    def __init__(self, child, client, datasets):
+        self.drive = client.drive
+        self.datasets = datasets
+
+    async def __ainit__(self):
+        await self.build()
+
+    async def build(self):
+        for key in self.datasets.keys():
+            self.load(key)
+            newdata = await getattr(self, f"fetch_{key}_data")()
+            self.update(key, newdata)
+            self.save(key)
+
+    async def reload(self):
+        for key in self.datasets.keys():
+            newdata = await getattr(self, f"fetch_{key}_data")()
+            self.update(key, newdata)
+            self.save(key)
+
+    def load(self, dataset: str):
+        temp = None
+        filename = f"compendium/{self.__class__.__name__.lower()}/{dataset}_data.json"
+        if self.drive.exists(filename, is_file=True):
+            with self.drive.open(filename, "r") as f:
+                temp = json.load(f)
+        setattr(self, f"{dataset}_data", temp)
+
+    def update(self, dataset, new_data):
+        for key, value in json.loads(new_data).items():
+            testdict = getattr(self, f"{dataset}_data", dict()).get(key, dict()).copy()
+            testdict["updatetime"] = None
+            del testdict["updatetime"]
+            if testdict != value:
+                getattr(self, f"{dataset}_data")[key] = value
+
+            if getattr(self, f"{dataset}_data")[key].get("updatetime", None) is None:
+                getattr(self, f"{dataset}_data")[key]["updatetime"] = (
+                    datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
+                )
+
+    def save(self, dataset):
+        if self.drive.enabled:
+            filename = (
+                f"compendium/{self.__class__.__name__.lower()}/{dataset}_data.json"
+            )
+            with self.drive.open(filename, "w") as f:
+                json.dump(getattr(self, f"{dataset}_data", dict()), f)
+
+
+class STS(Compendium):
     base_url = "https://slaythespire.wiki.gg/wiki/"
     img_url = "https://slaythespire.wiki.gg/images/"
-    card_data_urls = [
-        "https://slaythespire.wiki.gg/wiki/Module:Cards/data?action=raw",
-    ] + [
-        f"https://slaythespire.wiki.gg/wiki/Module:Cards/StS2_data/{character}?action=raw"
-        for character in [
-            "Ironclad",
-            "Silent",
-            "Regent",
-            "Necrobinder",
-            "Defect",
-            "Colorless",
-        ]
-    ]
-    relic_data_url = (
-        "https://slaythespire.wiki.gg/wiki/Module:Relics/StS2_data?action=raw"
-    )
-
     COLORS = Namespace(
         {
             "Red": 0x922929,
@@ -67,20 +87,51 @@ class Compendium:
         }
     )
 
+    def format_text(self, string, upgraded=False):
+        string = re.sub(
+            r"\[(?P<a>[^\|]*)\|(?P<b>[^\]]*)\]",
+            r"\g<b>" if upgraded else r"\g<a>",
+            string,
+            flags=re.MULTILINE,
+        )
+        string = string.replace("<br>", "\n")
+        string = string.replace("@IE", "🔴")
+        string = string.replace("@SE", "🟢")
+        string = string.replace("@RE", "🟠")
+        string = string.replace("@NE", "🟣")
+        string = string.replace("@DE", "🔵")
+        string = string.replace("@ST", "⭐")
+        string = re.sub(r"\$([a-zA-Z]+)", r"**\g<1>**", string)
+        return string
+
     def __init__(self, client):
-        self.drive = client.drive
-        self.card_data = {}
-        self.relic_data = {}
-        self.build_card_data()
-        self.build_relic_data()
+        super().__init__(
+            self,
+            client,
+            {
+                "card": [
+                    "https://slaythespire.wiki.gg/wiki/Module:Cards/data?action=raw",
+                ]
+                + [
+                    f"https://slaythespire.wiki.gg/wiki/Module:Cards/StS2_data/{character}?action=raw"
+                    for character in [
+                        "Ironclad",
+                        "Silent",
+                        "Regent",
+                        "Necrobinder",
+                        "Defect",
+                        "Colorless",
+                    ]
+                ],
+                "relic": [
+                    "https://slaythespire.wiki.gg/wiki/Module:Relics/StS2_data?action=raw"
+                ],
+            },
+        )
 
-    def build_card_data(self):
-        if self.drive.exists("card_data.json", is_file=True):
-            with self.drive.open("card_data.json", "r") as f:
-                self.card_data = json.load(f)
-
-        for url in self.card_data_urls:
-            response = requests.get(url)
+    async def fetch_card_data(self):
+        for url in self.datasets["card"]:
+            response = await requests.get(url)
             if response.status_code == 200:
                 card_data = response.text
                 card_data = card_data.replace("return {", "{")
@@ -103,28 +154,10 @@ class Compendium:
                 card_data = "\n".join(data_lines)
 
                 card_data = re.sub(r",\n\s*}", "\n}", card_data, flags=re.MULTILINE)
+                return card_data
 
-                for key, value in json.loads(card_data).items():
-                    testdict = self.card_data.get(key, dict()).copy()
-                    testdict["updatetime"] = None
-                    del testdict["updatetime"]
-                    if testdict != value:
-                        self.card_data[key] = value
-
-                    if self.card_data[key].get("updatetime", None) is None:
-                        self.card_data[key]["updatetime"] = (
-                            datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
-                        )
-
-        if self.drive.enabled:
-            with self.drive.open("card_data.json", "w") as f:
-                json.dump(self.card_data, f)
-
-    def build_relic_data(self):
-        if self.drive.exists("relic_data.json", is_file=True):
-            with self.drive.open("relic_data.json", "r") as f:
-                self.relic_data = json.load(f)
-        response = requests.get(self.relic_data_url)
+    async def fetch_relic_data(self):
+        response = await requests.get(self.datasets["relic"][0])
         if response.status_code == 200:
             relic_data = response.text
             relic_data = relic_data.replace("return {", "{")
@@ -150,40 +183,19 @@ class Compendium:
 
             relic_data = re.sub(r",\n\s*}", "\n}", relic_data, flags=re.MULTILINE)
 
-            for key, value in json.loads(relic_data).items():
-                testdict = self.relic_data.get(key, dict()).copy()
-                testdict["updatetime"] = None
-                del testdict["updatetime"]
-                if testdict != value:
-                    self.relic_data[key] = value
-
-                if self.relic_data[key].get("updatetime", None) is None:
-                    self.relic_data[key]["updatetime"] = (
-                        datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
-                    )
-
-        if self.drive.enabled:
-            with self.drive.open("relic_data.json", "w") as f:
-                json.dump(self.relic_data, f)
+            return relic_data
 
     def apps(self):
-        @app_commands.command()
-        async def compendium_reload(interaction):
-            await interaction.response.defer(ephemeral=True)
-            self.build_card_data()
-            self.build_relic_data()
-
-            await interaction.followup.send("Reloaded compendium data.")
 
         @app_commands.command()
-        async def compendium(interaction, query: str):
+        async def sts(interaction, query: str):
             if query in self.card_data.keys():
                 card_info = self.card_data[query]
 
                 embed = discord.Embed(
                     title=query,
-                    url=self.base_url + query.replace(" ", "_"),
-                    description=format_text(card_info["Text"]),
+                    url=self.base_url + "Slay_the_Spire_2:" + query.replace(" ", "_"),
+                    description=self.format_text(card_info["Text"]),
                     colour=self.COLORS[card_info["Color"]],
                 )
                 embed.set_footer(
@@ -221,7 +233,7 @@ class Compendium:
                                 url=self.parent.img_url
                                 + self.card_info["Image"].replace(".png", "Plus.png")
                             )
-                            _embed.description = format_text(
+                            _embed.description = self.format_text(
                                 self.card_info["Text"], upgraded=True
                             )
                         else:
@@ -229,7 +241,9 @@ class Compendium:
                             _embed.set_image(
                                 url=self.parent.img_url + self.card_info["Image"]
                             )
-                            _embed.description = format_text(self.card_info["Text"])
+                            _embed.description = self.format_text(
+                                self.card_info["Text"]
+                            )
 
                         await interaction.response.edit_message(
                             embed=_embed,
@@ -249,7 +263,7 @@ class Compendium:
                 embed = discord.Embed(
                     title=query,
                     url=self.base_url + query.replace(" ", "_"),
-                    description=format_text(relic_info["Description"])
+                    description=self.format_text(relic_info["Description"])
                     + "\n*"
                     + relic_info["Flavor"]
                     + "*",
@@ -265,7 +279,7 @@ class Compendium:
                     "No card or relic found with that name."
                 )
 
-        @compendium.autocomplete("query")
+        @sts.autocomplete("query")
         async def query_autocomplete(interaction, current):
             matches = process.extract(
                 current, self.card_data.keys() | self.relic_data.keys(), limit=10
@@ -275,7 +289,76 @@ class Compendium:
             ]
             return choices[:10]
 
-        return compendium, compendium_reload
+        return (sts,)
 
 
-__application__ = Compendium
+class SerebiiParser:
+    pass
+
+
+class PokemonDB:
+    def __init__(self, client=None):
+        self.pokemon_data = Namespace()
+
+        csv_path = "/raidarchive/cynthia_drive/pokemonDB_dataset.csv"
+        with open(csv_path, newline="", encoding="utf-8") as csvfile:
+            reader = csv.DictReader(csvfile)
+            for row in reader:
+                name = row["Pokemon"].lower()
+                self.pokemon_data[name] = Namespace(row)
+
+    def apps(self):
+        @app_commands.command()
+        async def pokemon(interaction: discord.Interaction, species: str):
+            species = species.replace("_", " ")
+            if species.lower() not in self.pokemon_data:
+                await interaction.response.send_message("Invalid species.")
+                return
+            pokemon_info = self.pokemon_data[species.lower()]
+            embed = discord.Embed(
+                title=pokemon_info.Pokemon, description=pokemon_info.Species
+            )
+            embed.add_field(name="Type", value=pokemon_info.Type)
+            embed.add_field(name="Abilities", value=pokemon_info.Abilities)
+            embed.add_field(name="Catch Rate", value=pokemon_info.Catch_Rate)
+            embed.add_field(name="EV Yield", value=pokemon_info.EV_Yield)
+
+            await interaction.response.send_message(embed=embed)
+
+        @app_commands.command()
+        async def ev(interaction: discord.Interaction, species: str):
+            species = species.replace("_", " ")
+            if species.lower() not in self.pokemon_data:
+                await interaction.response.send_message("Invalid species.")
+                return
+            pokemon_info = self.pokemon_data[species.lower()]
+            await interaction.response.send_message(
+                f"**{pokemon_info.Pokemon}** yields {pokemon_info.EV_Yield}"
+            )
+
+        @pokemon.autocomplete("species")
+        @ev.autocomplete("species")
+        async def pokemon_autocomplete(interaction: discord.Interaction, current: str):
+            current = current.replace("_", " ")
+            choices = [
+                app_commands.Choice(
+                    name=self.pokemon_data[species].Pokemon, value=species
+                )
+                for species in self.pokemon_data.keys()
+                if current.lower() in species
+            ]
+            return choices[:10]
+
+        return (pokemon, ev)
+
+
+@app_commands.command()
+async def compendium_reload(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+    for child in Compendium.children:
+        child.reload()
+
+    await interaction.followup.send("Reloaded compendium data.")
+
+
+__application__ = STS, PokemonDB, compendium_reload
