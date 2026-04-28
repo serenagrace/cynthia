@@ -39,19 +39,20 @@ async def upload_context_menu(
         return
     if not message.attachments:
         content = message.content
+        save_path = f"message_{message.id}.txt"
         try:
-            with interaction.client.drive.open(f"message_{message.id}.txt", "w") as f:
+            with interaction.client.drive.open(save_path, "w") as f:
                 f.write(content)
             await interaction.followup.send(
-                f"Message id {message.id} content saved to `{str(save_path)}`."
+                f"Message id {message.id} content saved to `{save_path}`."
             )
         except Exception as e:
             await interaction.followup.send(f"Failed to save message content: {e}")
         return
     attachment = message.attachments[0]
-    with interaction.client.drive.open(save_path, "w") as f:
-        await attachment.save(f)
-    await interaction.followup.send(f"Attachment saved to {save_path}.")
+    save_path = interaction.client.drive.path(attachment.filename)
+    await attachment.save(save_path)
+    await interaction.followup.send(f"Attachment saved to {save_path.name}.")
 
 
 @app_commands.command()
