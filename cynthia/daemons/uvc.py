@@ -62,8 +62,8 @@ class UVC:
 
         self.cap = cv2.VideoCapture(-1)
 
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1200)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT,1080)
         self.cap.set(cv2.CAP_PROP_FPS, 30)
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
@@ -100,7 +100,6 @@ class UVC:
             await self.setup()
         ret = False
         frame = None
-
         good_img = False
 
         try:
@@ -108,6 +107,7 @@ class UVC:
                 logger.debug("Attempting to read frame from UVC device.")
                 while not good_img:
                     self.cap.grab()  # Grab the latest frame to clear the buffer
+
                     ret, frame = self.cap.read()
                     if ret:
                         good_img = (
