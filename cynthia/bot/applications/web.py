@@ -105,11 +105,13 @@ class Compendium:
                 card_data = re.sub(r",\n\s*}", "\n}", card_data, flags=re.MULTILINE)
 
                 for key, value in json.loads(card_data).items():
-                    testdict = self.card_data.get(key, dict())
+                    testdict = self.card_data.get(key, dict()).copy()
                     testdict["updatetime"] = None
                     del testdict["updatetime"]
                     if testdict != value:
                         self.card_data[key] = value
+
+                    if self.card_data[key].get("updatetime", None) is None:
                         self.card_data[key]["updatetime"] = (
                             datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
                         )
@@ -149,11 +151,13 @@ class Compendium:
             relic_data = re.sub(r",\n\s*}", "\n}", relic_data, flags=re.MULTILINE)
 
             for key, value in json.loads(relic_data).items():
-                testdict = self.relic_data.get(key, dict())
+                testdict = self.relic_data.get(key, dict()).copy()
                 testdict["updatetime"] = None
                 del testdict["updatetime"]
                 if testdict != value:
                     self.relic_data[key] = value
+
+                if self.relic_data[key].get("updatetime", None) is None:
                     self.relic_data[key]["updatetime"] = (
                         datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
                     )
