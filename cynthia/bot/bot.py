@@ -1,5 +1,6 @@
 import asyncio
 import discord
+from discord.ext import commands
 import gzip
 from pathlib import Path
 from .messenger import Messenger
@@ -11,13 +12,14 @@ from cynthia.utils.logger import Logger
 from cynthia.utils.nxbt_utils import load_macros, save_macros
 from cynthia.utils.onmessage import load_onmessage, save_onmessage, ONMESSAGE
 from cynthia.utils.strings import color_str
+from .cogs.status import StatusCog
 import logging
 
 _logger = logging.getLogger(__name__)
 _logger.setLevel(logging.DEBUG)
 
 
-class Bot(discord.Client):
+class Bot(commands.Bot):
     def __init__(self, context, *, onexit=None):
         self.config = context.config
         self.app_meta = context.app_meta
@@ -38,9 +40,11 @@ class Bot(discord.Client):
         super().__init__(
             intents=intents,
             status=discord.Status.online,
+            command_prefix="!!!!!!!!!!!",
+            tree_cls=CommandTree,
+            help_command=None,
         )
         self.logging_enabled = self.drive.enabled
-        self.tree = CommandTree(self)
         self.logger = Logger(self.drive, self.database)
         if self.logger.logging_enabled:
             self.onexit["logging"] = self.logger.log_stop
@@ -100,8 +104,11 @@ class Bot(discord.Client):
             )
         )
 
-    async def on_ready(self):
+    async def setup_hook(self):
         await self.reload_tree()
+        await self.add_cog(StatusCog(self))
+
+    async def on_ready(self):
         _logger.info(color_str("Ready.", "yellow"))
 
     async def on_message(self, message):

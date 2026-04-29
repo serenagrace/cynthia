@@ -1,6 +1,8 @@
 import asyncio
+import re
 import time
 import cv2
+from skimage.metrics import structural_similarity as ssim
 import pytesseract
 import io
 import subprocess
@@ -16,8 +18,57 @@ logger.setLevel(logging.INFO)
 ELGATO_USB_ID = "0fd9:009b"
 
 
+class Scene:
+    def __init__(
+        self, buffer, *_, x=0, y=0, w=1920, h=1080, text=None, grayscale=False
+    ):
+        self.buffer = buffer
+        self.x = x
+        self.y = y
+        self.w = w
+        self.h = h
+        self.text = text
+        self.grayscale = grayscale
+
+    def ssim_match(self, buffer):
+        cropped = buffer[self.y : self.y + self.h, self.x : self.x + self.w]
+
+        if self.grayscale:
+            score = ssim(
+                cv2.cvtColor(self.buffer, cv2.COLOR_BGR2GRAY),
+                cv2.cvtColor(cropped, cv2.COLOR_BGR2GRAY),
+            )
+        else:
+            score = ssim(
+                cv2.resize(self.buffer, (0, 0), fx=0.5, fy=0.5),
+                cv2.resize(cropped, (0, 0), fx=0.5, fy=0.5),
+                channel_axis=-1,
+            )
+        return score
+
+
 class UVCDaemon(Daemon):
+    home_screen_scene = Scene(
+        cv2.imread("/raidarchive/cynthia_drive/scenes/switch_home_screen.png"),
+        y=720,
+        h=200,
+    )
+    afk_home_screen_scene = Scene(
+        cv2.imread("/raidarchive/cynthia_drive/scenes/switch_home_screen_afk.png"),
+        y=720,
+        h=200,
+    )
+    boot_screen_scene = Scene(
+        cv2.imread("/raidarchive/cynthia_drive/scenes/switch_boot_screen.png"),
+        x=1580,
+        y=920,
+    )
+    elgato_no_signal_scene = Scene(
+        cv2.imread("/raidarchive/cynthia_drive/scenes/elgato_no_signal.png")
+    )
+
     def __init__(self):
+
         def loop(run, ns):
             async def main_task():
                 uvc = UVC()
@@ -26,10 +77,20 @@ class UVCDaemon(Daemon):
                 while run:
                     if uvc.cap is None:
                         uvc.setup()
+                    scores = {}
                     perf_times = [time.perf_counter()]
                     frame = await uvc.read_frame()
                     perf_times.append(time.perf_counter())
-                    text = uvc.scrape_text(frame)
+                    raw_text = uvc.scrape_text(frame)
+                    perf_times.append(time.perf_counter())
+                    scores["home"] = UVCDaemon.home_screen_scene.ssim_match(frame)
+                    scores["afk_home"] = UVCDaemon.afk_home_screen_scene.ssim_match(
+                        frame
+                    )
+                    scores["boot"] = UVCDaemon.boot_screen_scene.ssim_match(frame)
+                    scores["elgato_no_signal"] = (
+                        UVCDaemon.elgato_no_signal_scene.ssim_match(frame)
+                    )
                     perf_times.append(time.perf_counter())
                     buffer = uvc.frame_to_buffer(frame)
                     perf_times.append(time.perf_counter())
@@ -37,11 +98,36 @@ class UVCDaemon(Daemon):
 
                     embed = discord.Embed(title="UVC Data:")
                     embed.set_image(url=f"attachment://{filename}")
+                    sorted_scores = list(
+                        sorted(scores.items(), key=lambda item: item[1], reverse=True)
+                    )
+                    score_text = [f"{key}: {value}" for key, value in sorted_scores]
+                    score_text[0] = f"**{score_text[0]}**"
+                    embed.add_field(name="Scenes:", value="\n".join(score_text))
 
-                    if not text.isspace():
-                        embed.add_field(name="Detected Text:", value=text)
+                    if sorted_scores[0][1] > 0.9:
+                        if sorted_scores[0][0] in ("home", "afk_home"):
+                            game = uvc.scrape_text(frame, y=200, h=100)
+                            game = re.sub(r"^[a-zA-Z] ", "", game)
+                            embed.add_field(name="Selected Game:", value=game)
+                            ns.game = game
+                            ns.home = True
+                            ns.playing = False
+                        if sorted_scores[0][0] in ("elgato_no_signal"):
+                            ns.home = False
+                            ns.playing = False
+                        if sorted_scores[0][0] in ("boot", "boot2"):
+                            ns.home = False
+                            ns.playing = True
+                    elif not raw_text.isspace():
+                        embed.add_field(name="Detected Text:", value=raw_text)
+                        ns.home = False
+                        ns.playing = True
+                    else:
+                        ns.home = False
+                        ns.playing = True
                     embed.set_footer(
-                        text=f"Frame: {(perf_times[1]-perf_times[0])*1000:.0f}ms, Text: {(perf_times[2]-perf_times[1])*1000:.0f}ms"
+                        text=f"Frame: {(perf_times[1]-perf_times[0])*1000:.0f}ms, Text: {(perf_times[2]-perf_times[1])*1000:.0f}ms, Scene: {(perf_times[3]-perf_times[2])*1000:.0f}ms"
                     )
                     ns.embed, ns.png = embed, buffer.getvalue()
 
@@ -49,6 +135,9 @@ class UVCDaemon(Daemon):
 
         self.loop = loop
         super().__init__()
+        self.ns.game = None
+        self.ns.playing = False
+        self.ns.home = False
 
 
 class UVC:
@@ -134,8 +223,9 @@ class UVC:
         io_buf.seek(0)
         return io_buf
 
-    def scrape_text(self, buffer):
-        gray = cv2.cvtColor(buffer, cv2.COLOR_BGR2GRAY)
+    def scrape_text(self, buffer, *_, x=0, y=0, w=1920, h=1080):
+        cropped = buffer[y : y + h][x : x + w]
+        gray = cv2.cvtColor(cropped, cv2.COLOR_BGR2GRAY)
         text = pytesseract.image_to_string(gray)
         return text
 

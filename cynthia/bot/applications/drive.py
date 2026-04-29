@@ -58,7 +58,7 @@ async def upload_context_menu(
 @app_commands.command()
 @drive_permission()
 async def download(interaction: discord.Interaction, filename: str):
-    interaction.response.defer()
+    await interaction.response.defer()
     if not interaction.client.drive.enabled:
         await interaction.followup.send("Drive path not configured.")
         return
