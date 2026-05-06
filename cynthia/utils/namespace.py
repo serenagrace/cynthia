@@ -5,6 +5,7 @@ from cynthia.utils.types import force_obj_is_list
 INFRA_MEMBERS = (
     "_nspace_dict",
     "__dict__",
+    "__repr__",
     "keys",
     "items",
     "values",
@@ -15,6 +16,7 @@ INFRA_MEMBERS = (
     "append",
     "__setitem__",
     "__getitem__",
+    "__delitem__",
     "__contains__",
 )
 
@@ -31,6 +33,13 @@ class Namespace:
             if isinstance(k, str):
                 k = k.replace(" ", "_")
             self._nspace_dict[k] = v
+
+    def __repr__(self):
+        type_name = type(self).__name__
+        arg_strings = []
+        for name, value in self.items():
+            arg_strings.append("%s=%s" % (name, value))
+        return "%s(%s)" % (type_name, ", ".join(arg_strings))
 
     def __setattr__(self, attr, val):
         if attr in INFRA_MEMBERS:
@@ -88,3 +97,6 @@ class Namespace:
 
     def __len__(self):
         return len(self._nspace_dict.keys())
+
+    def __delitem__(self, key):
+        del self._nspace_dict[key]

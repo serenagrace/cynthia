@@ -189,16 +189,16 @@ class Database:
         conn.commit()
         conn.close()
 
-    def get_onmessage(self, type=None, server_id=None, channel_id=None):
+    def get_onmessage(self, _type=None, server_id=None, channel_id=None):
         if not self.database_connected:
             return []
         conn = sqlite3.connect(self.drive.path(DB_PATH))
         c = conn.cursor()
         query = "SELECT type, server_id, channel_id, condition_type, action_type FROM onmessage WHERE 1=1"
         params = []
-        if type is not None:
+        if _type is not None:
             query += " AND type=?"
-            params.append(type)
+            params.append(_type)
         if server_id is not None:
             query += " AND server_id=?"
             params.append(server_id)

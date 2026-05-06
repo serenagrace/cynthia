@@ -2,10 +2,10 @@ from pathlib import Path
 from cynthia.utils.nxbt_utils import Macro
 import pickle
 
-ONMESSAGE = {}
-
 
 class OnMessage:
+    units = dict()
+
     async def default_condition(self, client, message):
         return True
 
@@ -26,19 +26,21 @@ class OnMessage:
     def __init__(
         self,
         logger=None,
-        type="log",
+        _type="log",
         condition_type=None,
         action_type=None,
         channel=None,
         guild=None,
+        persist=True,
     ):
-        self.type = type
+        self.type = _type
         self.logger = logger
         self.channel = channel
         self.guild = guild
         self.condition = self.default_condition
         self.condition_type = "default"
         self.action_type = "default"
+        self.persist = persist
         if condition_type is not None:
             self.condition = getattr(
                 self, condition_type + "_condition", self.default_condition
@@ -57,28 +59,29 @@ class OnMessage:
             await self.action(client, message)
 
 
-def load_onmessage(client):
+async def load_onmessage(client):
     logger = client.logger
     db = client.database
     if not db.database_connected:
         return
     rows = db.get_onmessage()
     for row in rows:
-        type, server_id, channel_id, condition_type, action_type = row
-        key = f"{type}_{server_id}_{channel_id}"
-        ONMESSAGE[key] = OnMessage(
+        _type, server_id, channel_id, condition_type, action_type = row
+        key = f"{_type}_{server_id}_{channel_id}"
+        OnMessage.units[key] = OnMessage(
             logger,
-            type=type,
+            _type=_type,
             condition_type=condition_type,
             action_type=action_type,
-            channel=client.get_channel(channel_id),
-            guild=client.get_guild(server_id),
+            channel=await client.fetch_channel(channel_id),
+            guild=await client.fetch_guild(server_id),
         )
 
 
 def save_onmessage(db):
     if not db.database_connected:
         return
-    db.clear_onmessage()
-    for onmessage in ONMESSAGE.values():
+    for onmessage in OnMessage.units.values():
+        if not onmessage.persist:
+            continue
         db.insert_onmessage(onmessage)

@@ -52,9 +52,16 @@ def unshift(string: str, exclude=None):
     return string
 
 
-def shift(string: str):
+def shift(string: str, exclude=None):
     string = string.upper()
     for shifted, unshifted in SHIFT_PAIRS:
+        if exclude is not None:
+            if isinstance(exclude, str):
+                if exclude == unshifted:
+                    continue
+            if hasattr(exclude, "__iter__"):
+                if unshifted in exclude:
+                    continue
         string = string.replace(unshifted, shifted)
     return string
 
