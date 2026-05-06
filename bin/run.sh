@@ -1,5 +1,5 @@
 while true; do
-    sudo env/bin/cynthia
+    sudo env/bin/cynthia ${@:1}
     case $? in
         0)
             break
