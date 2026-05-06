@@ -1,16 +1,17 @@
 import asyncio
-import re
-import time
+from contextlib import closing
 import cv2
 from skimage.metrics import structural_similarity as ssim
-import pytesseract
+from multiprocessing import shared_memory
 import io
+import numpy
 import subprocess
+import time
 import logging
-import discord
+import xxhash
 from .daemon import Daemon
+from .dman import FB0
 
-logging.getLogger("pytesseract").setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
@@ -18,126 +19,48 @@ logger.setLevel(logging.INFO)
 ELGATO_USB_ID = "0fd9:009b"
 
 
-class Scene:
-    def __init__(
-        self, buffer, *_, x=0, y=0, w=1920, h=1080, text=None, grayscale=False
-    ):
-        self.buffer = buffer
-        self.x = x
-        self.y = y
-        self.w = w
-        self.h = h
-        self.text = text
-        self.grayscale = grayscale
-
-    def ssim_match(self, buffer):
-        cropped = buffer[self.y : self.y + self.h, self.x : self.x + self.w]
-
-        if self.grayscale:
-            score = ssim(
-                cv2.cvtColor(self.buffer, cv2.COLOR_BGR2GRAY),
-                cv2.cvtColor(cropped, cv2.COLOR_BGR2GRAY),
-            )
-        else:
-            score = ssim(
-                cv2.resize(self.buffer, (0, 0), fx=0.5, fy=0.5),
-                cv2.resize(cropped, (0, 0), fx=0.5, fy=0.5),
-                channel_axis=-1,
-            )
-        return score
-
-
 class UVCDaemon(Daemon):
-    home_screen_scene = Scene(
-        cv2.imread("/raidarchive/cynthia_drive/scenes/switch_home_screen.png"),
-        y=720,
-        h=200,
-    )
-    afk_home_screen_scene = Scene(
-        cv2.imread("/raidarchive/cynthia_drive/scenes/switch_home_screen_afk.png"),
-        y=720,
-        h=200,
-    )
-    boot_screen_scene = Scene(
-        cv2.imread("/raidarchive/cynthia_drive/scenes/switch_boot_screen.png"),
-        x=1580,
-        y=920,
-    )
-    elgato_no_signal_scene = Scene(
-        cv2.imread("/raidarchive/cynthia_drive/scenes/elgato_no_signal.png")
-    )
+    def __init__(self, dman):
+        def loop(ns, uns, fba, fbb):
+            with (
+                closing(shared_memory.SharedMemory(name=fba)) as shmA,
+                closing(shared_memory.SharedMemory(name=fbb)) as shmB,
+            ):
+                shm = (shmA, shmB)
+                fb = list(
+                    numpy.ndarray(FB0.shape(), dtype=numpy.uint8, buffer=shm[idx].buf)
+                    for idx in (0, 1)
+                )
 
-    def __init__(self):
+                async def main_task():
+                    uvc = UVC()
+                    await uvc.setup()
 
-        def loop(run, ns):
-            async def main_task():
-                uvc = UVC()
-                await uvc.setup()
+                    while ns.run:
+                        if uvc.cap is None:
+                            uvc.setup()
+                        frame = await uvc.read_frame()
+                        _time = time.time_ns()
+                        _hash = xxhash.xxh3_64_intdigest(frame.data)
+                        fbptr = 1 if uns.fbptr == 0 else 0
 
-                while run:
-                    if uvc.cap is None:
-                        uvc.setup()
-                    scores = {}
-                    perf_times = [time.perf_counter()]
-                    frame = await uvc.read_frame()
-                    perf_times.append(time.perf_counter())
-                    raw_text = uvc.scrape_text(frame)
-                    perf_times.append(time.perf_counter())
-                    scores["home"] = UVCDaemon.home_screen_scene.ssim_match(frame)
-                    scores["afk_home"] = UVCDaemon.afk_home_screen_scene.ssim_match(
-                        frame
-                    )
-                    scores["boot"] = UVCDaemon.boot_screen_scene.ssim_match(frame)
-                    scores["elgato_no_signal"] = (
-                        UVCDaemon.elgato_no_signal_scene.ssim_match(frame)
-                    )
-                    perf_times.append(time.perf_counter())
-                    buffer = uvc.frame_to_buffer(frame)
-                    perf_times.append(time.perf_counter())
-                    filename = f"frame.png"
+                        if fbptr:
+                            uns.uvc_hash1, uns.uvc_time1 = _hash, _time
+                        else:
+                            uns.uvc_hash0, uns.uvc_time0 = _hash, _time
+                        fb[fbptr][:] = frame
 
-                    embed = discord.Embed(title="UVC Data:")
-                    embed.set_image(url=f"attachment://{filename}")
-                    sorted_scores = list(
-                        sorted(scores.items(), key=lambda item: item[1], reverse=True)
-                    )
-                    score_text = [f"{key}: {value}" for key, value in sorted_scores]
-                    score_text[0] = f"**{score_text[0]}**"
-                    embed.add_field(name="Scenes:", value="\n".join(score_text))
+                        uns.fbptr = fbptr
 
-                    if sorted_scores[0][1] > 0.9:
-                        if sorted_scores[0][0] in ("home", "afk_home"):
-                            game = uvc.scrape_text(frame, y=200, h=100)
-                            game = re.sub(r"^[a-zA-Z] ", "", game)
-                            embed.add_field(name="Selected Game:", value=game)
-                            ns.game = game
-                            ns.home = True
-                            ns.playing = False
-                        if sorted_scores[0][0] in ("elgato_no_signal"):
-                            ns.home = False
-                            ns.playing = False
-                        if sorted_scores[0][0] in ("boot", "boot2"):
-                            ns.home = False
-                            ns.playing = True
-                    elif not raw_text.isspace():
-                        embed.add_field(name="Detected Text:", value=raw_text)
-                        ns.home = False
-                        ns.playing = True
-                    else:
-                        ns.home = False
-                        ns.playing = True
-                    embed.set_footer(
-                        text=f"Frame: {(perf_times[1]-perf_times[0])*1000:.0f}ms, Text: {(perf_times[2]-perf_times[1])*1000:.0f}ms, Scene: {(perf_times[3]-perf_times[2])*1000:.0f}ms"
-                    )
-                    ns.embed, ns.png = embed, buffer.getvalue()
+                asyncio.run(main_task())
 
-            asyncio.run(main_task())
-
+        super().__init__(dman, fbs=(0,))
+        self.uns.uvc_hash0 = None
+        self.uns.uvc_time0 = None
+        self.uns.uvc_hash1 = None
+        self.uns.uvc_time1 = None
         self.loop = loop
-        super().__init__()
-        self.ns.game = None
-        self.ns.playing = False
-        self.ns.home = False
+        self.start()
 
 
 class UVC:
@@ -159,30 +82,6 @@ class UVC:
         await asyncio.sleep(1)  # Give the camera some time to initialize
 
         await self.read_frame()
-
-    async def get_cv_embed(self):
-        if self.cap is None:
-            await self.setup()
-        perf_times = [time.perf_counter()]
-        frame = await self.read_frame()
-        perf_times.append(time.perf_counter())
-        text = self.scrape_text(frame)
-        perf_times.append(time.perf_counter())
-        buffer = self.frame_to_buffer(frame)
-        perf_times.append(time.perf_counter())
-        filename = f"frame{time.time_ns() // 1_000_000}.png"
-        png = discord.File(fp=buffer, filename=filename)
-
-        embed = discord.Embed(title="UVC Data:")
-        embed.set_image(url=f"attachment://{filename}")
-
-        if not text.isspace():
-            embed.add_field(name="Detected Text:", value=text)
-        embed.set_footer(
-            text=f"Frame: {(perf_times[1]-perf_times[0])*1000:.0f}ms, Text: {(perf_times[2]-perf_times[1])*1000:.0f}ms"
-        )
-
-        return embed, buffer.getvalue()
 
     async def read_frame(self):
         if self.cap is None:
@@ -214,7 +113,8 @@ class UVC:
         frame = cv2.flip(frame, 0)
         return frame
 
-    def frame_to_buffer(self, frame):
+    @staticmethod
+    def frame_to_buffer(frame):
         success, buffer = cv2.imencode(".png", frame)
         if not success:
             logger.error("Failed to encode frame as PNG.")
@@ -222,12 +122,6 @@ class UVC:
         io_buf = io.BytesIO(buffer)
         io_buf.seek(0)
         return io_buf
-
-    def scrape_text(self, buffer, *_, x=0, y=0, w=1920, h=1080):
-        cropped = buffer[y : y + h][x : x + w]
-        gray = cv2.cvtColor(cropped, cv2.COLOR_BGR2GRAY)
-        text = pytesseract.image_to_string(gray)
-        return text
 
     def release(self):
         if self.cap is not None:

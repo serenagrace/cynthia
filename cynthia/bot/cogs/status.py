@@ -11,14 +11,25 @@ class StatusCog(commands.Cog):
 
     @tasks.loop(seconds=2.0)
     async def get_status(self):
-        if self.bot.uvc.ns.home:
+
+        def tryload(bot):
+            ns = None
+            cv = bot.dman.running_daemons.get("CVDaemon", None)
+            if cv is not None:
+                ns = getattr(cv, "ns", None)
+            return ns
+
+        ns = tryload(self.bot)
+        if ns is None:
+            return
+
+        if ns.home:
             await self.bot.change_presence(
                 activity=discord.Game(name="on the Home Screen")
             )
-        elif self.bot.uvc.ns.playing:
-            await self.bot.change_presence(
-                activity=discord.Game(name=self.bot.uvc.ns.game)
-            )
+        elif ns.playing:
+            if ns.game is not None:
+                await self.bot.change_presence(activity=discord.Game(name=ns.game))
         else:
             await self.bot.change_presence(activity=None)
 

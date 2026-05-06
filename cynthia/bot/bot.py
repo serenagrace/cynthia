@@ -27,8 +27,7 @@ class Bot(commands.Bot):
         self.messenger = Messenger(self)
         self.drive = Drive(self.config.drive_path)
         self.database = Database(self.drive)
-        self.dman = DMan()
-        self.uvc = self.dman.daemons.UVCDaemon()
+        self.dman = DMan(context)
         self.onexit = {}
         if onexit is not None:
             self.onexit["user"] = onexit
@@ -60,6 +59,11 @@ class Bot(commands.Bot):
 
             self.onexit["macros"] = macro_cleanup
             self.onexit["onmessage"] = onmessage_cleanup
+
+        async def dman_cleanup(*_):
+            await self.dman.stop_daemons()
+
+        self.onexit["dman"] = dman_cleanup
 
     async def reload_tree(self, interaction=None):
         _logger.info("Fetching command modules...")

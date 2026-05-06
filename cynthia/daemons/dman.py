@@ -1,23 +1,50 @@
+import asyncio
+from discord import app_commands
+import numpy
 import logging
 from pathlib import Path
 import importlib
-from multiprocessing import Process, Value
+from multiprocessing import shared_memory
 
 from .daemon import Daemon
 from cynthia.utils.namespace import Namespace
+from multiprocessing import Manager
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 
-class DMan:
+class FB0:
+    WIDTH = 1920
+    HEIGHT = 1080
+    CHANNELS = 3
 
-    def __init__(self):
+    @staticmethod
+    def nbytes():
+        return FB0.WIDTH * FB0.HEIGHT * FB0.CHANNELS * numpy.dtype(numpy.uint8).itemsize
+
+    @staticmethod
+    def shape():
+        return (FB0.HEIGHT, FB0.WIDTH, FB0.CHANNELS)
+
+
+class DMan:
+    def __init__(self, context):
+        self.context = context
         self.__modules = list()
         self.__loaded_modules = list()
         self.__loaded_daemons = Namespace()
+        self.__running_daemons = Namespace()
         self.__previously_loaded_modules = list()
+        self.fb = (
+            shared_memory.SharedMemory(create=True, size=FB0.nbytes()),
+            shared_memory.SharedMemory(create=True, size=FB0.nbytes()),
+        )
+        self.fbptr = None
+        self.uns = Manager().Namespace()
+        self.uns.fbptr = None
         self.load_daemons()
+        self.run_daemons()
 
     def load_daemons(self):
         importlib.invalidate_caches()
@@ -62,6 +89,8 @@ class DMan:
                     [getattr(daemons_module, key) for key in public_objects],
                 )
                 for daemon in daemons:
+                    if daemon.__name__ == "Daemon":
+                        continue
                     if daemon.__name__ in self.__loaded_daemons:
                         logger.warn(f'Duplicate daemon with name "{daemon.__name__}".')
                     self.__loaded_daemons[daemon.__name__] = daemon
@@ -70,12 +99,64 @@ class DMan:
                 logger.error(f" ERR.\n\tNo daemon found in module: {module}")
         return len(self.loaded_daemons), errors
 
+    def run_daemons(self, *, daemons=None):
+        if daemons is not None:
+            for _daemon in daemons:
+                if _daemon not in self.__loaded_daemons:
+                    logger.error(f" ERR. Specified daemon `{_daemon}` not loaded.")
+                    continue
+                if _daemon not in self.__running_daemons:
+                    self.__running_daemons[_daemon] = self.loaded_daemons[_daemon](self)
+                else:
+                    logger.error(f" ERR. Specified daemon `{_daemon}` already running.")
+            return
+
+        for name, daemon in self.loaded_daemons.items():
+            if name in ("CYStream",):
+                continue
+            if name not in self.__running_daemons:
+                self.__running_daemons[name] = daemon(self)
+
     def clear_daemons(self):
         self.__previously_loaded_modules = getattr(self, "__loaded_modules", list())
         self.__loaded_modules = list()
         self.__loaded_daemons = Namespace()
 
-        # TODO: Trigger Daemon __onexit__
+    async def stop_daemons(self, *, daemons=None):
+        if daemons is None:
+            daemons = self.__running_daemons.keys()
+        for _daemon in daemons:
+            self.__running_daemons[_daemon].ns.run = False
+        try:
+            async with asyncio.timeout(30):
+                while any(
+                    self.__running_daemons[_daemon].process.is_alive()
+                    and not getattr(self.__running_daemons[_daemon].ns, "done", False)
+                    for _daemon in daemons
+                ):
+                    logger.info(
+                        f"Still waiting for daemon(s) {list(filter(lambda k: self.__running_daemons[k].process.is_alive() and not getattr(self.__running_daemons[k].ns,'done', False), self.__running_daemons.keys()))} to close..."
+                    )
+                    await asyncio.sleep(5)
+        except TimeoutError:
+            logger.error(" ERR. Some daemon(s) failed to stop.")
+
+        for _daemon in daemons:
+            daemon_obj = self.__running_daemons.get(_daemon, None)
+            if daemon_obj is None:
+                continue
+            if daemon_obj.process.is_alive():
+                if getattr(daemon_obj.ns, "done", False):
+                    logger.info(f"Terminating non-daemon process `{_daemon}`.")
+                    daemon_obj.process.terminate()
+                    daemon_obj.process.join()
+                    continue
+                logger.error(f"Daemon `{_daemon}` failed to stop.")
+                if daemon_obj.process.daemon:
+                    daemon_obj.process.terminate()
+                    daemon_obj.process.join()
+                continue
+            self.__running_daemons[_daemon] = None
 
     @property
     def modules(self):
@@ -94,5 +175,14 @@ class DMan:
         return self.__loaded_daemons
 
     @property
-    def daemons(self):
-        return self.__loaded_daemons
+    def running_daemons(self):
+        return self.__running_daemons
+
+
+def daemon_running(daemon: str):
+    async def predicate(interaction):
+        if hasattr(interaction.bot, "dman"):
+            return daemon in interaciton.bot.dman.running_daemons
+        return False
+
+    return app_commands.check(predicate)
