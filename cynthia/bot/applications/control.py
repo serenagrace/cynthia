@@ -4,7 +4,7 @@ from typing import Literal
 from discord import app_commands
 from cynthia.exceptions import ExitCynthia
 from cynthia.utils.auth import privileged_only
-from cynthia.utils.onmessage import OnMessage, ONMESSAGE, save_onmessage
+from cynthia.utils.onmessage import OnMessage, save_onmessage
 
 
 @app_commands.command()
@@ -21,7 +21,6 @@ async def shutdown(interaction: discord.Interaction):
 @privileged_only()
 async def restart(interaction: discord.Interaction):
     await interaction.response.send_message("Restarting...")
-    save_onmessage(interaction.client.database)
     try:
         raise ExitCynthia("Restart")
     except ExitCynthia as e:
@@ -51,9 +50,9 @@ async def log_channel(interaction: discord.Interaction):
         )
         return
     key = f"log_{interaction.guild_id}_{interaction.channel_id}"
-    if key not in ONMESSAGE:
-        ONMESSAGE[key] = OnMessage(
-            getattr(interaction.client, "logger", None),
+    if key not in OnMessage.units:
+        OnMessage.units[key] = OnMessage(
+            logger=getattr(interaction.client, "logger", None),
             channel=interaction.channel,
             guild=interaction.guild,
         )
@@ -71,8 +70,8 @@ async def log_channel(interaction: discord.Interaction):
 async def stop_log_channel(interaction: discord.Interaction):
     await interaction.response.defer(thinking=True, ephemeral=True)
     key = f"log_{interaction.guild_id}_{interaction.channel_id}"
-    if key in ONMESSAGE:
-        del ONMESSAGE[key]
+    if key in OnMessage.units:
+        del OnMessage.units[key]
         await interaction.followup.send(
             "This channel is no longer a log channel. Messages sent here will not be logged."
         )
@@ -87,7 +86,7 @@ async def get_log_channels(interaction: discord.Interaction):
     log_channels = {}
     logged_guilds = 0
     logged_channels = 0
-    for key in ONMESSAGE.keys():
+    for key in OnMessage.units.keys():
         if key.startswith("log_"):
             guild_id, channel_id = key.split("_")[1:]
             if int(guild_id) in log_channels.keys():

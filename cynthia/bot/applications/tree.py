@@ -30,7 +30,7 @@ class CommandTree(discord.app_commands.CommandTree):
         logger.debug(
             f"{len(self.modules)} command modules found in {self.application_directory}."
         )
-        errors = []
+        errors = list()
         for module in self.modules:
             logger.debug(f"Loading applications from module: {module} ...")
             application = None
@@ -49,11 +49,11 @@ class CommandTree(discord.app_commands.CommandTree):
                     + f"\tError: {e}"
                 )
                 logger.error(error)
-                errors += error
+                errors.append(error)
             if application is not None:
                 if hasattr(application, "apps"):
                     _application = application(self.client)
-                    if hasattr(_applcation, "__ainit__"):
+                    if hasattr(_application, "__ainit__"):
                         await _application.__ainit__()
                     application = _application.apps()
                 if hasattr(application, "__iter__"):
@@ -78,7 +78,9 @@ class CommandTree(discord.app_commands.CommandTree):
                 self.__loaded_modules.append(module)
                 logger.debug("Done")
             else:
-                logger.error(f" ERR.\n\tNo application found in module: {module}")
+                error = f" ERR.\n\tNo application found in module: {module}"
+                logger.error(error)
+                errors.append(error)
         return len(self.get_commands()), errors
 
     def clear_commands(self):

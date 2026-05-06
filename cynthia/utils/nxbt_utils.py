@@ -1,9 +1,12 @@
 import nxbt
+import re
 import asyncio
 import pickle
+import json
 
 from cynthia.utils.strings import shift, unshift
 
+JSON_PATH = "macros.json"
 PICKLE_PATH = "macros.pkl"
 
 CHAR_MAP = {
@@ -30,14 +33,26 @@ CHAR_MAP = {
     "rsl": nxbt.Buttons.JCR_SL,
     "rsr": nxbt.Buttons.JCR_SR,
 }
+CHAR_UNMAP = {value: key for key, value in CHAR_MAP.items()}
+
+DURATIONS = {
+    "default": (0.15, 0.15),
+    "hold": (1.0, 0.15),
+    "tap": (0.05, 0),
+    "wait": (1.0, 1.0),
+}
 
 
 class Input:
     def __init__(
-        self, input_list=None, down_duration=0.15, up_duration=0.15, block=True
+        self,
+        input_list=None,
+        down_duration=DURATIONS["default"][0],
+        up_duration=DURATIONS["default"][1],
+        block=True,
     ):
         if input_list is None:
-            self.input_list = None
+            self.input_list = list()
         elif not isinstance(input_list, list):
             input_list = [input_list]
         self.input_list = input_list
@@ -46,7 +61,7 @@ class Input:
         self.block = block
 
     async def play(self, nx, controller):
-        if self.input_list is None:
+        if not self.input_list:
             await asyncio.sleep(self.down_duration + self.up_duration)
             return
         try:
@@ -64,71 +79,47 @@ class Input:
         except TimeoutError:
             pass
 
+    def __str__(self):
+        input_str, duration_str = self.input_str(), self.duration_str()
+        if input_str is None:
+            return duration_str
+        if duration_str is None:
+            return input_str
+        return duration_str + " " + input_str
+
+    def input_str(self):
+        if self.input_list is None:
+            return None
+        return shift(
+            " ".join(CHAR_UNMAP[_input] for _input in self.input_list),
+            exclude=["-", "v"],
+        )
+
+    def duration_str(self):
+        duration_str = f"({self.down_duration},{self.up_duration})"
+        for key, durations in DURATIONS.items():
+            if (self.down_duration, self.up_duration) == durations:
+                if key == "default":
+                    return None
+                duration_str = key
+        return duration_str
+
 
 tap_home = Input(nxbt.Buttons.HOME, down_duration=0.1, up_duration=0.05)
 
-MACROS = {}
-
 
 class Macro:
+    MACROS = {}
 
     def __init__(self, inputs=None, *_, name: str = None, force=False):
         self.name = name
-        self.original_str = None
         if inputs is not None:
             self.parse_inputs(inputs, force)
 
     def parse_inputs(self, inputs, force=False):
         self.clear()
-
         if isinstance(inputs, str):
-            self.original_str = inputs
-            if inputs.startswith("$"):
-                lines = inputs.split("\n")
-                if len(lines) > 1:
-                    macro_name = (
-                        lines[0].strip().replace(" ", "_").replace("$", "").lower()
-                    )
-                    if macro_name.startswith("!"):
-                        force = True
-                        macro_name = macro_name.replace("!", "")
-                    inputs = "\n".join(lines[1:])
-                    if self.name is None:
-                        self.name = macro_name
-
-            content = unshift(inputs.strip(), exclude="$").split("\n")
-            for line in content:
-
-                def detect_and_remove(line: str, match: str):
-                    if match in line:
-                        modified = line.replace(match, "")
-                        return modified, True
-                    return line, False
-
-                down_duration = 0.15
-                up_duration = 0.15
-
-                line, matched = detect_and_remove(line, "hold")
-                if matched:
-                    down_duration = 1.0
-                line, matched = detect_and_remove(line, "tap")
-                if matched:
-                    down_duration = 0.05
-                    up_duration = 0
-
-                for macro, _input in sorted(MACROS.items(), key=lambda x: -len(x[0])):
-                    line, matched = detect_and_remove(line, macro)
-                    if matched:
-                        self.input_list.append(_input)
-
-                _inputs = []
-                for char in sorted(CHAR_MAP.keys(), key=lambda x: -len(x)):
-                    if char in line:
-                        line = line.replace(char, "")
-                        _inputs.append(CHAR_MAP[char])
-                self.input_list.append(
-                    Input(_inputs, down_duration=down_duration, up_duration=up_duration)
-                )
+            force = self.from_str(inputs) or force
         else:
             self.input_list = [
                 _input if isinstance(_input, Input) else Input(_input)
@@ -136,16 +127,77 @@ class Macro:
             ]
 
         if self.name:
-            if force or self.name.lower() not in MACROS.keys():
-                MACROS[self.name.lower()] = self
+            if force or self.name.lower() not in Macro.MACROS.keys():
+                Macro.MACROS[self.name.lower()] = self
+
+    def from_str(self, inputs: str):
+        force = False
+        self.original_str = inputs
+        if inputs.startswith("$"):
+            lines = inputs.split("\n")
+            if len(lines) > 1:
+                macro_name = lines[0].strip().replace(" ", "_").replace("$", "").lower()
+                if macro_name.startswith("!"):
+                    force = True
+                    macro_name = macro_name.replace("!", "")
+                inputs = "\n".join(lines[1:])
+                if self.name is None:
+                    self.name = macro_name
+
+        content = unshift(inputs.strip(), exclude="$").split("\n")
+        for line in content:
+
+            def detect_and_remove(line: str, match: str):
+                if match in line:
+                    modified = line.replace(match, "")
+                    return modified, True
+                return line, False
+
+            down_duration, up_duration = None, None
+
+            result = re.search(r"\(([0-9]*(?:.[0-9]+)?),([0-9]*(?:.[0-9]+)?)\)", line)
+            if result:
+                down_duration, up_duration = result.groups()
+                line = re.sub(
+                    r"\(([0-9]*(?:.[0-9]+)?),([0-9]*(?:.[0-9]+)?)\)", "", line
+                )
+                if down_duration.isspace() or not down_duration:
+                    down_duration = None
+                if up_duration.isspace() or not up_duration:
+                    up_duration = None
+
+            for key, value in DURATIONS.items():
+                if key == "default":
+                    continue
+                line, matched = detect_and_remove(line, key)
+                if matched:
+                    down_duration, up_duration = value
+
+            down_duration = (
+                down_duration if down_duration is not None else DURATIONS["default"][0]
+            )
+            up_duration = (
+                up_duration if up_duration is not None else DURATIONS["default"][1]
+            )
+
+            for macro, _input in sorted(Macro.MACROS.items(), key=lambda x: -len(x[0])):
+                line, matched = detect_and_remove(line, macro)
+                if matched:
+                    self.input_list.append(_input)
+
+            _inputs = []
+            for char in sorted(CHAR_MAP.keys(), key=lambda x: -len(x)):
+                if char in line:
+                    line = line.replace(char, "")
+                    _inputs.append(CHAR_MAP[char])
+            self.input_list.append(
+                Input(_inputs, down_duration=down_duration, up_duration=up_duration)
+            )
+        return force
 
     def redefine(self):
         if self.original_str is not None:
             self.parse_inputs(self.original_str, force=True)
-
-    def get(self):
-        if getattr(self, "original_str", None) is not None:
-            return self.original_str
 
     def clear(self):
         self.input_list = list()
@@ -158,8 +210,14 @@ class Macro:
         for _input in self.input_list:
             await _input.play(nx, controller)
 
+    def walk(self):
+        for _input in self.input_list:
+            yield _input.play
 
-MACROS["wait"] = Input(None, down_duration=1, up_duration=0)
+    def __str__(self):
+        return "\n".join(str(_input) for _input in self.input_list)
+
+
 zoom = Macro("tap home\ntap home", name="zoom")
 cleanup = Macro(
     [
@@ -180,14 +238,53 @@ cleanup = Macro(
 
 def load_macros(drive):
     if drive.enabled and drive.exists(PICKLE_PATH, is_file=True):
-        with drive.open(PICKLE_PATH, "rb") as f:
-            _macros = pickle.load(f)
+        with drive.open(JSON_PATH, "rb") as f:
+            _macros = json.load(f)
             for key, value in _macros.items():
-                if key not in MACROS.keys():
-                    MACROS[key] = value
+                if key not in Macro.MACROS.keys():
+                    Macro.MACROS[key] = Macro(value)
 
 
 def save_macros(drive):
     if drive.enabled:
-        with drive.open(PICKLE_PATH, "wb") as f:
-            pickle.dump(MACROS, f)
+        with drive.open(JSON_PATH, "w") as f:
+            dump = {key: str(val) for key, val in Macro.MACROS.items()}
+            json.dump(dump, f)
+
+
+async def nxbt_connect(nx, timeout=30):
+    controller = nx.create_controller(nxbt.PRO_CONTROLLER, colour_body=[215, 0, 255])
+
+    try:
+        await asyncio.wait_for(
+            asyncio.to_thread(nx.wait_for_connection, controller), timeout=30
+        )
+    except TimeoutError:
+        nx.remove_controller(controller)
+        return False, None
+
+    await asyncio.sleep(2)
+
+    await Macro(
+        [Input(nxbt.Buttons.A, up_duration=1.0), nxbt.Buttons.B, nxbt.Buttons.HOME]
+    ).play(nx, controller)
+
+    return True, controller
+
+
+async def nxbt_disconnect(nx, controller):
+    if controller is not None:
+        try:
+            await asyncio.wait_for(
+                Macro.MACROS["cleanup"].play(nx, controller), timeout=15
+            )
+        except TimeoutError:
+            pass
+        await asyncio.sleep(1)
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(nx.remove_controller, controller), timeout=10
+            )
+        except TimeoutError:
+            return False
+    return True

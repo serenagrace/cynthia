@@ -10,7 +10,7 @@ from cynthia.utils.db import Database
 from cynthia.utils.drive import Drive
 from cynthia.utils.logger import Logger
 from cynthia.utils.nxbt_utils import load_macros, save_macros
-from cynthia.utils.onmessage import load_onmessage, save_onmessage, ONMESSAGE
+from cynthia.utils.onmessage import load_onmessage, save_onmessage, OnMessage
 from cynthia.utils.strings import color_str
 from .cogs.status import StatusCog
 import logging
@@ -40,7 +40,7 @@ class Bot(commands.Bot):
         intents.message_content = True
         super().__init__(
             intents=intents,
-            status=discord.Status.online,
+            status=discord.Status.idle,
             command_prefix="!!!!!!!!!!!",
             tree_cls=CommandTree,
             help_command=None,
@@ -51,7 +51,6 @@ class Bot(commands.Bot):
             self.onexit["logging"] = self.logger.log_stop
 
             load_macros(self.drive)
-            load_onmessage(self)
 
             async def macro_cleanup(*_):
                 save_macros(self.drive)
@@ -91,7 +90,7 @@ class Bot(commands.Bot):
                 name="Errors:",
                 value="-"
                 + "\n-".join(errors[:3])
-                + ("\n..." if len(errors > 2) else ""),
+                + ("\n..." if len(errors) > 3 else ""),
             )
         if interaction is not None:
             await interaction.followup.send(embed=embed)
@@ -110,19 +109,41 @@ class Bot(commands.Bot):
         await self.add_cog(StatusCog(self))
 
     async def on_ready(self):
+        await load_onmessage(self)
         _logger.info(color_str("Ready.", "yellow"))
+        await self.change_presence(status=discord.Status.online)
 
     async def on_message(self, message):
         if message.author.id == self.user.id:
             return
 
-        for key, unit in ONMESSAGE.items():
+        for key, unit in OnMessage.units.items():
             _logger.debug(f"Running onmessage unit: {key}")
             await unit.call(self, message)
 
         if message.author.id not in self.config.privileged_users:
             return
         await self.messenger.respond(message)
+
+    async def close(self):
+        if self.onexit is not None:
+            exit_tasks = self.onexit.values()
+            self.onexit = None
+            if not self.is_closed():
+                await self.messenger.msg_owner("Cynthia is closing. Running cleanup...")
+            for func in exit_tasks:
+                try:
+                    await asyncio.wait_for(func(self), timeout=60)
+                except TimeoutError:
+                    _logger.warn("Warning: cleanup task timed out.")
+            if not self.is_closed():
+                try:
+                    await self.messenger.msg_owner("Cleanup complete.")
+                except:
+                    pass
+        if not self.is_closed():
+            await self.messenger.msg_owner("Cynthia will now exit.")
+        await super().close()
 
     def raise_(self, ExceptionType, /, *args, **kwargs):
         raise ExceptionType()
@@ -135,21 +156,4 @@ class Bot(commands.Bot):
                 self.kill_reason.append((exc_type, exc_val, exc_tb))
             else:
                 self.kill_reason = (exc_type, exc_val, exc_tb)
-        if self.onexit is not None:
-            exit_tasks = self.onexit.values()
-            self.onexit = None
-            if not self.is_closed():
-                await self.messenger.msg_owner("Cynthia is closing. Running cleanup...")
-            for func in exit_tasks:
-                try:
-                    await asyncio.wait_for(func(self), timeout=30)
-                except TimeoutError:
-                    _logger.warn("Warning: cleanup task timed out.")
-            if not self.is_closed():
-                try:
-                    await self.messenger.msg_owner("Cleanup complete.")
-                except:
-                    pass
-        if not self.is_closed():
-            await self.messenger.msg_owner("Cynthia will now exit.")
         await super().__aexit__(exc_type, exc_val, exc_tb)
