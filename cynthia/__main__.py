@@ -1,3 +1,4 @@
+import argparse
 from .context import Context
 from .bot import Bot
 from .exceptions import *
@@ -14,8 +15,13 @@ logging.getLogger("nxbt").setLevel(logging.INFO)
 
 def main():
 
-    _context = Context("config.yaml")
+    parser = argparse.ArgumentParser()
+    # parser.add_argument("--uvcgui", action="store_true", help="Enable UVC GUI")
+    parser.add_argument("--config", default="config.yaml", help="Override config file")
 
+    args = parser.parse_args()
+
+    _context = Context(args)
     bot = Bot(_context)
     if _context.env.DISCORD_BOT_TOKEN is None:
         logger.error("Error: 'DISCORD_BOT_TOKEN' not specified in .env file.")
