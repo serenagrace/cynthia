@@ -1,13 +1,11 @@
 import nxbt
 import re
 import asyncio
-import pickle
 import json
 
 from cynthia.utils.strings import shift, unshift
 
 JSON_PATH = "macros.json"
-PICKLE_PATH = "macros.pkl"
 
 CHAR_MAP = {
     "a": nxbt.Buttons.A,
@@ -237,7 +235,7 @@ cleanup = Macro(
 
 
 def load_macros(drive):
-    if drive.enabled and drive.exists(PICKLE_PATH, is_file=True):
+    if drive.enabled and drive.exists(JSON_PATH, is_file=True):
         with drive.open(JSON_PATH, "rb") as f:
             _macros = json.load(f)
             for key, value in _macros.items():

@@ -1,10 +1,8 @@
 import discord
-from pathlib import Path
-from typing import Literal
 from discord import app_commands
 from cynthia.exceptions import ExitCynthia
 from cynthia.utils.auth import privileged_only
-from cynthia.utils.onmessage import OnMessage, save_onmessage
+from cynthia.utils.onmessage import OnMessage
 
 
 @app_commands.command()

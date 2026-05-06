@@ -1,7 +1,6 @@
 import asyncio
 from contextlib import closing
 import cv2
-from skimage.metrics import structural_similarity as ssim
 from multiprocessing import shared_memory
 import io
 import numpy

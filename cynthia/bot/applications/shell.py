@@ -1,5 +1,4 @@
 import discord
-from pathlib import Path
 from discord import app_commands
 from tempfile import TemporaryFile
 from cynthia.utils.auth import privileged_only

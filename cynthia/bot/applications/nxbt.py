@@ -1,7 +1,7 @@
 import discord
 from discord import app_commands
 from cynthia.utils.auth import nxbt_permission, privileged_only
-from cynthia.utils.nxbt_utils import CHAR_MAP, Macro, Input
+from cynthia.utils.nxbt_utils import Macro, Input
 from cynthia.utils.onmessage import OnMessage
 from cynthia.daemons.dman import daemon_running
 import asyncio

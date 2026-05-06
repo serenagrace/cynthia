@@ -5,7 +5,6 @@ from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 import numpy
 from multiprocessing import shared_memory
-import logging
 from .daemon import Daemon
 from .dman import FB0
 import uvicorn

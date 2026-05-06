@@ -4,8 +4,6 @@ import multiprocessing
 from cynthia.utils.nxbt_utils import Macro, nxbt_connect, nxbt_disconnect
 from .daemon import Daemon
 from queue import Empty
-import os
-import signal
 
 
 class NXBTDaemon(Daemon):

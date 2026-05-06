@@ -1,4 +1,4 @@
-from multiprocessing import Process, Manager, Queue
+from multiprocessing import Process, Manager
 
 
 class Daemon:

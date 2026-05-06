@@ -1,6 +1,4 @@
-from pathlib import Path
 from cynthia.utils.nxbt_utils import Macro
-import pickle
 
 
 class OnMessage:

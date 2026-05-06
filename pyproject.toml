@@ -3,7 +3,7 @@ requires = ["setuptools >= 77.0.3"]
 build-backend = "setuptools.build_meta"
 [project]
 name="cynthia"
-version="1.1.2"
+version="1.2.0"
 requires-python="==3.14.11"
 dependencies = [
     "about-time==4.2.1",
@@ -11,13 +11,20 @@ dependencies = [
     "discord-py",
     "grapheme==0.6.0",
     "nxbt",
-    "opencv-python",
     "python-dotenv==1.1.0",
     "pyyaml==6.0.2",
     "pyotp",
     "rapidfuzz",
     "requests-async",
-    "roku"
+    "roku",
+    "uvicorn",
+    "scikit-image",
+    "paddleocr==2.7.3",
+    "paddlepaddle==2.6.2",
+    "fastapi",
+    "xxhash==3.7.0",
+    "numpy<2.0.0",
+    "opencv-python-headless<4.10"
 ]
 
 [project.scripts]

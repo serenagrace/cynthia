@@ -1,7 +1,5 @@
 import discord
-from pathlib import Path
 from discord import app_commands
-from typing import Optional
 
 
 @app_commands.command()

@@ -1,5 +1,4 @@
 import sqlite3
-from pathlib import Path
 import logging
 
 logger = logging.getLogger(__name__)
@@ -14,7 +13,7 @@ class Database:
         self.database_connected = False
         self.drive = drive
         if not self.drive.enabled:
-            logger.warn(f"Drive not enabled. DB features disabled.")
+            logger.warn("Drive not enabled. DB features disabled.")
             return
         self.db_path = self.drive.path(DB_PATH)
         if not self.drive.exists(DB_PATH, is_file=True):
