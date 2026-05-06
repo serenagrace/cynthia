@@ -14,14 +14,15 @@ class OnMessage:
             self.logger.log_message(message)
 
     async def nxbt_action(self, client, message):
-        nx = getattr(client, "nxbt", None)
-        controller = getattr(client, "nxbt_controller", None)
+        if hasattr(client, "dman"):
+            NXBTDaemon = self.dman.running_daemons.get("NXBTDaemon", None)
+            if NXBTDaemon is None:
+                return
+            if not NXBTDaemon.connected:
+                return
 
-        if nx is None or controller is None:
-            return
-
-        macro = Macro(message.content)
-        await macro.play(nx, controller)
+            macro = Macro(message.content)
+            NXBTDaemon.queue(macro)
 
     def __init__(
         self,
