@@ -48,6 +48,8 @@ class Compendium:
         setattr(self, f"{dataset}_data", temp)
 
     def update(self, dataset, new_data):
+        with open("tmp.json", "w") as f:
+            f.write(new_data)
         for key, value in json.loads(new_data).items():
             testdict = getattr(self, f"{dataset}_data", dict()).get(key, dict()).copy()
             testdict["updatetime"] = None
@@ -87,7 +89,8 @@ class STS(Compendium):
         }
     )
 
-    def format_text(self, string, upgraded=False):
+    @staticmethod
+    def format_text(string, upgraded=False):
         string = re.sub(
             r"\[(?P<a>[^\|]*)\|(?P<b>[^\]]*)\]",
             r"\g<b>" if upgraded else r"\g<a>",
@@ -143,6 +146,12 @@ class STS(Compendium):
                 card_data = card_data.replace('"]', "")
                 card_data = card_data.replace(" = ", '": ')
                 card_data = card_data.replace("\t", "")
+                card_data = re.sub(
+                    r'^"local all_data.*$', "{", card_data, flags=re.MULTILINE
+                )
+                card_data = re.sub(
+                    r'""local formatted.*', "", card_data, flags=re.DOTALL
+                )
 
                 data_lines = []
 
@@ -171,6 +180,10 @@ class STS(Compendium):
                 r":\s*{\s*(?=[a-zA-Z])", ': { "', relic_data, flags=re.MULTILINE
             )
             relic_data = relic_data.replace("\t", "")
+            relic_data = re.sub(
+                r'^"local all_data.*$', "{", relic_data, flags=re.MULTILINE
+            )
+            relic_data = re.sub(r'""local formatted.*', "", relic_data, flags=re.DOTALL)
 
             data_lines = []
 
@@ -195,7 +208,7 @@ class STS(Compendium):
                 embed = discord.Embed(
                     title=query,
                     url=self.base_url + "Slay_the_Spire_2:" + query.replace(" ", "_"),
-                    description=self.format_text(card_info["Text"]),
+                    description=STS.format_text(card_info["Text"]),
                     colour=self.COLORS[card_info["Color"]],
                 )
                 embed.set_footer(
@@ -233,7 +246,7 @@ class STS(Compendium):
                                 url=self.parent.img_url
                                 + self.card_info["Image"].replace(".png", "Plus.png")
                             )
-                            _embed.description = self.format_text(
+                            _embed.description = STS.format_text(
                                 self.card_info["Text"], upgraded=True
                             )
                         else:
@@ -241,9 +254,7 @@ class STS(Compendium):
                             _embed.set_image(
                                 url=self.parent.img_url + self.card_info["Image"]
                             )
-                            _embed.description = self.format_text(
-                                self.card_info["Text"]
-                            )
+                            _embed.description = STS.format_text(self.card_info["Text"])
 
                         await interaction.response.edit_message(
                             embed=_embed,
@@ -263,7 +274,7 @@ class STS(Compendium):
                 embed = discord.Embed(
                     title=query,
                     url=self.base_url + query.replace(" ", "_"),
-                    description=self.format_text(relic_info["Description"])
+                    description=STS.format_text(relic_info["Description"])
                     + "\n*"
                     + relic_info["Flavor"]
                     + "*",
