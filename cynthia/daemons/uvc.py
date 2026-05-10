@@ -75,7 +75,7 @@ class UVC:
 
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
-        self.cap.set(cv2.CAP_PROP_FPS, 30)
+        self.cap.set(cv2.CAP_PROP_FPS, 60)
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
         await asyncio.sleep(1)  # Give the camera some time to initialize
@@ -92,17 +92,10 @@ class UVC:
         try:
             async with asyncio.timeout(5):
                 logger.debug("Attempting to read frame from UVC device.")
-                while not good_img:
-                    self.cap.grab()  # Grab the latest frame to clear the buffer
-
-                    ret, frame = self.cap.read()
-                    if ret:
-                        good_img = (
-                            cv2.countNonZero(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY))
-                            > 0
-                        )
-                    logger.debug(f"Good Image: {bool(good_img)}")
+                ret, frame = self.cap.read()
+                while not ret:
                     await asyncio.sleep(0.05)  # Avoid busy waiting
+                    ret, frame = self.cap.read()
         except TimeoutError:
             pass
 

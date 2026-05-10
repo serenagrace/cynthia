@@ -1,5 +1,6 @@
 import asyncio
 from contextlib import closing
+from datetime import datetime
 import re
 import time
 import cv2
@@ -51,7 +52,7 @@ class Scene:
 
 class CVDaemon(Daemon):
     def __init__(self, dman):
-        def loop(ns, uns, fba, fbb):
+        def loop(ns, uns, fba, fbb, drive):
             with (
                 closing(shared_memory.SharedMemory(name=fba)) as shmA,
                 closing(shared_memory.SharedMemory(name=fbb)) as shmB,
@@ -106,7 +107,9 @@ class CVDaemon(Daemon):
 
                             if sorted_scores[0][1] > 0.9:
                                 if sorted_scores[0][0] in ("home", "afk_home"):
-                                    game = CV.scrape_text(frame, y=200, h=100)
+                                    game = CV.scrape_text(frame, y=200, h=100).strip()
+                                    if game.startswith('-'):
+                                        game = game.replace('-', '').strip()
                                     game = re.sub(r"^[a-zA-Z\-] ", "", game)
                                     embed.add_field(name="Selected Game:", value=game)
                                     ns.game = game
@@ -119,19 +122,24 @@ class CVDaemon(Daemon):
                                     ns.home = False
                                     ns.playing = True
                                 if sorted_scores[0][0] in ("bdsp_tbox"):
-                                    print("tbox")
                                     raw_text = CV.scrape_text(
                                         frame, y=870, h=260, w=860
                                     )
-                                    print(raw_text)
                                     if "appeared" in raw_text:
-                                        timer = time.time_ns()
+                                        timer = uns_time
                                         timer_string = "appeared"
                                     else:
                                         if timer_string == "appeared":
+                                            encounter_time = (uns_time - timer) / 1_000_000
+                                            with drive.open("encounter_times.log", 'a') as f:
+                                                f.write(f"{datetime.now()},{ns.game},{encounter_time:0f}\n")
                                             print(
-                                                f"Encounter Time: {(time.time_ns() - timer) // 1000 :.0f}"
+                                                f"Encounter Time: {encounter_time:.0f}ms"
                                             )
+
+                                            if encounter_time > 1250:
+                                                self.uns.nxbt_daemon_stop = True
+
                                             timer_string = None
                             # elif not raw_text.isspace():
                             #    embed.add_field(name="Detected Text:", value=raw_text)
@@ -147,8 +155,9 @@ class CVDaemon(Daemon):
 
                 asyncio.run(main_task())
 
-        super().__init__(dman, fbs=(0,))
+        super().__init__(dman, dman.drive, fbs=(0,) )
         self.ns.uvc_time = -1
+        self.uns.nxbt_daemon_stop = False
         self.ns.png = None
         self.ns.home = False
         self.ns.game = None

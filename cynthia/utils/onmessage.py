@@ -13,7 +13,7 @@ class OnMessage:
 
     async def nxbt_action(self, client, message):
         if hasattr(client, "dman"):
-            NXBTDaemon = self.dman.running_daemons.get("NXBTDaemon", None)
+            NXBTDaemon = client.dman.running_daemons.get("NXBTDaemon", None)
             if NXBTDaemon is None:
                 return
             if not NXBTDaemon.connected:

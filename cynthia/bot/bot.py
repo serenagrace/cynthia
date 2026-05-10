@@ -51,13 +51,9 @@ class Bot(commands.Bot):
 
             load_macros(self.drive)
 
-            async def macro_cleanup(*_):
-                save_macros(self.drive)
-
             async def onmessage_cleanup(*_):
                 save_onmessage(self.database)
 
-            self.onexit["macros"] = macro_cleanup
             self.onexit["onmessage"] = onmessage_cleanup
 
         async def dman_cleanup(*_):

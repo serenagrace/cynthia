@@ -1,9 +1,13 @@
 import nxbt
+import logging
 import re
 import asyncio
 import json
 
 from cynthia.utils.strings import shift, unshift
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 JSON_PATH = "macros.json"
 
@@ -119,6 +123,8 @@ class Macro:
         if isinstance(inputs, str):
             force = self.from_str(inputs) or force
         else:
+            if not hasattr(inputs, '__iter__'):
+                inputs = [ inputs ]
             self.input_list = [
                 _input if isinstance(_input, Input) else Input(_input)
                 for _input in inputs
@@ -127,6 +133,8 @@ class Macro:
         if self.name:
             if force or self.name.lower() not in Macro.MACROS.keys():
                 Macro.MACROS[self.name.lower()] = self
+
+        logger.debug(str(self))
 
     def from_str(self, inputs: str):
         force = False
@@ -146,8 +154,8 @@ class Macro:
         for line in content:
 
             def detect_and_remove(line: str, match: str):
-                if match in line:
-                    modified = line.replace(match, "")
+                if unshift(match) in unshift(line):
+                    modified = line.replace(unshift(match), "")
                     return modified, True
                 return line, False
 
@@ -210,7 +218,7 @@ class Macro:
 
     def walk(self):
         for _input in self.input_list:
-            yield _input.play
+            yield _input
 
     def __str__(self):
         return "\n".join(str(_input) for _input in self.input_list)

@@ -14,7 +14,7 @@ import nxbt
 @privileged_only()
 async def connect(interaction: discord.Interaction):
     await interaction.response.defer()
-    nxbt_daemon = interaction.bot.dman.running_daemons["NXBTDaemon"]
+    nxbt_daemon = interaction.client.dman.running_daemons["NXBTDaemon"]
     if nxbt_daemon.connected:
         await interaction.followup.send("Already connected to Nintendo Switch!")
         return
@@ -31,8 +31,7 @@ async def connect(interaction: discord.Interaction):
 @nxbt_permission()
 async def disconnect(interaction: discord.Interaction):
     await interaction.response.defer(thinking=False, ephemeral=True)
-    await interaction.response.defer()
-    nxbt_daemon = interaction.bot.dman.running_daemons["NXBTDaemon"]
+    nxbt_daemon = interaction.client.dman.running_daemons["NXBTDaemon"]
     if not nxbt_daemon.connected:
         await interaction.followup.send("Disconnected from Nintendo Switch.")
         return
@@ -71,13 +70,13 @@ async def disconnect(interaction: discord.Interaction):
 )
 async def switch(interaction: discord.Interaction, action: app_commands.Choice[str]):
     await interaction.response.defer(thinking=False, ephemeral=True)
-    nxbt_daemon = interaction.bot.dman.running_daemons["NXBTDaemon"]
+    nxbt_daemon = interaction.client.dman.running_daemons["NXBTDaemon"]
     if not nxbt_daemon.connected:
         await interaction.response.send_message(
             "Not connected to Nintendo Switch. Use /connect to connect."
         )
         return
-    nxbt_daemon.queue(Input([getattr(nxbt.Buttons, action.value, None)], 0.1, 0.5))
+    nxbt_daemon.queue(Macro(Input([getattr(nxbt.Buttons, action.value, None)])))
     nxbt_daemon.unpause()
     await interaction.followup.send("Input received.")
 
@@ -102,6 +101,8 @@ async def use_channel_as_input(interaction: discord.Interaction):
             persist=False,
         )
     )
+    nxbt_daemon = interaction.client.dman.running_daemons["NXBTDaemon"]
+    nxbt_daemon.unpause()
 
     await interaction.followup.send(
         "Now using this channel as input. Send button commands here."
@@ -156,7 +157,7 @@ async def define_macro(interaction: discord.Interaction, message: discord.Messag
 @daemon_running("NXBTDaemon")
 async def queue_macro(interaction: discord.Interaction, message: discord.Message):
     await interaction.response.defer(thinking=False, ephemeral=True)
-    nxbt_daemon = interaction.bot.dman.running_daemons["NXBTDaemon"]
+    nxbt_daemon = interaction.client.dman.running_daemons["NXBTDaemon"]
     content = message.content
     macro = Macro(content)
     if not nxbt_daemon.connected:
@@ -215,36 +216,36 @@ async def show(interaction: discord.Interaction):
 @nxbt_permission()
 @daemon_running("NXBTDaemon")
 async def pause(interaction: discord.Interaction):
-    nxbt_daemon = interaction.bot.dman.running_daemons["NXBTDaemon"]
+    nxbt_daemon = interaction.client.dman.running_daemons["NXBTDaemon"]
     nxbt_daemon.pause()
-    await interaction.response.send("Macro Playback paused.")
+    await interaction.response.send_message("Macro Playback paused.")
 
 
 @app_commands.command()
 @nxbt_permission()
 @daemon_running("NXBTDaemon")
 async def unpause(interaction: discord.Interaction):
-    nxbt_daemon = interaction.bot.dman.running_daemons["NXBTDaemon"]
+    nxbt_daemon = interaction.client.dman.running_daemons["NXBTDaemon"]
     nxbt_daemon.unpause()
-    await interaction.response.send("Macro Playback resumed.")
+    await interaction.response.send_message("Macro Playback resumed.")
 
 
 @app_commands.command()
 @nxbt_permission()
 @daemon_running("NXBTDaemon")
 async def loop(interaction: discord.Interaction, value: bool):
-    nxbt_daemon = interaction.bot.dman.running_daemons["NXBTDaemon"]
-    nxbt_daemon.loop(loop=value)
-    await interaction.response.send("Loop Behavior updated.")
+    nxbt_daemon = interaction.client.dman.running_daemons["NXBTDaemon"]
+    nxbt_daemon.set_loop(loop=value)
+    await interaction.response.send_message("Loop Behavior updated.")
 
 
 @app_commands.command()
 @nxbt_permission()
 @daemon_running("NXBTDaemon")
 async def stop(interaction: discord.Interaction):
-    nxbt_daemon = interaction.bot.dman.running_daemons["NXBTDaemon"]
+    nxbt_daemon = interaction.client.dman.running_daemons["NXBTDaemon"]
     nxbt_daemon.stop()
-    await interaction.response.send("Macro Playback stopped, queue cleared.")
+    await interaction.response.send_message("Macro Playback stopped, queue cleared.")
 
 
 @app_commands.command()
@@ -252,7 +253,7 @@ async def stop(interaction: discord.Interaction):
 @daemon_running("NXBTDaemon")
 async def macro_clear(interaction: discord.Interaction):
     await interaction.response.defer()
-    nxbt_daemon = interaction.bot.dman.running_daemons["NXBTDaemon"]
+    nxbt_daemon = interaction.client.dman.running_daemons["NXBTDaemon"]
     success = await nxbt_daemon.clear_queue()
     if success:
         await interaction.followup.send("Macro queue cleared.")

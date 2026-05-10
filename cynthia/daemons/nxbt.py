@@ -1,16 +1,19 @@
 import asyncio
 import nxbt
 import multiprocessing
-from cynthia.utils.nxbt_utils import Macro, nxbt_connect, nxbt_disconnect
+from cynthia.utils.nxbt_utils import Macro, load_macros, save_macros, nxbt_connect, nxbt_disconnect
 from .daemon import Daemon
 from queue import Empty
+import logging
 
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 class NXBTDaemon(Daemon):
     POLL_RATE = 0.5
 
     def __init__(self, dman):
-        def loop(ns, uns, tqueue):
+        def loop(ns, uns, tqueue, drive):
             nx = nxbt.Nxbt()
             controller = None
             playing_gen = None
@@ -20,6 +23,7 @@ class NXBTDaemon(Daemon):
                 nonlocal controller
                 nonlocal playing_gen
                 nonlocal playing
+                load_macros(drive)
                 while ns.run:
                     if ns.disconnect:
                         ns.disconnect = False
@@ -43,11 +47,17 @@ class NXBTDaemon(Daemon):
                         if ns.pause or not ns.connected:
                             await asyncio.sleep(NXBTDaemon.POLL_RATE)
                             continue
+                        if uns.nxbt_daemon_stop:
+                            await Macro("hold c").play(nx, controller)
+                            ns.pause = True
+                            continue
 
                         # Keep playing current Macro
                         if playing_gen is not None:
                             try:
-                                await next(playing_gen)(nx, controller)
+                                _input = next(playing_gen)
+                                logger.debug(f"Playing {str(_input)}")
+                                await _input.play(nx, controller)
                             except StopIteration:
                                 ns.playing = False
                                 playing_gen = None
@@ -84,8 +94,10 @@ class NXBTDaemon(Daemon):
                             ns.stop = False
                         await asyncio.sleep(NXBTDaemon.POLL_RATE)
 
+                save_macros(drive)
+
                 if ns.connected:
-                    await nxbt.disconnect(nx, controller)
+                    await nxbt_disconnect(nx, controller)
 
                 # Mark process safe to boom
                 self.ns.done = True
@@ -93,11 +105,12 @@ class NXBTDaemon(Daemon):
             asyncio.run(main_task())
 
         self.tqueue = multiprocessing.Queue()
-        super().__init__(dman, self.tqueue)
+        super().__init__(dman, self.tqueue, dman.drive)
         self.ns.done = False
         self.ns.loop = False
         self.ns.connect = False
         self.ns.disconnect = False
+        self.uns.nxbt_daemon_stop = False
         self.ns.connected = False
         self.ns.playing = False
         self.ns.pause = True
@@ -120,8 +133,10 @@ class NXBTDaemon(Daemon):
     def pause(self):
         self.ns.pause = True
 
-    def loop(self, *, loop=True):
+    def set_loop(self, *, loop=True):
         self.ns.loop = loop
+        if loop:
+            self.ns.pause = True
 
     async def connect(self):
         self.ns.connect = True

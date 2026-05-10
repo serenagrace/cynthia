@@ -9,6 +9,7 @@ from multiprocessing import shared_memory
 from .daemon import Daemon
 from cynthia.utils.namespace import Namespace
 from multiprocessing import Manager
+from cynthia.utils.drive import Drive
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -31,6 +32,7 @@ class FB0:
 class DMan:
     def __init__(self, context):
         self.context = context
+        self.drive = Drive(self.context.config.drive_path)
         self.__modules = list()
         self.__loaded_modules = list()
         self.__loaded_daemons = Namespace()
@@ -112,8 +114,8 @@ class DMan:
             return
 
         for name, daemon in self.loaded_daemons.items():
-            if name in ("CYStream",):
-                continue
+            #if name in ("CYStream",):
+            #    continue
             if name not in self.__running_daemons:
                 self.__running_daemons[name] = daemon(self)
 
@@ -181,8 +183,8 @@ class DMan:
 
 def daemon_running(daemon: str):
     async def predicate(interaction):
-        if hasattr(interaction.bot, "dman"):
-            return daemon in interaciton.bot.dman.running_daemons
+        if hasattr(interaction.client, "dman"):
+            return daemon in interaction.client.dman.running_daemons
         return False
 
     return app_commands.check(predicate)
