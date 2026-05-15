@@ -18,6 +18,7 @@ def main():
     parser = argparse.ArgumentParser()
     # parser.add_argument("--uvcgui", action="store_true", help="Enable UVC GUI")
     parser.add_argument("--config", default="config.yaml", help="Override config file")
+    parser.add_argument("--hunt", type=str, default=None)
 
     args = parser.parse_args()
 

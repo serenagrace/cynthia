@@ -1,19 +1,30 @@
 import asyncio
 import nxbt
 import multiprocessing
-from cynthia.utils.nxbt_utils import Macro, load_macros, save_macros, nxbt_connect, nxbt_disconnect
+from cynthia.utils.nxbt_utils import (
+    Macro,
+    load_macros,
+    save_macros,
+    nxbt_connect,
+    nxbt_disconnect,
+)
 from .daemon import Daemon
+import os
 from queue import Empty
 import logging
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
+
 class NXBTDaemon(Daemon):
     POLL_RATE = 0.5
 
     def __init__(self, dman):
-        def loop(ns, uns, tqueue, drive):
+        def loop(ns, uns, tqueue, macro_tree, drive):
+            logger = logging.getLogger(__name__)
+            logging.basicConfig(level=logging.DEBUG)
+            logging.getLogger("nxbt").setLevel(logging.INFO)
             nx = nxbt.Nxbt()
             controller = None
             playing_gen = None
@@ -23,7 +34,16 @@ class NXBTDaemon(Daemon):
                 nonlocal controller
                 nonlocal playing_gen
                 nonlocal playing
+                Macro.bind_macro_tree(macro_tree)
                 load_macros(drive)
+
+                try:
+                    os.setpriority(os.PRIO_PROCESS, 0, -20)
+                except PermissionError:
+                    logger.warning(
+                        "Failed to elevate NXBTDaemon priority. Run with sudo."
+                    )
+
                 while ns.run:
                     if ns.disconnect:
                         ns.disconnect = False
@@ -41,7 +61,14 @@ class NXBTDaemon(Daemon):
                         success, controller = await nxbt_connect(nx)
                         if success:
                             ns.connected = True
+                            uns.nxbt_connection_lost = False
                             continue
+                        else:
+                            uns.nxbt_connection_lost = True
+                            logger.error("Connection lost, disconnecting controller.")
+                            await nxbt_disconnect(nx, controller)
+                            controller = None
+                            ns.connected = False
 
                     if not ns.stop:
                         if ns.pause or not ns.connected:
@@ -52,8 +79,19 @@ class NXBTDaemon(Daemon):
                             ns.pause = True
                             continue
 
+                    if ns.connected:
+                        if nx.state[controller]["state"] != "connected":
+                            uns.nxbt_connection_lost = True
+                            logger.error("Connection lost, disconnecting controller.")
+                            await nxbt_disconnect(nx, controller)
+                            controller = None
+                            ns.connected = False
+                            ns.playing = False
+                            playing_gen = None
+                            ns.stop = True
+
                         # Keep playing current Macro
-                        if playing_gen is not None:
+                        elif playing_gen is not None:
                             try:
                                 _input = next(playing_gen)
                                 logger.debug(f"Playing {str(_input)}")
@@ -105,13 +143,16 @@ class NXBTDaemon(Daemon):
             asyncio.run(main_task())
 
         self.tqueue = multiprocessing.Queue()
-        super().__init__(dman, self.tqueue, dman.drive)
+        macro_tree = dman.manager.dict()
+        Macro.bind_macro_tree(macro_tree)
+        super().__init__(dman, self.tqueue, macro_tree, dman.drive)
         self.ns.done = False
         self.ns.loop = False
         self.ns.connect = False
         self.ns.disconnect = False
         self.uns.nxbt_daemon_stop = False
         self.ns.connected = False
+        self.uns.nxbt_connection_lost = False
         self.ns.playing = False
         self.ns.pause = True
         self.ns.stop = False
@@ -129,6 +170,8 @@ class NXBTDaemon(Daemon):
 
     def unpause(self):
         self.ns.pause = False
+        self.uns.nxbt_daemon_stop = False
+        self.uns.messaged = False
 
     def pause(self):
         self.ns.pause = True
@@ -143,11 +186,11 @@ class NXBTDaemon(Daemon):
 
         try:
             async with asyncio.timeout(30):
-                while not self.ns.connected:
-                    await asyncio.sleep(1)
+                while not (self.ns.connected or self.uns.nxbt_connection_lost):
+                    await asyncio.sleep(5)
         except TimeoutError:
             return False
-        return True
+        return self.ns.connected
 
     async def disconnect(self):
         self.ns.disconnect = True
