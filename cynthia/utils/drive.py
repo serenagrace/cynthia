@@ -33,7 +33,9 @@ class Drive:
             return None
         return self.drive_path / file_path
 
-    def open(self, file_path, mode):
+    def open(self, file_path, mode, touch=False):
+        if touch:
+            self.touch(file_path)
         return open(self.drive_path / file_path, mode)
 
     def gopen(self, file_path, mode, *, encoding="utf-8"):

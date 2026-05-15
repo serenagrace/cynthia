@@ -8,15 +8,21 @@ class Messenger:
 
     async def msg_owner(self, msg, *, embed=None, file=None, silent=False, alert=False):
         user_owner = await self.bot.fetch_user(self.bot.config.owner)
-        await self.send_msg(user_owner, msg, embed=embed, file=file, silent=silent, alert=alert)
+        await self.send_msg(
+            user_owner, msg, embed=embed, file=file, silent=silent, alert=alert
+        )
 
-    async def send_msg(self, send_context, msg, *, embed=None, file=None, silent=False, alert=False):
+    async def send_msg(
+        self, send_context, msg, *, embed=None, file=None, silent=False, alert=False
+    ):
         if isinstance(msg, discord.Embed):
             await send_context.send(
                 embed=msg, silent=(self.bot.config.silent or silent) and not alert
             )
         else:
-            await send_context.send(msg, embed=embed, file=file, silent=self.bot.config.silent and silent)
+            await send_context.send(
+                msg, embed=embed, file=file, silent=self.bot.config.silent and silent
+            )
 
     async def send_list(self, send_context, title, items):
         if not items:

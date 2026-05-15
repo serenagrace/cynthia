@@ -120,24 +120,6 @@ async def stop_using_channel_as_input(interaction: discord.Interaction):
     await interaction.followup.send("Stopped accepting channel input.")
 
 
-@app_commands.command()
-@privileged_only()
-async def redefine(interaction: discord.Interaction, macro: str):
-    await interaction.response.defer(thinking=False, ephemeral=True)
-    macro_obj = Macro.MACROS.get(macro.lower(), None)
-    if macro_obj is None:
-        await interaction.followup.send(f"No macro found with name '{macro}'.")
-        return
-    macro_str = macro_obj.get()
-    if macro_str is None:
-        await interaction.followup.send(
-            f"Macro '{macro}' has no original string representation."
-        )
-        return
-    macro_obj.redefine()
-    await interaction.followup.send(f"Macro '{macro}' redefined.")
-
-
 @app_commands.context_menu(name="Define Macro")
 @nxbt_permission()
 async def define_macro(interaction: discord.Interaction, message: discord.Message):
@@ -155,7 +137,9 @@ async def define_macro(interaction: discord.Interaction, message: discord.Messag
 @app_commands.context_menu(name="Queue Macro")
 @nxbt_permission()
 @daemon_running("NXBTDaemon")
-async def queue_macro(interaction: discord.Interaction, message: discord.Message):
+async def queue_macro_context(
+    interaction: discord.Interaction, message: discord.Message
+):
     await interaction.response.defer(thinking=False, ephemeral=True)
     nxbt_daemon = interaction.client.dman.running_daemons["NXBTDaemon"]
     content = message.content
@@ -171,14 +155,32 @@ async def queue_macro(interaction: discord.Interaction, message: discord.Message
 
 @app_commands.command()
 @nxbt_permission()
-async def get_macro(interaction: discord.Interaction, macro: str):
-    await interaction.response.defer()
-    macro_obj = Macro.MACROS.get(macro.lower(), None)
-    if macro_obj is None:
+@daemon_running("NXBTDaemon")
+async def queue_macro(interaction: discord.Interaction, macro: str):
+    await interaction.response.defer(thinking=False, ephemeral=True)
+    nxbt_daemon = interaction.client.dman.running_daemons["NXBTDaemon"]
+    if not nxbt_daemon.connected:
+        await interaction.followup.send(
+            "Not connected to Nintendo Switch. Use /connect to connect."
+        )
+        return
+    macro_str = Macro._macro_tree.get(macro.lower(), None)
+    if macro_str is None:
         await interaction.followup.send(f"No macro found with name '{macro}'.")
         return
-    macro_str = str(macro_obj)
-    await interaction.followup.send(f"```{macro_str}```")
+    nxbt_daemon.queue(macro_str)
+    await interaction.followup.send(f"Macro '{macro.lower()}' Queued.")
+
+
+@app_commands.command()
+@nxbt_permission()
+async def get_macro(interaction: discord.Interaction, macro: str):
+    await interaction.response.defer()
+    macro_str = Macro._macro_tree.get(macro.lower(), None)
+    if macro_str is None:
+        await interaction.followup.send(f"No macro found with name '{macro}'.")
+        return
+    await interaction.followup.send(f"```\n{macro_str}```")
 
 
 @app_commands.command()
@@ -261,15 +263,31 @@ async def macro_clear(interaction: discord.Interaction):
         await interaction.followup.send("Error clearing queue.")
 
 
-@redefine.autocomplete("macro")
 @get_macro.autocomplete("macro")
+@queue_macro.autocomplete("macro")
 async def macro_autocomplete(interaction: discord.Interaction, current: str):
     choices = [
         app_commands.Choice(name=macro_name, value=macro_name)
-        for macro_name in Macro.MACROS.keys()
+        for macro_name in Macro._macro_tree.keys()
         if current.lower() in macro_name
     ]
     return choices[:10]
+
+
+@app_commands.command()
+@privileged_only()
+async def set_hunt(interaction: discord.Interaction, hunt: str):
+    await interaction.response.defer()
+    interaction.client.args.hunt = hunt
+    await interaction.followup.send(f"Hunt set to '{hunt}'.")
+
+
+@app_commands.command()
+@privileged_only()
+async def clear_hunt(interaction: discord.Interaction):
+    await interaction.response.defer()
+    interaction.client.args.hunt = None
+    await interaction.followup.send("Hunt cleared.")
 
 
 __application__ = (
@@ -278,14 +296,16 @@ __application__ = (
     switch,
     use_channel_as_input,
     stop_using_channel_as_input,
-    redefine,
     define_macro,
     get_macro,
     queue_macro,
+    queue_macro_context,
     show,
     pause,
     unpause,
     stop,
     loop,
     macro_clear,
+    set_hunt,
+    clear_hunt,
 )

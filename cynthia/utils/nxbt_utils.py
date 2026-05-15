@@ -7,7 +7,7 @@ import json
 from cynthia.utils.strings import shift, unshift
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 JSON_PATH = "macros.json"
 
@@ -104,6 +104,8 @@ class Input:
                 if key == "default":
                     return None
                 duration_str = key
+        if not self.block:
+            duration_str += " noblock"
         return duration_str
 
 
@@ -111,7 +113,24 @@ tap_home = Input(nxbt.Buttons.HOME, down_duration=0.1, up_duration=0.05)
 
 
 class Macro:
-    MACROS = {}
+    _macro_tree = None
+
+    @classmethod
+    def get(cls, name):
+        return Macro(cls._macro_tree[name.lower()])
+
+    @classmethod
+    def bind_macro_tree(cls, macro_tree):
+        cls._macro_tree = macro_tree
+
+        # Tree dependent setup
+        zoom = Macro("tap home\ntap home", name="zoom")
+        cleanup = Macro(
+            "H\nwait\nV\n>\n>\n>\n>\n>\n>\nhold A\nnoblock A",
+            name="cleanup",
+        )
+        cls._macro_tree["zoom"] = str(zoom)
+        cls._macro_tree["cleanup"] = str(cleanup)
 
     def __init__(self, inputs=None, *_, name: str = None, force=False):
         self.name = name
@@ -123,18 +142,16 @@ class Macro:
         if isinstance(inputs, str):
             force = self.from_str(inputs) or force
         else:
-            if not hasattr(inputs, '__iter__'):
-                inputs = [ inputs ]
+            if not hasattr(inputs, "__iter__"):
+                inputs = [inputs]
             self.input_list = [
                 _input if isinstance(_input, Input) else Input(_input)
                 for _input in inputs
             ]
 
         if self.name:
-            if force or self.name.lower() not in Macro.MACROS.keys():
-                Macro.MACROS[self.name.lower()] = self
-
-        logger.debug(str(self))
+            if force or self.name.lower() not in Macro._macro_tree.keys():
+                Macro._macro_tree[self.name.lower()] = str(self)
 
     def from_str(self, inputs: str):
         force = False
@@ -152,6 +169,8 @@ class Macro:
 
         content = unshift(inputs.strip(), exclude="$").split("\n")
         for line in content:
+
+            block = True
 
             def detect_and_remove(line: str, match: str):
                 if unshift(match) in unshift(line):
@@ -179,6 +198,10 @@ class Macro:
                 if matched:
                     down_duration, up_duration = value
 
+            line, matched = detect_and_remove(line, "noblock")
+            if matched:
+                block = False
+
             down_duration = (
                 down_duration if down_duration is not None else DURATIONS["default"][0]
             )
@@ -186,10 +209,12 @@ class Macro:
                 up_duration if up_duration is not None else DURATIONS["default"][1]
             )
 
-            for macro, _input in sorted(Macro.MACROS.items(), key=lambda x: -len(x[0])):
+            for macro, _input in sorted(
+                Macro._macro_tree.items(), key=lambda x: -len(x[0])
+            ):
                 line, matched = detect_and_remove(line, macro)
                 if matched:
-                    self.input_list.append(_input)
+                    self.input_list.append(Macro(_input))
 
             _inputs = []
             for char in sorted(CHAR_MAP.keys(), key=lambda x: -len(x)):
@@ -197,7 +222,12 @@ class Macro:
                     line = line.replace(char, "")
                     _inputs.append(CHAR_MAP[char])
             self.input_list.append(
-                Input(_inputs, down_duration=down_duration, up_duration=up_duration)
+                Input(
+                    _inputs,
+                    down_duration=down_duration,
+                    up_duration=up_duration,
+                    block=block,
+                )
             )
         return force
 
@@ -224,37 +254,19 @@ class Macro:
         return "\n".join(str(_input) for _input in self.input_list)
 
 
-zoom = Macro("tap home\ntap home", name="zoom")
-cleanup = Macro(
-    [
-        Input(nxbt.Buttons.HOME, up_duration=1.0),
-        nxbt.Buttons.DPAD_DOWN,
-        nxbt.Buttons.DPAD_RIGHT,
-        nxbt.Buttons.DPAD_RIGHT,
-        nxbt.Buttons.DPAD_RIGHT,
-        nxbt.Buttons.DPAD_RIGHT,
-        nxbt.Buttons.DPAD_RIGHT,
-        nxbt.Buttons.DPAD_RIGHT,
-        Input(nxbt.Buttons.A, up_duration=1.5),
-        Input(nxbt.Buttons.A, up_duration=0, block=False),
-    ],
-    name="cleanup",
-)
-
-
 def load_macros(drive):
     if drive.enabled and drive.exists(JSON_PATH, is_file=True):
-        with drive.open(JSON_PATH, "rb") as f:
+        with drive.open(JSON_PATH, "r") as f:
             _macros = json.load(f)
             for key, value in _macros.items():
-                if key not in Macro.MACROS.keys():
-                    Macro.MACROS[key] = Macro(value)
+                if key not in Macro._macro_tree.keys():
+                    Macro._macro_tree[key] = value
 
 
 def save_macros(drive):
     if drive.enabled:
         with drive.open(JSON_PATH, "w") as f:
-            dump = {key: str(val) for key, val in Macro.MACROS.items()}
+            dump = {key: str(val) for key, val in Macro._macro_tree.items()}
             json.dump(dump, f)
 
 
@@ -271,18 +283,16 @@ async def nxbt_connect(nx, timeout=30):
 
     await asyncio.sleep(2)
 
-    await Macro(
-        [Input(nxbt.Buttons.A, up_duration=1.0), nxbt.Buttons.B, nxbt.Buttons.HOME]
-    ).play(nx, controller)
+    await Macro("A\nwait\nB\nwait\nh").play(nx, controller)
 
-    return True, controller
+    return (nx.state[controller]["state"] == "connected"), controller
 
 
 async def nxbt_disconnect(nx, controller):
     if controller is not None:
         try:
             await asyncio.wait_for(
-                Macro.MACROS["cleanup"].play(nx, controller), timeout=15
+                Macro.get("cleanup").play(nx, controller), timeout=15
             )
         except TimeoutError:
             pass

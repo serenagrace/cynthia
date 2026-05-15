@@ -108,8 +108,8 @@ class CVDaemon(Daemon):
                             if sorted_scores[0][1] > 0.9:
                                 if sorted_scores[0][0] in ("home", "afk_home"):
                                     game = CV.scrape_text(frame, y=200, h=100).strip()
-                                    if game.startswith('-'):
-                                        game = game.replace('-', '').strip()
+                                    if game.startswith("-"):
+                                        game = game.replace("-", "").strip()
                                     game = re.sub(r"^[a-zA-Z\-] ", "", game)
                                     embed.add_field(name="Selected Game:", value=game)
                                     ns.game = game
@@ -130,14 +130,20 @@ class CVDaemon(Daemon):
                                         timer_string = "appeared"
                                     else:
                                         if timer_string == "appeared":
-                                            encounter_time = (uns_time - timer) / 1_000_000
-                                            with drive.open("encounter_times.log", 'a') as f:
-                                                f.write(f"{datetime.now()},{ns.game},{encounter_time:0f}\n")
+                                            encounter_time = (
+                                                uns_time - timer
+                                            ) / 1_000_000
+                                            with drive.open(
+                                                "encounter_times.log", "a"
+                                            ) as f:
+                                                f.write(
+                                                    f"{datetime.now()},{ns.game},{encounter_time:0f}\n"
+                                                )
                                             print(
                                                 f"Encounter Time: {encounter_time:.0f}ms"
                                             )
 
-                                            if encounter_time > 1250:
+                                            if encounter_time > 2000:
                                                 self.uns.nxbt_daemon_stop = True
 
                                             timer_string = None
@@ -155,7 +161,7 @@ class CVDaemon(Daemon):
 
                 asyncio.run(main_task())
 
-        super().__init__(dman, dman.drive, fbs=(0,) )
+        super().__init__(dman, dman.drive, fbs=(0,))
         self.ns.uvc_time = -1
         self.uns.nxbt_daemon_stop = False
         self.ns.png = None
@@ -206,8 +212,8 @@ class CV:
     )
     bdsp_tbox_scene = Scene(
         cv2.imread("/raidarchive/cynthia_drive/scenes/bdsp_tbox.png"),
-        x=80,
-        y=870,
-        w=80,
-        h=260,
+        x=90,
+        y=873,
+        w=50,
+        h=180,
     )

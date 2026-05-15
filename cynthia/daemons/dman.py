@@ -43,7 +43,8 @@ class DMan:
             shared_memory.SharedMemory(create=True, size=FB0.nbytes()),
         )
         self.fbptr = None
-        self.uns = Manager().Namespace()
+        self.manager = Manager()
+        self.uns = self.manager.Namespace()
         self.uns.fbptr = None
         self.load_daemons()
         self.run_daemons()
@@ -114,7 +115,7 @@ class DMan:
             return
 
         for name, daemon in self.loaded_daemons.items():
-            #if name in ("CYStream",):
+            # if name in ("CYStream",):
             #    continue
             if name not in self.__running_daemons:
                 self.__running_daemons[name] = daemon(self)
