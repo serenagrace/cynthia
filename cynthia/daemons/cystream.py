@@ -2,7 +2,9 @@ import asyncio
 from contextlib import closing
 import cv2
 from fastapi import FastAPI
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
+import json
 import numpy
 from multiprocessing import shared_memory
 from .daemon import Daemon
@@ -12,7 +14,7 @@ import uvicorn
 
 class CYStream(Daemon):
     def __init__(self, dman):
-        def loop(ns, uns, fba, fbb):
+        def loop(ns, uns, fba, fbb, drive):
             with (
                 closing(shared_memory.SharedMemory(name=fba)) as shmA,
                 closing(shared_memory.SharedMemory(name=fbb)) as shmB,
@@ -54,7 +56,29 @@ class CYStream(Daemon):
                             else:
                                 await asyncio.sleep(0.05)
 
-                    @app.get("/video_feed")
+                    @app.get("/api/user_status")
+                    async def status():
+                        try:
+                            with drive.open("user_status.json", "r", touch=True) as f:
+                                status = json.load(f)
+                        except json.JSONDecodeError:
+                            status = {}
+                        return status
+
+                    @app.get("/favicon.ico", include_in_schema=False)
+                    async def favicon():
+                        return FileResponse(
+                            "/raidarchive/cynthia_drive/site/static/favicon.ico"
+                        )
+
+                    @app.get("/video_feed", response_class=HTMLResponse)
+                    async def video_feed_page():
+                        html_content = ""
+                        with drive.open("site/html/video_feed.html", "r") as f:
+                            html_content = f.read()
+                        return HTMLResponse(content=html_content, status_code=200)
+
+                    @app.get("/api/stream_endpoint")
                     async def video_feed():
                         ns.uvc_hash = -1
                         return StreamingResponse(
@@ -63,11 +87,11 @@ class CYStream(Daemon):
                         )
 
                     ns.done = True
-                    uvicorn.run(app, host="0.0.0.0", port=8001)
+                    uvicorn.run(app, host="127.0.0.1", port=8000)
 
                 main_task()
 
-        super().__init__(dman, fbs=(0,))
+        super().__init__(dman, dman.drive, fbs=(0,))
         self.ns.uvc_time = -1
         self.ns.done = False
         self.loop = loop

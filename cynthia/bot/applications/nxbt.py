@@ -279,6 +279,9 @@ async def macro_autocomplete(interaction: discord.Interaction, current: str):
 async def set_hunt(interaction: discord.Interaction, hunt: str):
     await interaction.response.defer()
     interaction.client.args.hunt = hunt
+    if hunt:
+        nxbt_daemon = interaction.client.dman.running_daemons["NXBTDaemon"]
+        nxbt_daemon.set_loop(loop=True)
     await interaction.followup.send(f"Hunt set to '{hunt}'.")
 
 

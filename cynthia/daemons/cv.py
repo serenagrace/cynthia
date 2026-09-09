@@ -108,8 +108,11 @@ class CVDaemon(Daemon):
                             if sorted_scores[0][1] > 0.9:
                                 if sorted_scores[0][0] in ("home", "afk_home"):
                                     game = CV.scrape_text(frame, y=200, h=100).strip()
-                                    if game.startswith("-"):
-                                        game = game.replace("-", "").strip()
+                                    no_start_chars = ("-", ".", "_", ":", ";")
+                                    while any(
+                                        game.startswith(char) for char in no_start_chars
+                                    ):
+                                        game = game[1:].strip()
                                     game = re.sub(r"^[a-zA-Z\-] ", "", game)
                                     embed.add_field(name="Selected Game:", value=game)
                                     ns.game = game
