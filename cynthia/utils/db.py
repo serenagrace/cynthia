@@ -83,7 +83,8 @@ class Database:
                         condition_type TEXT,
                         action_type TEXT,
                         CONSTRAINT onmessage_server_fk FOREIGN KEY (server_id) REFERENCES servers(id),
-                        CONSTRAINT onmessage_channel_fk FOREIGN KEY (channel_id) REFERENCES channels(id))"""
+                        CONSTRAINT onmessage_channel_fk FOREIGN KEY (channel_id) REFERENCES channels(id),
+                        UNIQUE (type, server_id, channel_id, condition_type, action_type))"""
         )
         conn.commit()
         conn.close()
@@ -176,7 +177,7 @@ class Database:
         self.insert_server(onmessage.guild, conn)
         self.insert_channel(onmessage.channel, onmessage.guild, conn)
         c.execute(
-            """INSERT INTO onmessage (type, server_id, channel_id, condition_type, action_type) VALUES (?, ?, ?, ?, ?)""",
+            """INSERT OR IGNORE INTO onmessage (type, server_id, channel_id, condition_type, action_type) VALUES (?, ?, ?, ?, ?)""",
             (
                 onmessage.type,
                 onmessage.guild.id,

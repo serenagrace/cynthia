@@ -65,8 +65,19 @@ class CVDaemon(Daemon):
                 frame = numpy.zeros(FB0.shape(), dtype=numpy.uint8)
 
                 async def main_task():
+                    def encounter_timer(uns_time, timer, game):
+                        encounter_time = (uns_time - timer) / 1_000_000
+                        with drive.open("encounter_times.log", "a") as f:
+                            f.write(f"{datetime.now()},{game},{encounter_time:0f}\n")
+                        print(f"Encounter Time: {encounter_time:.0f}ms")
+
+                        if encounter_time > 2000:
+                            return True
+
+                        return False
+
                     timer = -1
-                    timer_string = None
+                    timing_encounter = False
                     while ns.run:
                         while uns.fbptr is None:
                             await asyncio.sleep(0.05)
@@ -86,6 +97,7 @@ class CVDaemon(Daemon):
                                 CV.elgato_no_signal_scene.ssim_match(frame)
                             )
                             scores["bdsp_tbox"] = CV.bdsp_tbox_scene.ssim_match(frame)
+                            scores["bdsp_run"] = CV.bdsp_run_scene.ssim_match(frame)
                             buffer = UVC.frame_to_buffer(frame)
                             filename = "frame.png"
 
@@ -128,32 +140,39 @@ class CVDaemon(Daemon):
                                     raw_text = CV.scrape_text(
                                         frame, y=870, h=260, w=860
                                     )
-                                    if "appeared" in raw_text:
-                                        timer = uns_time
-                                        timer_string = "appeared"
-                                    else:
-                                        if timer_string == "appeared":
-                                            encounter_time = (
-                                                uns_time - timer
-                                            ) / 1_000_000
-                                            with drive.open(
-                                                "encounter_times.log", "a"
-                                            ) as f:
-                                                f.write(
-                                                    f"{datetime.now()},{ns.game},{encounter_time:0f}\n"
+                                    if ns.self_encounter:
+                                        if "Go" in raw_text:
+                                            timer = uns_time
+                                            timing_encounter = True
+                                        else:
+                                            if timing_encounter:
+                                                self.uns.nxbt_daemon_stop = (
+                                                    encounter_timer(
+                                                        uns_time, timer, ns.game
+                                                    )
                                                 )
-                                            print(
-                                                f"Encounter Time: {encounter_time:.0f}ms"
+                                                timing_encounter = False
+                                    elif any(
+                                        word in raw_text
+                                        for word in ("appeared", "encountered")
+                                    ):
+                                        timer = uns_time
+                                        timing_encounter = True
+                                    else:  # not currently starting the timer
+                                        if timing_encounter and not ns.self_encounter:
+                                            self.uns.nxbt_daemon_stop = encounter_timer(
+                                                uns_time, timer, ns.game
                                             )
+                                            timing_encounter = False
 
-                                            if encounter_time > 2000:
-                                                self.uns.nxbt_daemon_stop = True
-
-                                            timer_string = None
-                            # elif not raw_text.isspace():
-                            #    embed.add_field(name="Detected Text:", value=raw_text)
-                            #    ns.home = False
-                            #    ns.playing = True
+                                if sorted_scores[0][0] in ("bdsp_run"):
+                                    if (
+                                        timing_encounter
+                                    ):  # if this is a non-self it's too late anyways
+                                        self.uns.nxbt_daemon_stop = encounter_timer(
+                                            uns_time, timer, ns.game
+                                        )
+                                        timing_encounter = False
                             else:
                                 ns.home = False
                                 ns.playing = True
@@ -172,8 +191,12 @@ class CVDaemon(Daemon):
         self.ns.game = None
         self.ns.embed = None
         self.ns.playing = False
+        self.ns.self_encounter = False
         self.loop = loop
         self.start()
+
+    def set_self_encounter(self, *, self_encounter=True):
+        self.ns.self_encounter = self_encounter
 
 
 class CV:
@@ -219,4 +242,11 @@ class CV:
         y=873,
         w=50,
         h=180,
+    )
+    bdsp_run_scene = Scene(
+        cv2.imread("/raidarchive/cynthia_drive/scenes/bdsp_run.png"),
+        x=1550,
+        y=970,
+        w=330,
+        h=80,
     )

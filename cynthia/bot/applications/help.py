@@ -3,6 +3,13 @@ from discord import app_commands
 import asyncio
 
 
+async def run_check(check: callable, interaction: discord.Interaction) -> bool:
+    if asyncio.iscoroutinefunction(check):
+        return await check(interaction)
+    else:
+        return check(interaction)
+
+
 @app_commands.command()
 async def help(interaction: discord.Interaction):
     await interaction.response.defer()
@@ -14,7 +21,11 @@ async def help(interaction: discord.Interaction):
             continue
         checks = command.checks
         if command.checks:
-            if all(await asyncio.gather(*[check(interaction) for check in checks])):
+            if all(
+                await asyncio.gather(
+                    *[run_check(check, interaction) for check in checks]
+                )
+            ):
                 print("Command passed checks: ", cmd.name)
                 available_commands.append(f"- /{cmd.name}")
         else:

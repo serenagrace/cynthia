@@ -55,6 +55,7 @@ class OnMessage:
         if self.guild is not None and message.guild.id != self.guild.id:
             return
         if await self.condition(client, message):
+            self.logger.debug(f"Running onmessage unit: {key}")
             await self.action(client, message)
 
 

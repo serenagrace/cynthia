@@ -4,9 +4,8 @@ Config Loader and handler.
 
 from pathlib import Path
 import yaml
-from cynthia.utils.types import force_obj_is_list
-
 from .defaults import Defaults
+from cynthia.utils.snowflake import UserFlake
 
 
 class ConfigLoader:
@@ -21,18 +20,12 @@ class ConfigLoader:
             self._file_config = yaml.load(f, Loader=yaml.Loader)
             self._default_config = Defaults().config
             config = {**self._default_config, **self._file_config}
+            config["owner"] = (
+                UserFlake(uid=config["owner"]).uid if config.get("owner") else None
+            )
 
         if config is None:
             raise ValueError("Config file is empty or invalid.")
-
-        privilege_lists = ("privileged_users", "nxbt_users", "drive_users")
-
-        for privilege_list in privilege_lists:
-            config[privilege_list] = force_obj_is_list(config[privilege_list])
-
-            if config["owner"] is not None:
-                if config["owner"] not in config[privilege_list]:
-                    config[privilege_list].append(config["owner"])
 
         return config
 

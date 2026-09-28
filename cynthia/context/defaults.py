@@ -4,8 +4,13 @@ class Defaults:
         "silent": False,
         "debug": False,
         "owner": None,
-        "privileged_users": [],
-        "nxbt_users": [],
-        "drive_users": [],
     }
     context = {}
+    perms = {
+        "privileged": [],
+        "nxbt": [],
+        "drive": [],
+        "owners": [],
+        "admins": [],
+        "allowed_commands": [],
+    }

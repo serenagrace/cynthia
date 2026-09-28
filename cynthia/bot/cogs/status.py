@@ -63,6 +63,7 @@ class StatusCog(commands.Cog):
             }
 
         elif ns.playing:
+            encounter_str = "No encounters yet"
             if game is not None:
                 large_image = "nintendo_switch"
                 if "diamond" in game.lower():
@@ -70,8 +71,12 @@ class StatusCog(commands.Cog):
                 elif "pearl" in game.lower():
                     large_image = "palkia_glow"
                 if self.bot.args.hunt:
-                    hunting_str = f"Hunting {self.bot.args.hunt.title()}"
-                    encounter_str = "No encounters yet"
+                    if ns.self_encounter:
+                        hunting_str = "Looking for "
+                        encounter_str = "No attempts yet"
+                    else:
+                        hunting_str = "Hunting "
+                    hunting_str += f"shiny {self.bot.args.hunt.title()}"
                     start = None
                     count = None
                     with self.bot.drive.open(
@@ -89,7 +94,10 @@ class StatusCog(commands.Cog):
                             )
 
                     if count:
-                        encounter_str = f"{count} encounters"
+                        if ns.self_encounter:
+                            encounter_str = f"{count} resets"
+                        else:
+                            encounter_str = f"{count} encounters"
 
                     bot_activity = {
                         "game": discord.Game(name=game),

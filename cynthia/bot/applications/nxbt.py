@@ -1,6 +1,11 @@
 import discord
 from discord import app_commands
-from cynthia.utils.auth import nxbt_permission, privileged_only
+from cynthia.utils.auth import (
+    nxbt_permission,
+    privileged_only,
+    nonglobal_command,
+    is_owner,
+)
 from cynthia.utils.nxbt_utils import Macro, Input
 from cynthia.utils.onmessage import OnMessage
 from cynthia.daemons.dman import daemon_running
@@ -12,6 +17,7 @@ import nxbt
 @app_commands.command()
 @daemon_running("NXBTDaemon")
 @privileged_only()
+@app_commands.default_permissions(administrator=True)
 async def connect(interaction: discord.Interaction):
     await interaction.response.defer()
     nxbt_daemon = interaction.client.dman.running_daemons["NXBTDaemon"]
@@ -29,6 +35,7 @@ async def connect(interaction: discord.Interaction):
 @app_commands.command()
 @daemon_running("NXBTDaemon")
 @nxbt_permission()
+@app_commands.default_permissions(administrator=True)
 async def disconnect(interaction: discord.Interaction):
     await interaction.response.defer(thinking=False, ephemeral=True)
     nxbt_daemon = interaction.client.dman.running_daemons["NXBTDaemon"]
@@ -46,6 +53,7 @@ async def disconnect(interaction: discord.Interaction):
 @app_commands.command()
 @nxbt_permission()
 @daemon_running("NXBTDaemon")
+@app_commands.default_permissions(administrator=True)
 @app_commands.choices(
     action=[
         app_commands.Choice(name="A", value="A"),
@@ -83,6 +91,8 @@ async def switch(interaction: discord.Interaction, action: app_commands.Choice[s
 
 @app_commands.command()
 @daemon_running("NXBTDaemon")
+@app_commands.default_permissions(administrator=True)
+@nonglobal_command()
 @privileged_only()
 async def use_channel_as_input(interaction: discord.Interaction):
     await interaction.response.defer(thinking=False, ephemeral=True)
@@ -109,8 +119,10 @@ async def use_channel_as_input(interaction: discord.Interaction):
     )
 
 
-# TODO: make channel/guild optional arguments
 @app_commands.command()
+@app_commands.default_permissions(administrator=True)
+@nonglobal_command()
+@is_owner()
 @privileged_only()
 async def stop_using_channel_as_input(interaction: discord.Interaction):
     await interaction.response.defer(thinking=False, ephemeral=True)
@@ -121,6 +133,8 @@ async def stop_using_channel_as_input(interaction: discord.Interaction):
 
 
 @app_commands.context_menu(name="Define Macro")
+@app_commands.default_permissions(administrator=True)
+@is_owner()
 @nxbt_permission()
 async def define_macro(interaction: discord.Interaction, message: discord.Message):
     await interaction.response.defer(thinking=False, ephemeral=True)
@@ -137,6 +151,7 @@ async def define_macro(interaction: discord.Interaction, message: discord.Messag
 @app_commands.context_menu(name="Queue Macro")
 @nxbt_permission()
 @daemon_running("NXBTDaemon")
+@app_commands.default_permissions(administrator=True)
 async def queue_macro_context(
     interaction: discord.Interaction, message: discord.Message
 ):
@@ -156,6 +171,7 @@ async def queue_macro_context(
 @app_commands.command()
 @nxbt_permission()
 @daemon_running("NXBTDaemon")
+@app_commands.default_permissions(administrator=True)
 async def queue_macro(interaction: discord.Interaction, macro: str):
     await interaction.response.defer(thinking=False, ephemeral=True)
     nxbt_daemon = interaction.client.dman.running_daemons["NXBTDaemon"]
@@ -184,7 +200,7 @@ async def get_macro(interaction: discord.Interaction, macro: str):
 
 
 @app_commands.command()
-@nxbt_permission()
+@app_commands.default_permissions(attach_files=True)
 @daemon_running("CVDaemon")
 async def show(interaction: discord.Interaction):
     await interaction.response.defer()
@@ -216,6 +232,7 @@ async def show(interaction: discord.Interaction):
 
 @app_commands.command()
 @nxbt_permission()
+@app_commands.default_permissions(administrator=True)
 @daemon_running("NXBTDaemon")
 async def pause(interaction: discord.Interaction):
     nxbt_daemon = interaction.client.dman.running_daemons["NXBTDaemon"]
@@ -225,6 +242,7 @@ async def pause(interaction: discord.Interaction):
 
 @app_commands.command()
 @nxbt_permission()
+@app_commands.default_permissions(administrator=True)
 @daemon_running("NXBTDaemon")
 async def unpause(interaction: discord.Interaction):
     nxbt_daemon = interaction.client.dman.running_daemons["NXBTDaemon"]
@@ -234,6 +252,7 @@ async def unpause(interaction: discord.Interaction):
 
 @app_commands.command()
 @nxbt_permission()
+@app_commands.default_permissions(administrator=True)
 @daemon_running("NXBTDaemon")
 async def loop(interaction: discord.Interaction, value: bool):
     nxbt_daemon = interaction.client.dman.running_daemons["NXBTDaemon"]
@@ -243,6 +262,7 @@ async def loop(interaction: discord.Interaction, value: bool):
 
 @app_commands.command()
 @nxbt_permission()
+@app_commands.default_permissions(administrator=True)
 @daemon_running("NXBTDaemon")
 async def stop(interaction: discord.Interaction):
     nxbt_daemon = interaction.client.dman.running_daemons["NXBTDaemon"]
@@ -252,6 +272,7 @@ async def stop(interaction: discord.Interaction):
 
 @app_commands.command()
 @nxbt_permission()
+@app_commands.default_permissions(administrator=True)
 @daemon_running("NXBTDaemon")
 async def macro_clear(interaction: discord.Interaction):
     await interaction.response.defer()
@@ -275,18 +296,24 @@ async def macro_autocomplete(interaction: discord.Interaction, current: str):
 
 
 @app_commands.command()
-@privileged_only()
-async def set_hunt(interaction: discord.Interaction, hunt: str):
+@app_commands.default_permissions(administrator=True)
+@is_owner()
+async def set_hunt(
+    interaction: discord.Interaction, hunt: str, self_encounter: bool = False
+):
     await interaction.response.defer()
     interaction.client.args.hunt = hunt
     if hunt:
         nxbt_daemon = interaction.client.dman.running_daemons["NXBTDaemon"]
         nxbt_daemon.set_loop(loop=True)
+        cv_daemon = interaction.client.dman.running_daemons["CVDaemon"]
+        cv_daemon.set_self_encounter(self_encounter=self_encounter)
     await interaction.followup.send(f"Hunt set to '{hunt}'.")
 
 
 @app_commands.command()
-@privileged_only()
+@app_commands.default_permissions(administrator=True)
+@is_owner()
 async def clear_hunt(interaction: discord.Interaction):
     await interaction.response.defer()
     interaction.client.args.hunt = None

@@ -6,6 +6,7 @@ from pathlib import Path
 from .messenger import Messenger
 from .applications import CommandTree, TreeLoadError
 from cynthia.daemons import DMan
+from cynthia.utils import Namespace
 from cynthia.utils.db import Database
 from cynthia.utils.drive import Drive
 from cynthia.utils.logger import Logger
@@ -46,6 +47,7 @@ class Bot(commands.Bot):
         )
         self.logging_enabled = self.drive.enabled
         self.logger = Logger(self.drive, self.database)
+        self.permsloader = context.permsloader
         if self.logger.logging_enabled:
             self.onexit["logging"] = self.logger.log_stop
 
@@ -71,6 +73,8 @@ class Bot(commands.Bot):
                 _logger.error(error)
             await self.tree.sync()
             _logger.info("Done.")
+        self.tree.copy_global_to(guild=discord.Object(id="1061724997330157669"))
+        await self.tree.sync(guild=discord.Object(id="1061724997330157669"))
         embed = discord.Embed(
             title="Cynthia Online.",
             url="https://github.com/serenagrace/cynthia",
@@ -104,7 +108,25 @@ class Bot(commands.Bot):
             )
         )
 
+    async def get_all_guilds(self) -> list:
+        """Returns guilds from local cache, or fetches them from the API if cache is empty."""
+        # 1. Try reading directly from memory cache
+        if self.guilds:
+            return self.guilds
+
+        # 2. Fallback to API lookup if cache isn't filled yet
+        try:
+            # fetch_guilds returns an AsyncIterator; we flatten it into a list
+            return [guild async for guild in self.fetch_guilds(limit=None)]
+        except Exception as e:
+            print(f"Failed to fetch guilds from API: {e}")
+            return []
+
     async def setup_hook(self):
+        guilds = await self.get_all_guilds()
+        _logger.info(f"Currently member in {len(guilds)} guilds.")
+        self.perms = Namespace(self.permsloader(self))
+        self.perms_check = self.permsloader.check
         await self.reload_tree()
         await self.add_cog(StatusCog(self))
 
@@ -118,10 +140,18 @@ class Bot(commands.Bot):
             return
 
         for key, unit in OnMessage.units.items():
-            _logger.debug(f"Running onmessage unit: {key}")
             await unit.call(self, message)
 
-        if message.author.id not in self.config.privileged_users:
+        try:
+            if not self.perms_check(
+                Namespace(
+                    {"user": message.author, "guild": getattr(message, "guild", None)}
+                ),
+                perm="privileged",
+            ):
+                return
+        except Exception as e:
+            _logger.error(f"Error checking permissions: {e}")
             return
         await self.messenger.respond(message)
 

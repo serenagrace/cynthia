@@ -1,6 +1,7 @@
 import discord
 from discord import app_commands
 from rapidfuzz import process
+from cynthia.utils.auth import nonglobal_command, is_owner
 from cynthia.utils.namespace import Namespace
 from datetime import datetime
 import logging
@@ -199,8 +200,9 @@ class STS(Compendium):
             return relic_data
 
     def apps(self):
-
         @app_commands.command()
+        @app_commands.default_permissions(send_messages=True)
+        @nonglobal_command()
         async def sts(interaction, query: str):
             if query in self.card_data.keys():
                 card_info = self.card_data[query]
@@ -320,6 +322,8 @@ class PokemonDB:
 
     def apps(self):
         @app_commands.command()
+        @app_commands.default_permissions(send_messages=True)
+        @nonglobal_command()
         async def pokemon(interaction: discord.Interaction, species: str):
             species = species.replace("_", " ")
             if species.lower() not in self.pokemon_data:
@@ -337,6 +341,8 @@ class PokemonDB:
             await interaction.response.send_message(embed=embed)
 
         @app_commands.command()
+        @app_commands.default_permissions(send_messages=True)
+        @nonglobal_command()
         async def ev(interaction: discord.Interaction, species: str):
             species = species.replace("_", " ")
             if species.lower() not in self.pokemon_data:
@@ -364,6 +370,9 @@ class PokemonDB:
 
 
 @app_commands.command()
+@app_commands.default_permissions(administrator=True)
+@is_owner()
+@nonglobal_command()
 async def compendium_reload(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     for child in Compendium.children:

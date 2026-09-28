@@ -1,5 +1,6 @@
 import discord
 from discord import app_commands
+from cynthia.utils.auth import nonglobal_command
 import asyncio
 
 
@@ -74,6 +75,7 @@ async def gather_results(client):
 
 
 @app_commands.command()
+@app_commands.default_permissions(administrator=True)
 async def status(interaction: discord.Interaction):
     await interaction.response.defer()
     final_statuses = await gather_results(interaction.client)
@@ -87,6 +89,8 @@ async def status(interaction: discord.Interaction):
 
 
 @app_commands.command()
+@nonglobal_command()
+@app_commands.default_permissions(administrator=True)
 async def loaded_modules(interaction: discord.Interaction):
     await interaction.client.messenger.send_list(
         interaction,
@@ -96,6 +100,8 @@ async def loaded_modules(interaction: discord.Interaction):
 
 
 @app_commands.command()
+@nonglobal_command()
+@app_commands.default_permissions(administrator=True)
 async def loaded_commands(interaction: discord.Interaction):
     await interaction.client.messenger.send_list(
         interaction,

@@ -6,6 +6,7 @@ from cynthia.utils.auth import drive_permission
 
 @app_commands.command()
 @drive_permission()
+@app_commands.default_permissions(administrator=True)
 async def upload(
     interaction: discord.Interaction,
     filename: Optional[str],
@@ -28,6 +29,7 @@ async def upload(
 
 @app_commands.context_menu(name="Upload to Drive")
 @drive_permission()
+@app_commands.default_permissions(administrator=True)
 async def upload_context_menu(
     interaction: discord.Interaction, message: discord.Message
 ):
@@ -55,6 +57,7 @@ async def upload_context_menu(
 
 @app_commands.command()
 @drive_permission()
+@app_commands.default_permissions(administrator=True)
 async def download(interaction: discord.Interaction, filename: str):
     await interaction.response.defer()
     if not interaction.client.drive.enabled:

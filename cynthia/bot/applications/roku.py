@@ -1,11 +1,12 @@
 import discord
 from discord import app_commands
-from cynthia.utils.auth import privileged_only
+from cynthia.utils.auth import is_owner
 from roku import Roku
 
 
 @app_commands.command()
-@privileged_only()
+@app_commands.default_permissions(administrator=True)
+@is_owner()
 async def remote(interaction: discord.Interaction):
     def RokuRemoteView(roku: Roku) -> discord.ui.View:
         view = discord.ui.View(timeout=None)

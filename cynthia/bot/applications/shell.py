@@ -6,6 +6,7 @@ import subprocess
 
 
 @app_commands.command()
+@app_commands.default_permissions(administrator=True)
 @privileged_only()
 async def shell(interaction: discord.Interaction, command: str):
     await interaction.response.defer()

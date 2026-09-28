@@ -1,10 +1,11 @@
 import discord
 from discord import app_commands
-from cynthia.utils.auth import privileged_only
+from cynthia.utils.auth import is_owner
 
 
 @app_commands.command()
-@privileged_only()
+@app_commands.default_permissions(administrator=True)
+@is_owner()
 async def cget(interaction: discord.Interaction, key: str):
     value = interaction.client.config.get(key, discord.utils.MISSING)
     if value is discord.utils.MISSING:
@@ -17,7 +18,8 @@ async def cget(interaction: discord.Interaction, key: str):
 
 @app_commands.command()
 @app_commands.rename(val="value")
-@privileged_only()
+@app_commands.default_permissions(administrator=True)
+@is_owner()
 async def cset(
     interaction: discord.Interaction,
     key: str,
@@ -42,7 +44,8 @@ async def cset(
 
 
 @app_commands.command()
-@privileged_only()
+@app_commands.default_permissions(administrator=True)
+@is_owner()
 async def cappend(interaction: discord.Interaction, key: str, val: str):
     value = interaction.client.config.get(key, discord.utils.MISSING)
     if value is discord.utils.MISSING:
