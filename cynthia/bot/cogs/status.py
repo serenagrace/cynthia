@@ -145,3 +145,7 @@ class StatusCog(commands.Cog):
     async def before_status(self):
         # Essential: Wait until bot is connected
         await self.bot.wait_until_ready()
+
+
+async def setup(bot):
+    await bot.add_cog(StatusCog(bot))

@@ -40,7 +40,7 @@ class PermsLoader:
 
         owner = (
             PermFlake(flake_type="user", uid=bot.owner, allow=True)
-            if bot.owner_id
+            if bot.owner
             else None
         )
 
@@ -53,7 +53,7 @@ class PermsLoader:
                 )
                 if owner is not None:
                     if owner not in perms[ctx][privilege_list]:
-                        perms[ctx][privilege_list].append(owner)
+                        perms[ctx][privilege_list].append(str(owner))
 
         return perms
 
@@ -64,8 +64,8 @@ class PermsLoader:
                 and command in self._perms[GuildFlake(ctx.guild.id)]["allowed_commands"]
             )
         user = ctx.user.id
-        guild = ctx.guild.id if (getattr(ctx, "guild", None) is not None) else "global"
-        roles = None
+        guild = ctx.guild_id if getattr(ctx, "guild_id", None) is not None else "global"
+        roles = list()
         if guild != "global":
             roles = [role.id for role in ctx.user.roles]
         if perm is None:
@@ -118,6 +118,5 @@ class PermsLoader:
         return self._perms
 
     def save(self, updated_perms):
-        if self._file_perms != updated_perms:
-            with open(self.filename, "w") as f:
-                yaml.dump(updated_perms, f)
+        with open(self.filename, "w") as f:
+            yaml.dump(updated_perms, f)

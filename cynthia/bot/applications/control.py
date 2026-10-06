@@ -1,8 +1,8 @@
 import discord
 from discord import app_commands
 from cynthia.exceptions import ExitCynthia
-from cynthia.utils.auth import privileged_only, is_owner
 from cynthia.utils.onmessage import OnMessage
+from cynthia.utils.auth import is_owner
 import aiohttp
 
 
@@ -75,7 +75,7 @@ async def set_server_nickname(interaction: discord.Interaction, nickname: str = 
 
 @app_commands.command()
 @is_owner()
-@app_commands.default_permissions(administrator=True)
+@app_commands.dm_only()
 async def shutdown(interaction: discord.Interaction):
     await interaction.response.send_message("Shutting down...")
     try:
@@ -86,7 +86,7 @@ async def shutdown(interaction: discord.Interaction):
 
 @app_commands.command()
 @is_owner()
-@app_commands.default_permissions(administrator=True)
+@app_commands.dm_only()
 async def restart(interaction: discord.Interaction):
     await interaction.response.send_message("Restarting...")
     try:
@@ -97,7 +97,7 @@ async def restart(interaction: discord.Interaction):
 
 @app_commands.command()
 @is_owner()
-@app_commands.default_permissions(administrator=True)
+@app_commands.dm_only()
 async def reload(interaction: discord.Interaction):
     await interaction.response.defer(thinking=True, ephemeral=True)
     await interaction.client.reload_tree(interaction)

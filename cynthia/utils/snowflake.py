@@ -81,6 +81,9 @@ class PermFlake:
                 allow = uid[0] == "+"
                 uid = uid[1:]
         self._snowflake = Snowflake(flake_type=flake_type, uid=uid)
+        self.flake_type = self._snowflake.flake_type
+        self.uid = self._snowflake.uid
+        self.euid = self._snowflake.euid
         self.allow = allow
 
     def __str__(self):

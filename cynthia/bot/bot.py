@@ -2,6 +2,7 @@ import asyncio
 import discord
 from discord.ext import commands
 import gzip
+import importlib.resources
 from pathlib import Path
 from .messenger import Messenger
 from .applications import CommandTree, TreeLoadError
@@ -13,7 +14,6 @@ from cynthia.utils.logger import Logger
 from cynthia.utils.nxbt_utils import load_macros, save_macros
 from cynthia.utils.onmessage import load_onmessage, save_onmessage, OnMessage
 from cynthia.utils.strings import color_str
-from .cogs.status import StatusCog
 import logging
 
 _logger = logging.getLogger(__name__)
@@ -37,6 +37,7 @@ class Bot(commands.Bot):
         self.kill_reason = None
         self.verify = lambda code: False
         intents = discord.Intents.default()
+        intents.members = True
         intents.message_content = True
         super().__init__(
             intents=intents,
@@ -62,12 +63,16 @@ class Bot(commands.Bot):
             await self.dman.stop_daemons()
 
         self.onexit["dman"] = dman_cleanup
+        self.discovered_cogs = list()
+        self.loaded_command_count = 0
+        self.loaded_cog_count = 0
 
     async def reload_tree(self, interaction=None):
         _logger.info("Fetching command modules...")
         n = 0
         n, errors = await self.tree.load_commands()
         if n:
+            self.loaded_command_count = n
             _logger.info(f"Loading {n} commands...")
             for error in errors:
                 _logger.error(error)
@@ -75,31 +80,8 @@ class Bot(commands.Bot):
             _logger.info("Done.")
         self.tree.copy_global_to(guild=discord.Object(id="1061724997330157669"))
         await self.tree.sync(guild=discord.Object(id="1061724997330157669"))
-        embed = discord.Embed(
-            title="Cynthia Online.",
-            url="https://github.com/serenagrace/cynthia",
-            color=0xD700FF,
-        )
-        embed.add_field(name="Launch Time:", value=f"{self.app_meta.run_timestamp}")
-        embed.set_footer(
-            text=f"#{self.app_meta.git_hash} {self.app_meta.git_timestamp}"
-        )
-        if n:
-            embed.add_field(
-                name="Loaded Commands:",
-                value=f"{n} from {'⚠️' if len(self.tree.loaded_modules) != len(self.tree.modules) else ''}({len(self.tree.loaded_modules)}/{len(self.tree.modules)}) modules",
-            )
-        if len(errors):
-            embed.add_field(
-                name="Errors:",
-                value="-"
-                + "\n-".join(errors[:3])
-                + ("\n..." if len(errors) > 3 else ""),
-            )
-        if interaction is not None:
-            await interaction.followup.send(embed=embed)
-        else:
-            await self.messenger.msg_owner(embed, alert=True)
+        await self.wake_message(interaction, errors)
+
         _logger.info("Loaded commands.")
         _logger.debug(
             "\n"
@@ -122,13 +104,52 @@ class Bot(commands.Bot):
             print(f"Failed to fetch guilds from API: {e}")
             return []
 
+    def _discover_cogs(self, traversable, current_pkg: str):
+        cog_extensions = []
+
+        for item in traversable.iterdir():
+            if item.is_dir() and not item.name.startswith("__"):
+                cog_extensions.extend(
+                    self._discover_cogs(item, f"{current_pkg}.{item.name}")
+                )
+            elif (
+                item.is_file()
+                and item.name.endswith(".py")
+                and not item.name.startswith("__")
+            ):
+                cog_name = item.stem
+                cog_extensions.append(f"{current_pkg}.{cog_name}")
+
+        return cog_extensions
+
+    async def load_cogs(self):
+        _logger.info("Loading cogs...")
+        cogs_pkg_path = "cynthia.bot.cogs"
+        cogs_pkg = importlib.resources.files(cogs_pkg_path)
+
+        count = 0
+        self.discovered_cogs = self._discover_cogs(cogs_pkg, cogs_pkg_path)
+        for cog in self.discovered_cogs:
+            try:
+                await self.load_extension(cog)
+                _logger.info(f"Loaded cog: {cog}")
+                count += 1
+            except Exception as e:
+                _logger.error(f"Failed to load cog {cog}: {e}")
+
+        if count > 0:
+            _logger.info(f" {count} cog{'s' if count != 1 else ''} loaded.")
+        else:
+            _logger.warning("No cogs loaded.")
+        self.loaded_cog_count = count
+
     async def setup_hook(self):
         guilds = await self.get_all_guilds()
         _logger.info(f"Currently member in {len(guilds)} guilds.")
         self.perms = Namespace(self.permsloader(self))
         self.perms_check = self.permsloader.check
+        await self.load_cogs()
         await self.reload_tree()
-        await self.add_cog(StatusCog(self))
 
     async def on_ready(self):
         await load_onmessage(self)
@@ -145,7 +166,10 @@ class Bot(commands.Bot):
         try:
             if not self.perms_check(
                 Namespace(
-                    {"user": message.author, "guild": getattr(message, "guild", None)}
+                    {
+                        "user": message.author,
+                        "guild_id": getattr(message, "guild_id", None),
+                    }
                 ),
                 perm="privileged",
             ):
@@ -154,6 +178,40 @@ class Bot(commands.Bot):
             _logger.error(f"Error checking permissions: {e}")
             return
         await self.messenger.respond(message)
+
+    async def wake_message(self, interaction=None, errors=None):
+        if errors is None:
+            errors = list()
+        embed = discord.Embed(
+            title="Cynthia Online.",
+            url="https://github.com/serenagrace/cynthia",
+            color=0xD700FF,
+        )
+        embed.add_field(name="Launch Time:", value=f"{self.app_meta.run_timestamp}")
+        embed.set_footer(
+            text=f"#{self.app_meta.git_hash} {self.app_meta.git_timestamp}"
+        )
+        if self.loaded_command_count:
+            embed.add_field(
+                name="Loaded Commands:",
+                value=f"{self.loaded_command_count} from {'⚠️' if len(self.tree.loaded_modules) != len(self.tree.modules) else ''}({len(self.tree.loaded_modules)}/{len(self.tree.modules)}) modules",
+            )
+        if self.loaded_cog_count:
+            embed.add_field(
+                name="Loaded Cogs:",
+                value=f"{self.loaded_cog_count} from {'⚠️' if self.loaded_cog_count != len(self.discovered_cogs) else ''}({self.loaded_cog_count}/{len(self.discovered_cogs)}) modules",
+            )
+        if len(errors):
+            embed.add_field(
+                name="Errors:",
+                value="-"
+                + "\n-".join(errors[:3])
+                + ("\n..." if len(errors) > 3 else ""),
+            )
+        if interaction is not None:
+            await interaction.followup.send(embed=embed)
+        else:
+            await self.messenger.msg_owner(embed, alert=True)
 
     async def close(self):
         if self.onexit is not None:
