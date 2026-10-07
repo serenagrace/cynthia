@@ -65,12 +65,6 @@ class CYStream(Daemon):
                             status = {}
                         return status
 
-                    @app.get("/favicon.ico", include_in_schema=False)
-                    async def favicon():
-                        return FileResponse(
-                            "/raidarchive/cynthia_drive/site/static/favicon.ico"
-                        )
-
                     @app.get("/video_feed", response_class=HTMLResponse)
                     async def video_feed_page():
                         html_content = ""
