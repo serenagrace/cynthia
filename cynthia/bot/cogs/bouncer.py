@@ -89,7 +89,8 @@ class InsightView(discord.ui.LayoutView):
                 url=interaction.guild.icon.url if interaction.guild.icon else None
             )
             await channel.send(embed=embed)
-            await self.remove_item(button)
+            self._view.remove_item(self)
+            self._view.add_item(discord.ui.TextDisplay(content="*✅ User has been greeted.*"))
             await interaction.response.edit_message(view=self._view)
 
         @discord.ui.button(label="Kick", style=discord.ButtonStyle.red)
@@ -98,10 +99,8 @@ class InsightView(discord.ui.LayoutView):
             self, interaction: discord.Interaction, button: discord.ui.Button
         ):
             await self.member.kick(reason="Suspicious account.")
-            await interaction.response.send_message(
-                f"{self.member} has been kicked.", ephemeral=True
-            )
-            await self.remove_item(button)
+            self._view.remove_item(self)
+            self._view.add_item(discord.ui.TextDisplay(content="*🚫 User has been kicked.*"))
             await interaction.response.edit_message(view=self._view)
 
         @discord.ui.button(label="Ban", style=discord.ButtonStyle.red)
@@ -110,12 +109,10 @@ class InsightView(discord.ui.LayoutView):
             self, interaction: discord.Interaction, button: discord.ui.Button
         ):
             await self.member.ban(
-                reason=f"Banned by insight command. Suspicions: {', '.join([suspicion[2:] for suspicion in self.suspicions])}"
+                reason=f"Banned by insight command. Suspicions: {', '.join([suspicion[2:] for suspicion in self._view.suspicions])}"
             )
-            await interaction.response.send_message(
-                f"{self.member} has been banned.", ephemeral=True
-            )
-            await self.remove_item(button)
+            self._view.remove_item(self)
+            self._view.add_item(discord.ui.TextDisplay(content="*🚫 User has been banned.*"))
             await interaction.response.edit_message(view=self._view)
 
 

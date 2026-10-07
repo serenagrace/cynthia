@@ -2,6 +2,7 @@ import discord
 from datetime import datetime, timezone, timedelta
 from discord import app_commands
 from cynthia.utils.auth import nonglobal_command, is_owner
+from cynthia.bot.cogs.bouncer import InsightView
 import re
 
 
@@ -27,82 +28,7 @@ async def insight(interaction: discord.Interaction, userid: str):
         )
         return
     await interaction.response.defer(thinking=True)
-
-    def insight_view(user, member) -> discord.ui.LayoutView:
-        suspicions = list()
-        if datetime.now(timezone.utc) - user.created_at < timedelta(weeks=30):
-            suspicions.append("⚠️ Account is less than 6 months old.")
-        if user.avatar is None:
-            suspicions.append("⚠️ Default Avatar.")
-        if re.match(r".*[0-9][0-9][0-9]$", user.name):
-            suspicions.append("⚠️ Username ends with a string of digits.")
-        if member.flags.did_rejoin:
-            suspicions.append("⚠️ User has rejoined the server.")
-        view = discord.ui.LayoutView(timeout=None)
-        view.add_item(
-            discord.ui.Section(
-                user.mention,
-                str(user.id),
-                accessory=discord.ui.Thumbnail(member.display_avatar.url),
-            )
-        )
-        view.add_item(discord.ui.Separator())
-        view.add_item(
-            discord.ui.TextDisplay(
-                content=f"**Created:** {discord.utils.format_dt(user.created_at, style='R')}"
-            )
-        )
-        view.add_item(
-            discord.ui.TextDisplay(
-                content=f"**Joined:** {discord.utils.format_dt(member.joined_at, style='R')}"
-            )
-        )
-        roles = [
-            role.name
-            for role in sorted(member.roles, reverse=True)
-            if role.name != "@everyone"
-        ]
-        if len(roles) == 0:
-            roles_display = "None"
-        elif len(roles) <= 3:
-            roles_display = ", ".join(roles)
-        else:
-            roles_display = ", ".join(roles[:3]) + f", and {len(roles) - 3} more"
-
-        view.add_item(discord.ui.TextDisplay(content=f"**Roles:** {roles_display}"))
-        view.add_item(discord.ui.Separator())
-        for suspicion in suspicions:
-            view.add_item(discord.ui.TextDisplay(content=suspicion))
-        if len(suspicions) == 0:
-            view.add_item(
-                discord.ui.TextDisplay(content="✅ No suspicious activity detected.")
-            )
-
-        view.add_item(discord.ui.Separator())
-        kick_button = discord.ui.Button(label="Kick", style=discord.ButtonStyle.danger)
-
-        async def kick_callback(interaction: discord.Interaction):
-            await member.kick(reason="Suspicious account.")
-            await interaction.response.send_message(
-                f"{member} has been kicked.", ephemeral=True
-            )
-
-        kick_button.callback = kick_callback
-        ban_button = discord.ui.Button(label="Ban", style=discord.ButtonStyle.danger)
-
-        async def ban_callback(interaction: discord.Interaction):
-            await member.ban(
-                reason=f"Banned by insight command. Suspicions: {', '.join([suspicion[2:] for suspicion in suspicions])}"
-            )
-            await interaction.response.send_message(
-                f"{member} has been banned.", ephemeral=True
-            )
-
-        ban_button.callback = ban_callback
-        view.add_item(discord.ui.ActionRow(kick_button, ban_button))
-        return view
-
-    await interaction.followup.send(view=insight_view(user, member), ephemeral=True)
+    await interaction.followup.send(view=InsightView(user,member))
 
 
 @app_commands.command()
