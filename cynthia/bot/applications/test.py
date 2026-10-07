@@ -28,7 +28,7 @@ async def insight(interaction: discord.Interaction, userid: str):
         )
         return
     await interaction.response.defer(thinking=True)
-    await interaction.followup.send(view=InsightView(user,member))
+    await interaction.followup.send(view=InsightView(user, member))
 
 
 @app_commands.command()

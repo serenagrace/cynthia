@@ -1,6 +1,6 @@
 import discord
 from discord import app_commands
-from cynthia.utils.auth import nonglobal_command
+from cynthia.utils.auth import nonglobal_command, is_owner
 import asyncio
 
 
@@ -56,7 +56,9 @@ async def bool_status(name: str, value: bool):
 
 async def gather_results(client):
     tasks = [
+        systemctl_status("cynthia.service"),
         systemctl_status("pihole-FTL.service"),
+        systemctl_status("nginx.service"),
         ping_status("discord.com"),
         ping_status("github.com"),
         ping_status("google.com"),
@@ -75,17 +77,20 @@ async def gather_results(client):
 
 
 @app_commands.command()
-@app_commands.default_permissions(administrator=True)
+@is_owner()
+@app_commands.dm_only()
 async def status(interaction: discord.Interaction):
     await interaction.response.defer()
     final_statuses = await gather_results(interaction.client)
-    message = "\n".join(
-        [
-            f" - :{status['color']}_circle: {status['service']}"
-            for status in final_statuses
-        ]
+    description = "\n".join(
+        [f":{status['color']}_circle: {status['service']}" for status in final_statuses]
     )
-    await interaction.followup.send(message)
+    embed = discord.Embed(
+        title="Service Status",
+        description=description,
+        color=0xD700FF,
+    )
+    await interaction.followup.send(embed=embed)
 
 
 @app_commands.command()

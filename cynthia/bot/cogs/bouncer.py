@@ -90,7 +90,9 @@ class InsightView(discord.ui.LayoutView):
             )
             await channel.send(embed=embed)
             self._view.remove_item(self)
-            self._view.add_item(discord.ui.TextDisplay(content="*✅ User has been greeted.*"))
+            self._view.add_item(
+                discord.ui.TextDisplay(content="*✅ User has been greeted.*")
+            )
             await interaction.response.edit_message(view=self._view)
 
         @discord.ui.button(label="Kick", style=discord.ButtonStyle.red)
@@ -100,7 +102,9 @@ class InsightView(discord.ui.LayoutView):
         ):
             await self.member.kick(reason="Suspicious account.")
             self._view.remove_item(self)
-            self._view.add_item(discord.ui.TextDisplay(content="*🚫 User has been kicked.*"))
+            self._view.add_item(
+                discord.ui.TextDisplay(content="*🚫 User has been kicked.*")
+            )
             await interaction.response.edit_message(view=self._view)
 
         @discord.ui.button(label="Ban", style=discord.ButtonStyle.red)
@@ -112,7 +116,9 @@ class InsightView(discord.ui.LayoutView):
                 reason=f"Banned by insight command. Suspicions: {', '.join([suspicion[2:] for suspicion in self._view.suspicions])}"
             )
             self._view.remove_item(self)
-            self._view.add_item(discord.ui.TextDisplay(content="*🚫 User has been banned.*"))
+            self._view.add_item(
+                discord.ui.TextDisplay(content="*🚫 User has been banned.*")
+            )
             await interaction.response.edit_message(view=self._view)
 
 
