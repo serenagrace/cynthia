@@ -1,9 +1,7 @@
 import discord
-from datetime import datetime, timezone, timedelta
 from discord import app_commands
 from cynthia.utils.auth import nonglobal_command, is_owner
-from cynthia.bot.cogs.bouncer import InsightView
-import re
+from cynthia.views import InsightView
 
 
 @app_commands.command()

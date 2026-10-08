@@ -1,6 +1,6 @@
-UNSPECIFIED = object()
-
 from cynthia.utils.types import force_obj_is_list
+
+UNSPECIFIED = object()
 
 INFRA_MEMBERS = (
     "_nspace_dict",
@@ -18,6 +18,8 @@ INFRA_MEMBERS = (
     "__getitem__",
     "__delitem__",
     "__contains__",
+    "__iter__",
+    "__len__",
 )
 
 
