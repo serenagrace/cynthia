@@ -8,6 +8,9 @@ _logger.setLevel(logging.DEBUG)
 
 
 class BouncerCog(commands.Cog):
+
+    GREETINGS = dict()
+
     def __init__(self, bot):
         self.bot = bot
 
@@ -28,8 +31,8 @@ class BouncerCog(commands.Cog):
         view = InsightView(user, member)
         suspicions = view.suspicions
         if not len(suspicions):
-            channel = discord.utils.get(guild.text_channels, name="general-chat")
-            if channel:
+            greet_channel = discord.utils.get(guild.text_channels, name="general-chat")
+            if greet_channel:
                 embed = discord.Embed(
                     color=0x00FF00,
                     description=f"Welcome {member.mention} to Zyra's Garden of Thorns.\n\nWe hope that you enjoy your stay.",
@@ -39,8 +42,16 @@ class BouncerCog(commands.Cog):
                     icon_url=guild.icon.url if guild.icon else None,
                 )
                 embed.set_thumbnail(url=guild.icon.url if guild.icon else None)
-                await channel.send(embed=embed)
+
+                if str(guild.id) not in BouncerCog.GREETINGS:
+                    BouncerCog.GREETINGS[str(guild.id)] = dict()
+
+                BouncerCog.GREETINGS[str(guild.id)][str(user.id)] = (
+                    await greet_channel.send(embed=embed)
+                )
+
                 await InsightView.user_greeted(guild.id, member.id, auto=True)
+
         to_ban = (
             suspicions.flagged_spammer
             or sum(
@@ -68,6 +79,9 @@ class BouncerCog(commands.Cog):
         guild = member.guild
         _logger.info(f"Member {member} left {guild.name}.")
         await InsightView.user_left(guild.id, member.id)
+        greeting = BouncerCog.GREETINGS.get(str(guild.id), {}).pop(str(member.id), None)
+        if greeting:
+            await greeting.delete()
 
     async def cog_unload(self):
         await InsightView.do_timeout()
