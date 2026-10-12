@@ -117,7 +117,7 @@ class InsightView(discord.ui.LayoutView):
             suspicions.account_age = True
         if user.avatar is None:
             suspicions.default_avatar = True
-        if re.match(r".*[0-9][0-9][0-9]$", user.name):
+        if re.match(r".*[0-9][0-9][0-9][0-9]$", user.name):
             suspicions.username_digits = True
         suspicions.rejoined = member.flags.did_rejoin
         suspicions.flagged_spammer = member.public_flags.spammer

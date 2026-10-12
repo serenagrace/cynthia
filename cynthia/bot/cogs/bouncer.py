@@ -52,21 +52,15 @@ class BouncerCog(commands.Cog):
 
                 await InsightView.user_greeted(guild.id, member.id, auto=True)
 
-        to_ban = (
-            suspicions.flagged_spammer
-            or sum(
-                1
-                for suspicion in ["account_age", "username_digits", "default_avatar"]
-                if getattr(suspicions, suspicion)
-            )
-            >= 2
-        )
+        to_ban = ((suspicions.flagged_spammer or sum(1 for suspicion in ["account_age", "username_digits", "default_avatar"] if getattr(suspicions, suspicion)) >= 2) and not suspicions.rejoined)
+        to_kick = (suspicions.username_digits and not suspicions.rejoined)
+
         if to_ban:
             await InsightView.user_banned(guild.id, member.id, auto=True)
             await member.ban(
                 reason=f"Auto-Banned by bouncer. Suspicions: {', '.join([suspicion[2:] for suspicion in suspicions])}"
             )
-        elif suspicions.username_digits and not suspicions.rejoined:
+        elif to_kick:
             await InsightView.user_kicked(guild.id, member.id, auto=True)
             await member.kick(
                 reason=f"Auto-Kicked by bouncer. Suspicions: {', '.join([suspicion[2:] for suspicion in suspicions])}"
