@@ -12,3 +12,6 @@ config.yaml
 config.yaml.bak
 message.log.gz
 dist/
+.github/
+perms.yaml
+relic_data.json

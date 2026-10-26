@@ -381,4 +381,5 @@ async def compendium_reload(interaction: discord.Interaction):
     await interaction.followup.send("Reloaded compendium data.")
 
 
-__application__ = STS, PokemonDB, compendium_reload
+# STS Wiki Broken RN?
+__application__ = [ PokemonDB ]

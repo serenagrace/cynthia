@@ -167,18 +167,18 @@ class InsightView(discord.ui.LayoutView):
         async def kick_button(
             self, interaction: discord.Interaction, button: discord.ui.Button
         ):
-            await self.member.kick(reason="Suspicious account.")
             await self._view.kicked()
+            await self.member.kick(reason="Suspicious account.")
 
         @discord.ui.button(label="Ban", style=discord.ButtonStyle.red)
         @button_requires_permission(ban_members=True)
         async def ban_button(
             self, interaction: discord.Interaction, button: discord.ui.Button
         ):
+            await self._view.banned()
             await self.member.ban(
                 reason=f"Banned by insight command. Suspicions: {', '.join([suspicion[2:] for suspicion in self._view.suspicions])}"
             )
-            await self._view.banned()
 
     async def update_view(self):
         if self.message is not None:

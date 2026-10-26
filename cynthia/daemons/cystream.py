@@ -25,9 +25,18 @@ class CYStream(Daemon):
                     for idx in (0, 1)
                 )
                 app = FastAPI()
+                viewers = {"count": 0}
 
                 def main_task():
                     async def frame_generator():
+                        viewers["count"] += 1
+                        try:
+                            async for chunk in frames():
+                                yield chunk
+                        finally:
+                            viewers["count"] -= 1
+
+                    async def frames():
                         while ns.run:
                             while uns.fbptr is None:
                                 await asyncio.sleep(0.01)
@@ -64,6 +73,10 @@ class CYStream(Daemon):
                         except json.JSONDecodeError:
                             status = {}
                         return status
+
+                    @app.get("/api/viewers")
+                    async def viewer_count():
+                        return {"viewers": viewers["count"]}
 
                     @app.get("/video_feed", response_class=HTMLResponse)
                     async def video_feed_page():
