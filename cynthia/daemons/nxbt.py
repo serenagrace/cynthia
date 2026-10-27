@@ -10,6 +10,7 @@ from cynthia.utils.nxbt_utils import (
 )
 from .daemon import Daemon
 import os
+import time
 from queue import Empty
 import logging
 
@@ -19,6 +20,7 @@ logger.setLevel(logging.DEBUG)
 
 class NXBTDaemon(Daemon):
     POLL_RATE = 0.5
+    GRACE_PERIOD = 5.0
 
     def __init__(self, dman):
         def loop(ns, uns, tqueue, macro_tree, drive):
@@ -29,11 +31,13 @@ class NXBTDaemon(Daemon):
             controller = None
             playing_gen = None
             playing = None
+            disconnected_since = None
 
             async def main_task():
                 nonlocal controller
                 nonlocal playing_gen
                 nonlocal playing
+                nonlocal disconnected_since
                 Macro.bind_macro_tree(macro_tree)
                 load_macros(drive)
 
@@ -70,6 +74,33 @@ class NXBTDaemon(Daemon):
                             controller = None
                             ns.connected = False
 
+                    # Checked before the pause gate so drops are noticed while paused
+                    if ns.connected and controller is not None:
+                        if nx.state[controller]["state"] == "connected":
+                            disconnected_since = None
+                        else:
+                            now = time.monotonic()
+                            if disconnected_since is None:
+                                disconnected_since = now
+                                logger.warning(
+                                    "Controller left connected state, waiting for recovery..."
+                                )
+                            if now - disconnected_since >= NXBTDaemon.GRACE_PERIOD:
+                                disconnected_since = None
+                                uns.nxbt_connection_lost = True
+                                logger.error(
+                                    "Connection lost, disconnecting controller."
+                                )
+                                await nxbt_disconnect(nx, controller)
+                                controller = None
+                                ns.connected = False
+                                ns.playing = False
+                                playing_gen = None
+                                ns.stop = True
+                            else:
+                                await asyncio.sleep(NXBTDaemon.POLL_RATE)
+                            continue
+
                     if not ns.stop:
                         if ns.pause or not ns.connected:
                             await asyncio.sleep(NXBTDaemon.POLL_RATE)
@@ -80,18 +111,8 @@ class NXBTDaemon(Daemon):
                             continue
 
                     if ns.connected:
-                        if nx.state[controller]["state"] != "connected":
-                            uns.nxbt_connection_lost = True
-                            logger.error("Connection lost, disconnecting controller.")
-                            await nxbt_disconnect(nx, controller)
-                            controller = None
-                            ns.connected = False
-                            ns.playing = False
-                            playing_gen = None
-                            ns.stop = True
-
                         # Keep playing current Macro
-                        elif playing_gen is not None:
+                        if playing_gen is not None:
                             try:
                                 _input = next(playing_gen)
                                 logger.debug(f"Playing {str(_input)}")

@@ -1,4 +1,5 @@
 import asyncio
+import sys
 from discord import app_commands
 import numpy
 import logging
@@ -30,6 +31,8 @@ class FB0:
 
 
 class DMan:
+    RELOADABLE = ("CYStream", "UVCDaemon")
+
     def __init__(self, context):
         self.context = context
         self.drive = Drive(self.context.config.drive_path)
@@ -68,8 +71,8 @@ class DMan:
             daemons_module = None
             try:
                 if module in self.__previously_loaded_modules:
-                    daemons_module = importlib.reload_module(
-                        "." + module, "cynthia.daemons"
+                    daemons_module = importlib.reload(
+                        sys.modules[f"cynthia.daemons.{module}"]
                     )
                 else:
                     daemons_module = importlib.import_module(
@@ -127,7 +130,10 @@ class DMan:
 
     async def stop_daemons(self, *, daemons=None):
         if daemons is None:
-            daemons = self.__running_daemons.keys()
+            daemons = list(self.__running_daemons.keys())
+        daemons = [
+            d for d in daemons if self.__running_daemons.get(d, None) is not None
+        ]
         for _daemon in daemons:
             self.__running_daemons[_daemon].ns.run = False
         try:
@@ -153,13 +159,38 @@ class DMan:
                     logger.info(f"Terminating non-daemon process `{_daemon}`.")
                     daemon_obj.process.terminate()
                     daemon_obj.process.join()
+                    del self.__running_daemons[_daemon]
                     continue
                 logger.error(f"Daemon `{_daemon}` failed to stop.")
                 if daemon_obj.process.daemon:
                     daemon_obj.process.terminate()
                     daemon_obj.process.join()
+                    del self.__running_daemons[_daemon]
                 continue
-            self.__running_daemons[_daemon] = None
+            del self.__running_daemons[_daemon]
+
+    async def reload_daemon(self, name):
+        """Stop one daemon, reload its module from disk and start it again."""
+        if name not in self.RELOADABLE:
+            raise ValueError(f"Daemon `{name}` is not reloadable.")
+        daemon_cls = self.__loaded_daemons.get(name, None)
+        if daemon_cls is None:
+            raise ValueError(f"Daemon `{name}` is not loaded.")
+
+        # Import the new code first so a syntax error leaves the old daemon running
+        old_module = sys.modules[daemon_cls.__module__]
+        try:
+            module = importlib.reload(old_module)
+            new_cls = getattr(module, name)
+        except Exception:
+            logger.exception(f"Failed to reload module for daemon `{name}`.")
+            raise
+
+        await self.stop_daemons(daemons=[name])
+        if name in self.__running_daemons:
+            raise RuntimeError(f"Daemon `{name}` failed to stop.")
+        self.__loaded_daemons[name] = new_cls
+        self.run_daemons(daemons=[name])
 
     @property
     def modules(self):

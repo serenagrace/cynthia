@@ -1,5 +1,5 @@
 import asyncio
-from contextlib import closing
+from contextlib import asynccontextmanager, closing
 import cv2
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse, FileResponse, HTMLResponse
@@ -24,46 +24,62 @@ class CYStream(Daemon):
                     numpy.ndarray(FB0.shape(), dtype=numpy.uint8, buffer=shms[idx].buf)
                     for idx in (0, 1)
                 )
-                app = FastAPI()
                 viewers = {"count": 0}
+                latest = {"seq": 0, "chunk": None}
+
+                def encode(frame):
+                    success, buffer = cv2.imencode(
+                        ".jpg",
+                        cv2.resize(
+                            frame, None, fx=0.5, fy=0.5, interpolation=cv2.INTER_AREA
+                        ),
+                    )
+                    return buffer.tobytes() if success else None
+
+                async def encoder():
+                    # Encode each new frame once, however many viewers there are
+                    while ns.run:
+                        if viewers["count"] == 0 or uns.fbptr is None:
+                            await asyncio.sleep(0.05)
+                            continue
+                        fbptr = uns.fbptr
+                        uns_time = uns.uvc_time1 if fbptr else uns.uvc_time0
+                        if ns.uvc_time == uns_time:
+                            await asyncio.sleep(0.01)
+                            continue
+                        ns.uvc_time = uns_time
+                        jpeg = await asyncio.to_thread(encode, fb[fbptr])
+                        if jpeg is not None:
+                            latest["chunk"] = (
+                                b"--frame\r\n"
+                                b"Content-Type: image/jpeg\r\n\r\n" + jpeg + b"\r\n"
+                            )
+                            latest["seq"] += 1
+                        await asyncio.sleep(0.03)
+
+                @asynccontextmanager
+                async def lifespan(_):
+                    task = asyncio.create_task(encoder())
+                    try:
+                        yield
+                    finally:
+                        task.cancel()
+
+                app = FastAPI(lifespan=lifespan)
 
                 def main_task():
                     async def frame_generator():
                         viewers["count"] += 1
+                        last_seq = latest["seq"]
                         try:
-                            async for chunk in frames():
-                                yield chunk
+                            while ns.run:
+                                if latest["seq"] != last_seq:
+                                    last_seq = latest["seq"]
+                                    yield latest["chunk"]
+                                else:
+                                    await asyncio.sleep(0.01)
                         finally:
                             viewers["count"] -= 1
-
-                    async def frames():
-                        while ns.run:
-                            while uns.fbptr is None:
-                                await asyncio.sleep(0.01)
-                            fbptr = uns.fbptr
-                            uns_time = uns.uvc_time1 if fbptr else uns.uvc_time0
-                            if ns.uvc_time != uns_time:
-                                ns.uvc_time = uns_time
-                                success, buffer = cv2.imencode(
-                                    ".jpg",
-                                    cv2.resize(
-                                        fb[fbptr],
-                                        None,
-                                        fx=0.5,
-                                        fy=0.5,
-                                        interpolation=cv2.INTER_CUBIC,
-                                    ),
-                                )
-                                if success:
-                                    yield (
-                                        b"--frame\r\n"
-                                        b"Content-Type: image/jpeg\r\n\r\n"
-                                        + buffer.tobytes()
-                                        + b"\r\n"
-                                    )
-                                    await asyncio.sleep(0.03)
-                            else:
-                                await asyncio.sleep(0.05)
 
                     @app.get("/api/user_status")
                     async def status():

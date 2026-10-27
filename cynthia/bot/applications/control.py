@@ -1,8 +1,10 @@
 import discord
+import asyncio
 from discord import app_commands
 from cynthia.exceptions import ExitCynthia
 from cynthia.utils.onmessage import OnMessage
 from cynthia.utils.auth import is_owner
+from cynthia.daemons.dman import DMan
 import aiohttp
 
 
@@ -93,6 +95,28 @@ async def restart(interaction: discord.Interaction):
         raise ExitCynthia("Restart")
     except ExitCynthia as e:
         await interaction.client.__aexit__(type(e), e, e.__traceback__)
+
+
+@app_commands.command()
+@is_owner()
+@app_commands.dm_only()
+@app_commands.describe(
+    graceful="Shut Cynthia down cleanly, then reboot normally (default: force reboot)"
+)
+async def reboot(interaction: discord.Interaction, graceful: bool = False):
+    if graceful:
+        await interaction.response.send_message(
+            "Shutting down cleanly, then rebooting the host..."
+        )
+        try:
+            raise ExitCynthia("Reboot")
+        except ExitCynthia as e:
+            await interaction.client.__aexit__(type(e), e, e.__traceback__)
+        return
+    await interaction.response.send_message("Rebooting the host now...")
+    # Let the reply go out before the system is killed
+    await asyncio.sleep(1)
+    await asyncio.create_subprocess_exec("sudo", "-n", "reboot", "-f", "now")
 
 
 @app_commands.command()
@@ -199,7 +223,28 @@ async def get_log_channels(interaction: discord.Interaction):
     await interaction.followup.send(embed=embed)
 
 
+@app_commands.command()
+@app_commands.describe(daemon="Daemon to reload")
+@app_commands.choices(
+    daemon=[app_commands.Choice(name=name, value=name) for name in DMan.RELOADABLE]
+)
+@is_owner()
+@app_commands.default_permissions(administrator=True)
+async def reload_daemon(
+    interaction: discord.Interaction, daemon: app_commands.Choice[str]
+):
+    await interaction.response.defer(thinking=True, ephemeral=True)
+    try:
+        await interaction.client.dman.reload_daemon(daemon.value)
+    except Exception as e:
+        await interaction.followup.send(f"Failed to reload `{daemon.value}`: {e}")
+        return
+    await interaction.followup.send(f"Reloaded `{daemon.value}`.")
+
+
 __application__ = [
+    reload_daemon,
+    reboot,
     shutdown,
     restart,
     upgrade,

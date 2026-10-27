@@ -1,3 +1,4 @@
+import subprocess
 import argparse
 from .context import Context
 from .bot import Bot
@@ -43,6 +44,9 @@ def main():
     if len(bot.kill_reason[1].args) and bot.kill_reason[1].args[0] == "Restart":
         logger.info("Restarting...")
         exit(2)
+    if len(bot.kill_reason[1].args) and bot.kill_reason[1].args[0] == "Reboot":
+        logger.info("Rebooting host...")
+        subprocess.run(["sudo", "-n", "reboot"])
     exit(0)
 
 
