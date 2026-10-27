@@ -33,6 +33,14 @@ class Snowflake:
     def __str__(self):
         return self.euid
 
+    def __eq__(self, other):
+        if not isinstance(other, Snowflake):
+            return NotImplemented
+        return self.euid == other.euid
+
+    def __hash__(self):
+        return hash(self.euid)
+
     def __repr__(self):
         return f"Snowflake(type='{self.flake_type}', uid='{self.uid}')"
 

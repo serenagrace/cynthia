@@ -13,6 +13,7 @@ import discord
 from .daemon import Daemon
 from .dman import FB0
 from .uvc import UVC
+from cynthia.utils.encounters import encounter_log_name
 
 logging.getLogger("pytesseract").setLevel(logging.INFO)
 logging.getLogger("ppocr").setLevel(logging.INFO)
@@ -67,7 +68,7 @@ class CVDaemon(Daemon):
                 async def main_task():
                     def encounter_timer(uns_time, timer, game):
                         encounter_time = (uns_time - timer) / 1_000_000
-                        with drive.open("encounter_times.log", "a") as f:
+                        with drive.open(ns.encounter_log, "a") as f:
                             f.write(f"{datetime.now()},{game},{encounter_time:0f}\n")
                         print(f"Encounter Time: {encounter_time:.0f}ms")
 
@@ -192,8 +193,12 @@ class CVDaemon(Daemon):
         self.ns.embed = None
         self.ns.playing = False
         self.ns.self_encounter = False
+        self.ns.encounter_log = encounter_log_name(dman.context.args.hunt)
         self.loop = loop
         self.start()
+
+    def set_hunt(self, hunt):
+        self.ns.encounter_log = encounter_log_name(hunt)
 
     def set_self_encounter(self, *, self_encounter=True):
         self.ns.self_encounter = self_encounter

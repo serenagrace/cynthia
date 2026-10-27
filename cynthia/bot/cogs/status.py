@@ -4,6 +4,7 @@ from discord.ext import tasks, commands
 import itertools
 from datetime import datetime
 import json
+from cynthia.utils.encounters import encounter_log_name
 
 
 class StatusCog(commands.Cog):
@@ -80,7 +81,7 @@ class StatusCog(commands.Cog):
                     start = None
                     count = None
                     with self.bot.drive.open(
-                        "encounter_times.log", "r", touch=True
+                        encounter_log_name(self.bot.args.hunt), "r", touch=True
                     ) as f:
                         lines = f.readlines()
                         count = sum(1 for _ in lines)

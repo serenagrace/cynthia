@@ -9,6 +9,12 @@ from cynthia.utils.snowflake import GuildFlake, PermFlake
 
 from .defaults import Defaults
 
+FLAKE_NAMES = {"u": "user", "r": "role"}
+
+
+def guild_key(guild_id):
+    return str(GuildFlake(str(guild_id)))
+
 
 class PermsLoader:
     def __init__(self, filename):
@@ -21,50 +27,105 @@ class PermsLoader:
         return Defaults().perms
 
     def _load(self, bot):
-        perms = None
         with open(self.filename, "r") as f:
-            self._file_perms = yaml.load(f, Loader=yaml.Loader)
-            self._default_perms = self.default()
-        # if perms is None:
-        #    raise ValueError("Config file is empty or invalid.")
+            self._file_perms = force_obj_is_dict(yaml.load(f, Loader=yaml.Loader))
 
-        privelege_contexts = ["global"] + [GuildFlake(guild.id) for guild in bot.guilds]
-
-        perms = {
-            ctx: {
-                **self._default_perms,
-                **force_obj_is_dict(self._file_perms).get(ctx, {}),
-            }
-            for ctx in privelege_contexts
-        }
-
-        owner = (
-            PermFlake(flake_type="user", uid=bot.owner, allow=True)
+        self._owner = (
+            str(PermFlake(flake_type="user", uid=bot.owner, allow=True))
             if bot.owner
             else None
         )
 
-        for ctx in perms.keys():
-            for privilege_list in perms[ctx].keys():
-                if privilege_list == "allowed_commands":
-                    continue
-                perms[ctx][privilege_list] = force_obj_is_list(
-                    perms[ctx][privilege_list]
-                )
-                if owner is not None:
-                    if owner not in perms[ctx][privilege_list]:
-                        perms[ctx][privilege_list].append(str(owner))
+        # Guild contexts are keyed by string ("g:<id>"), including guilds
+        # saved in the file that the bot is no longer in
+        contexts = ["global"] + [guild_key(guild.id) for guild in bot.guilds]
+        contexts += [
+            key
+            for key in self._file_perms
+            if isinstance(key, str) and key.startswith("g:") and key not in contexts
+        ]
 
-        return perms
+        return {ctx: self._build_context(self._file_perms.get(ctx)) for ctx in contexts}
+
+    def _build_context(self, file_ctx=None):
+        # Fresh lists per context so edits to one guild never leak into another
+        ctx_perms = {**self.default(), **force_obj_is_dict(file_ctx)}
+        for privilege_list in ctx_perms:
+            ctx_perms[privilege_list] = list(
+                dict.fromkeys(force_obj_is_list(ctx_perms[privilege_list]))
+            )
+            if privilege_list == "allowed_commands":
+                continue
+            if self._owner is not None and self._owner not in ctx_perms[privilege_list]:
+                ctx_perms[privilege_list].append(self._owner)
+        return ctx_perms
+
+    def ensure_guild(self, guild_id):
+        """Return the permissions context for a guild, creating it if needed."""
+        key = guild_key(guild_id)
+        if key not in self._perms:
+            self._perms[key] = self._build_context()
+        return key, self._perms[key]
+
+    @staticmethod
+    def _entry_target(entry):
+        return str(entry).lstrip("+-")
+
+    def grant(self, context, perm, kind, uid, *, allow=True):
+        """Add a +/- entry for a user ("u") or role ("r"). Returns the change made."""
+        entries = self._perms[context][perm]
+        new = str(PermFlake(flake_type=FLAKE_NAMES[kind], uid=str(uid), allow=allow))
+        if new in entries:
+            return "unchanged"
+        target = f"{kind}:{uid}"
+        existing = [e for e in entries if self._entry_target(e) == target]
+        for entry in existing:
+            entries.remove(entry)
+        entries.append(new)
+        return "updated" if existing else "added"
+
+    def revoke(self, context, perm, kind, uid):
+        entries = self._perms[context][perm]
+        target = f"{kind}:{uid}"
+        kept = [e for e in entries if self._entry_target(e) != target]
+        removed = len(kept) != len(entries)
+        entries[:] = kept
+        return removed
+
+    def allow_command(self, context, command):
+        commands = self._perms[context]["allowed_commands"]
+        if command in commands:
+            return False
+        commands.append(command)
+        return True
+
+    def disallow_command(self, context, command):
+        commands = self._perms[context]["allowed_commands"]
+        if command not in commands:
+            return False
+        commands.remove(command)
+        return True
+
+    def is_global(self, user_id, perm):
+        """Whether a user holds a permission in the global context alone."""
+        return self.check_perm(
+            user=user_id, guild="global", roles=[], ctx=None, perm=perm
+        )
 
     def check(self, ctx, *, command=None, perm=None):
         if perm == "allowed_commands":
+            guild = getattr(ctx, "guild", None)
             return command in self._perms["global"]["allowed_commands"] or (
-                getattr(ctx, "guild", None) is not None
-                and command in self._perms[GuildFlake(ctx.guild.id)]["allowed_commands"]
+                guild is not None
+                and command
+                in self._perms.get(guild_key(guild.id), {}).get("allowed_commands", [])
             )
         user = ctx.user.id
-        guild = ctx.guild_id if getattr(ctx, "guild_id", None) is not None else "global"
+        guild = (
+            guild_key(ctx.guild_id)
+            if getattr(ctx, "guild_id", None) is not None
+            else "global"
+        )
         roles = list()
         if guild != "global":
             roles = [role.id for role in ctx.user.roles]
@@ -73,7 +134,7 @@ class PermsLoader:
                 key: self.check_perm(
                     user=user, guild=guild, roles=roles, ctx=ctx, perm=key
                 )
-                for key in self._perms[guild].keys()
+                for key in self._perms.get(guild, self._perms["global"]).keys()
             }
         else:
             return self.check_perm(
@@ -83,18 +144,24 @@ class PermsLoader:
     def check_perm(
         self, *, user: str, guild: str, roles: list[str], ctx: str, perm: str
     ):
-        if guild not in self._perms:
-            return False
-        if perm not in self._perms[guild]:
+        # `guild` is "global" or a guild context key ("g:<id>")
+        if perm not in self._perms["global"]:
             return False
 
         result = False
-        checklist = self._perms["global"][perm]
+        checklist = list(self._perms["global"][perm])
         if guild != "global":
-            checklist += self._perms[GuildFlake(guild)][perm]
-            if str(PermFlake(flake_type="guild", uid=guild, allow=True)) in checklist:
+            checklist += self._perms.get(guild, {}).get(perm, [])
+            guild_id = guild.split(":", 1)[1]
+            if (
+                str(PermFlake(flake_type="guild", uid=guild_id, allow=True))
+                in checklist
+            ):
                 result = True
-            if str(PermFlake(flake_type="guild", uid=guild, allow=False)) in checklist:
+            if (
+                str(PermFlake(flake_type="guild", uid=guild_id, allow=False))
+                in checklist
+            ):
                 result = False
             if any(
                 str(PermFlake(flake_type="role", uid=role, allow=True)) in checklist

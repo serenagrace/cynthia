@@ -8,6 +8,7 @@ from cynthia.utils.auth import (
 )
 from cynthia.utils.nxbt_utils import Macro, Input
 from cynthia.utils.onmessage import OnMessage
+from cynthia.utils.encounters import encounter_log_name
 from cynthia.daemons.dman import daemon_running
 import asyncio
 import io
@@ -303,12 +304,15 @@ async def set_hunt(
 ):
     await interaction.response.defer()
     interaction.client.args.hunt = hunt
+    cv_daemon = interaction.client.dman.running_daemons["CVDaemon"]
+    cv_daemon.set_hunt(hunt)
     if hunt:
         nxbt_daemon = interaction.client.dman.running_daemons["NXBTDaemon"]
         nxbt_daemon.set_loop(loop=True)
-        cv_daemon = interaction.client.dman.running_daemons["CVDaemon"]
         cv_daemon.set_self_encounter(self_encounter=self_encounter)
-    await interaction.followup.send(f"Hunt set to '{hunt}'.")
+    await interaction.followup.send(
+        f"Hunt set to '{hunt}'. Logging to `{encounter_log_name(hunt)}`."
+    )
 
 
 @app_commands.command()
@@ -317,6 +321,7 @@ async def set_hunt(
 async def clear_hunt(interaction: discord.Interaction):
     await interaction.response.defer()
     interaction.client.args.hunt = None
+    interaction.client.dman.running_daemons["CVDaemon"].set_hunt(None)
     await interaction.followup.send("Hunt cleared.")
 
 
