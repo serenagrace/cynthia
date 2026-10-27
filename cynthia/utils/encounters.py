@@ -1,3 +1,5 @@
+"""Naming helpers for encounter timing logs."""
+
 import re
 
 DEFAULT_ENCOUNTER_LOG = "encounter_times.log"

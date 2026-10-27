@@ -1,3 +1,5 @@
+"""Cog that greets and moderates new server members."""
+
 import logging
 
 import discord
@@ -10,14 +12,17 @@ _logger.setLevel(logging.DEBUG)
 
 
 class BouncerCog(commands.Cog):
+    """Inspect new members and apply configured automated moderation."""
 
     GREETINGS = dict()
 
     def __init__(self, bot):
+        """Store the bot client used by this cog."""
         self.bot = bot
 
     @commands.Cog.listener()
     async def on_member_join(self, member):
+        """Inspect a joining member, greet them, and act on suspicions."""
         # Check if I have "Bouncer" Role
         guild = member.guild
         if not discord.utils.get(guild.me.roles, name="Bouncer"):
@@ -80,6 +85,7 @@ class BouncerCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_remove(self, member):
+        """Record a member departure and remove any saved greeting."""
         guild = member.guild
         _logger.info(f"Member {member} left {guild.name}.")
         await InsightView.user_left(guild.id, member.id)
@@ -88,8 +94,10 @@ class BouncerCog(commands.Cog):
             await greeting.delete()
 
     async def cog_unload(self):
+        """Expire outstanding insight views when the cog unloads."""
         await InsightView.do_timeout()
 
 
 async def setup(bot):
+    """Register the bouncer cog with the bot."""
     await bot.add_cog(BouncerCog(bot))

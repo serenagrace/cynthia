@@ -1,3 +1,5 @@
+"""Commands and helpers for checking service and host status."""
+
 import asyncio
 
 import discord
@@ -7,6 +9,7 @@ from cynthia.utils.auth import is_owner, nonglobal_command
 
 
 async def ping_status(host: str) -> list:
+    """Ping a host and return a status record for the result."""
     # Adding a timeout here is the best way to prevent 'hanging'
     proc = await asyncio.create_subprocess_exec(
         "ping",
@@ -29,6 +32,7 @@ async def ping_status(host: str) -> list:
 
 
 async def systemctl_status(service: str) -> list:
+    """Check whether a systemd service is active and return its status."""
     proc = await asyncio.create_subprocess_exec(
         "systemctl",
         "is-active",
@@ -48,6 +52,7 @@ async def systemctl_status(service: str) -> list:
 
 
 async def bool_status(name: str, value: bool):
+    """Convert a boolean value into a standard status record."""
     return {
         "service": name,
         "color": "green" if value else "red",
@@ -57,6 +62,7 @@ async def bool_status(name: str, value: bool):
 
 
 async def gather_results(client):
+    """Collect configured service, host, and drive status records."""
     tasks = [
         systemctl_status("cynthia.service"),
         systemctl_status("pihole-FTL.service"),
@@ -82,6 +88,7 @@ async def gather_results(client):
 @is_owner()
 @app_commands.dm_only()
 async def status(interaction: discord.Interaction):
+    """Show service health results to the bot owner."""
     await interaction.response.defer()
     final_statuses = await gather_results(interaction.client)
     description = "\n".join(
@@ -99,6 +106,7 @@ async def status(interaction: discord.Interaction):
 @nonglobal_command()
 @app_commands.default_permissions(administrator=True)
 async def loaded_modules(interaction: discord.Interaction):
+    """List application modules loaded by the command tree."""
     await interaction.client.messenger.send_list(
         interaction,
         f"Loaded ({len(interaction.client.tree.loaded_modules)}/{len(interaction.client.tree.modules)}) Modules:",
@@ -110,6 +118,7 @@ async def loaded_modules(interaction: discord.Interaction):
 @nonglobal_command()
 @app_commands.default_permissions(administrator=True)
 async def loaded_commands(interaction: discord.Interaction):
+    """List application commands loaded by the command tree."""
     await interaction.client.messenger.send_list(
         interaction,
         f"Loaded {len(interaction.client.tree.loaded_commands)} Commands:",

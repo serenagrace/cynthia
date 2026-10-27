@@ -1,3 +1,5 @@
+"""Commands and helpers for viewing and editing permission rules."""
+
 import re
 from typing import Union
 
@@ -24,12 +26,14 @@ NO_PINGS = discord.AllowedMentions.none()
 
 
 async def reply(interaction: discord.Interaction, content=None, **kwargs):
+    """Send an ephemeral reply without allowing mention notifications."""
     await interaction.response.send_message(
         content, ephemeral=True, allowed_mentions=NO_PINGS, **kwargs
     )
 
 
 def can_edit(interaction: discord.Interaction, scope: str, perm: str) -> bool:
+    """Return whether the user may edit the selected permission scope."""
     client = interaction.client
     if scope == "global":
         return str(interaction.user.id) == client.owner
@@ -40,6 +44,7 @@ def can_edit(interaction: discord.Interaction, scope: str, perm: str) -> bool:
 
 
 def required_text(scope: str, perm: str) -> str:
+    """Describe which permission is required to edit the selected scope."""
     if scope == "global":
         return "the bot owner"
     if perm in GUILD_EDITORS:
@@ -61,10 +66,12 @@ def resolve_context(interaction: discord.Interaction, scope: str):
 
 
 def persist(interaction: discord.Interaction):
+    """Save the current permission mapping to its configured file."""
     interaction.client.permsloader.save(interaction.client.perms.dict())
 
 
 def describe_entry(entry) -> str:
+    """Format a permission entry as a user, role, guild, or denied target."""
     match = re.fullmatch(r"([+-]?)([urg]):(\w+)", str(entry))
     if match is None:
         return f"`{entry}`"
@@ -79,6 +86,7 @@ def describe_entry(entry) -> str:
 
 
 def field_text(lines: list[str]) -> str:
+    """Join embed field lines within Discord's field-length limit."""
     if not lines:
         return "—"
     text = ""
@@ -90,6 +98,7 @@ def field_text(lines: list[str]) -> str:
 
 
 def target_parts(target):
+    """Return the permission kind and ID for a role or user target."""
     if isinstance(target, discord.Role):
         return "r", target.id
     return "u", target.id
@@ -101,6 +110,7 @@ def target_parts(target):
 async def perms_view(
     interaction: discord.Interaction, scope: app_commands.Choice[str] = None
 ):
+    """Show global or current-server permission rules."""
     scope = scope.value if scope else "guild"
     client = interaction.client
     if scope == "global":
@@ -150,6 +160,7 @@ async def perms_grant(
     deny: bool = False,
     scope: app_commands.Choice[str] = None,
 ):
+    """Grant or explicitly deny a permission for a user or role."""
     await edit_perm(interaction, perm.value, target, scope, grant=True, deny=deny)
 
 
@@ -166,10 +177,12 @@ async def perms_revoke(
     target: Union[discord.User, discord.Member, discord.Role],
     scope: app_commands.Choice[str] = None,
 ):
+    """Remove a user's or role's permission entry."""
     await edit_perm(interaction, perm.value, target, scope, grant=False)
 
 
 async def edit_perm(interaction, perm, target, scope, *, grant, deny=False):
+    """Validate and apply a permission edit, then persist the change."""
     scope = scope.value if scope else "guild"
     client = interaction.client
     kind, uid = target_parts(target)
@@ -215,10 +228,12 @@ async def edit_perm(interaction, perm, target, scope, *, grant, deny=False):
 
 
 def command_names(interaction: discord.Interaction) -> list[str]:
+    """Return sorted names of commands registered in the bot's tree."""
     return sorted(c.name for c in interaction.client.tree.get_commands())
 
 
 async def allow_autocomplete(interaction: discord.Interaction, current: str):
+    """Suggest commands not yet allowed in the selected scope."""
     scope = getattr(interaction.namespace, "scope", None) or "guild"
     if scope == "guild" and interaction.guild_id is None:
         return []
@@ -232,6 +247,7 @@ async def allow_autocomplete(interaction: discord.Interaction, current: str):
 
 
 async def disallow_autocomplete(interaction: discord.Interaction, current: str):
+    """Suggest commands currently allowed in the selected scope."""
     scope = getattr(interaction.namespace, "scope", None) or "guild"
     if scope == "guild" and interaction.guild_id is None:
         return []
@@ -254,6 +270,7 @@ async def command_allow(
     command: str,
     scope: app_commands.Choice[str] = None,
 ):
+    """Allow a registered command in the selected permission scope."""
     await edit_command(interaction, command, scope, allow=True)
 
 
@@ -268,6 +285,7 @@ async def command_disallow(
     command: str,
     scope: app_commands.Choice[str] = None,
 ):
+    """Remove a command allowance from the selected permission scope."""
     await edit_command(interaction, command, scope, allow=False)
 
 
@@ -276,6 +294,7 @@ command_disallow.autocomplete("command")(disallow_autocomplete)
 
 
 async def edit_command(interaction, command, scope, *, allow):
+    """Validate and apply a command allowance change, then persist it."""
     scope = scope.value if scope else "guild"
     command = command.strip().lstrip("/")
 

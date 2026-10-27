@@ -1,3 +1,5 @@
+"""Owner commands for bot lifecycle and message-log channel management."""
+
 import asyncio
 
 import discord
@@ -12,6 +14,7 @@ from cynthia.utils.onmessage import OnMessage
 @is_owner()
 @app_commands.dm_only()
 async def shutdown(interaction: discord.Interaction):
+    """Shut down the bot cleanly."""
     await interaction.response.send_message("Shutting down...")
     try:
         raise ExitCynthia("Shutdown")
@@ -23,6 +26,7 @@ async def shutdown(interaction: discord.Interaction):
 @is_owner()
 @app_commands.dm_only()
 async def restart(interaction: discord.Interaction):
+    """Shut down the bot and request a process restart."""
     await interaction.response.send_message("Restarting...")
     try:
         raise ExitCynthia("Restart")
@@ -37,6 +41,7 @@ async def restart(interaction: discord.Interaction):
     graceful="Shut Cynthia down cleanly, then reboot normally (default: force reboot)"
 )
 async def reboot(interaction: discord.Interaction, graceful: bool = False):
+    """Reboot the host immediately or after a graceful bot shutdown."""
     if graceful:
         await interaction.response.send_message(
             "Shutting down cleanly, then rebooting the host..."
@@ -56,6 +61,7 @@ async def reboot(interaction: discord.Interaction, graceful: bool = False):
 @is_owner()
 @app_commands.default_permissions(administrator=True)
 async def log_channel(interaction: discord.Interaction):
+    """Enable message logging for the current server channel."""
     await interaction.response.defer(thinking=True, ephemeral=True)
     if interaction.channel_id is None or interaction.guild_id is None:
         await interaction.followup.send(
@@ -82,6 +88,7 @@ async def log_channel(interaction: discord.Interaction):
 @is_owner()
 @app_commands.default_permissions(administrator=True)
 async def stop_log_channel(interaction: discord.Interaction):
+    """Disable message logging for the current channel."""
     await interaction.response.defer(thinking=True, ephemeral=True)
     key = f"log_{interaction.guild_id}_{interaction.channel_id}"
     if key in OnMessage.units:
@@ -97,6 +104,7 @@ async def stop_log_channel(interaction: discord.Interaction):
 @is_owner()
 @app_commands.default_permissions(administrator=True)
 async def get_log_channels(interaction: discord.Interaction):
+    """List configured message-log channels that remain accessible."""
     await interaction.response.defer(thinking=True, ephemeral=True)
     log_channels = {}
     logged_guilds = 0

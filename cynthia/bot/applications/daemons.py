@@ -1,3 +1,5 @@
+"""Owner command for reloading a daemon."""
+
 import discord
 from discord import app_commands
 
@@ -15,6 +17,7 @@ from cynthia.utils.auth import is_owner
 async def reload_daemon(
     interaction: discord.Interaction, daemon: app_commands.Choice[str]
 ):
+    """Reload a selected daemon and report errors to the owner."""
     await interaction.response.defer(thinking=True, ephemeral=True)
     try:
         await interaction.client.dman.reload_daemon(daemon.value)

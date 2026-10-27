@@ -1,3 +1,5 @@
+"""SQLite persistence for message logs and on-message rules."""
+
 import logging
 import sqlite3
 
@@ -8,12 +10,14 @@ DB_PATH = "cynthia.db"
 
 
 class Database:
+    """Store Discord entities, message logs, and on-message rules in SQLite."""
 
     def __init__(self, drive):
+        """Connect to the drive-backed database when drive storage is available."""
         self.database_connected = False
         self.drive = drive
         if not self.drive.enabled:
-            logger.warn("Drive not enabled. DB features disabled.")
+            logger.warning("Drive not enabled. DB features disabled.")
             return
         self.db_path = self.drive.path(DB_PATH)
         if not self.drive.exists(DB_PATH, is_file=True):
@@ -24,6 +28,7 @@ class Database:
         self.database_connected = True
 
     def create_db(self):
+        """Create the database tables when they do not already exist."""
         db_path = self.drive.touch(DB_PATH)
         conn = sqlite3.connect(db_path)
         c = conn.cursor()
@@ -90,6 +95,7 @@ class Database:
         conn.close()
 
     def insert_user(self, user, conn=None):
+        """Insert or update a user record using an optional open connection."""
         close = False
         if not self.database_connected:
             return
@@ -106,6 +112,7 @@ class Database:
             conn.close()
 
     def insert_server(self, server, conn=None):
+        """Insert or update a server record using an optional open connection."""
         close = False
         if not self.database_connected:
             return
@@ -122,6 +129,7 @@ class Database:
             conn.close()
 
     def insert_channel(self, channel, guild, conn=None):
+        """Insert or update a channel and its server record."""
         close = False
         if not self.database_connected:
             return
@@ -139,6 +147,7 @@ class Database:
             conn.close()
 
     def insert_log(self, message):
+        """Persist a Discord message and its related server, channel, and user."""
         if not self.database_connected:
             return
         conn = sqlite3.connect(self.drive.path(DB_PATH))
@@ -161,6 +170,7 @@ class Database:
         conn.close()
 
     def clear_onmessage(self):
+        """Delete all persisted on-message rules."""
         if not self.database_connected:
             return
         conn = sqlite3.connect(self.drive.path(DB_PATH))
@@ -170,6 +180,7 @@ class Database:
         conn.close()
 
     def insert_onmessage(self, onmessage):
+        """Persist an on-message rule unless an identical rule already exists."""
         if not self.database_connected:
             return
         conn = sqlite3.connect(self.drive.path(DB_PATH))
@@ -190,6 +201,7 @@ class Database:
         conn.close()
 
     def get_onmessage(self, _type=None, server_id=None, channel_id=None):
+        """Return persisted rules matching the supplied optional filters."""
         if not self.database_connected:
             return []
         conn = sqlite3.connect(self.drive.path(DB_PATH))

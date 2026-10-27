@@ -1,3 +1,5 @@
+"""Discord commands for Nintendo Switch control and macro playback."""
+
 import asyncio
 import io
 
@@ -22,6 +24,7 @@ from cynthia.utils.onmessage import OnMessage
 @privileged_only()
 @app_commands.default_permissions(administrator=True)
 async def connect(interaction: discord.Interaction):
+    """Connect the NXBT daemon to the Nintendo Switch."""
     await interaction.response.defer()
     nxbt_daemon = interaction.client.dman.running_daemons["NXBTDaemon"]
     if nxbt_daemon.connected:
@@ -40,6 +43,7 @@ async def connect(interaction: discord.Interaction):
 @nxbt_permission()
 @app_commands.default_permissions(administrator=True)
 async def disconnect(interaction: discord.Interaction):
+    """Disconnect the NXBT daemon from the Nintendo Switch."""
     await interaction.response.defer(thinking=False, ephemeral=True)
     nxbt_daemon = interaction.client.dman.running_daemons["NXBTDaemon"]
     if not nxbt_daemon.connected:
@@ -80,6 +84,7 @@ async def disconnect(interaction: discord.Interaction):
     ]
 )
 async def switch(interaction: discord.Interaction, action: app_commands.Choice[str]):
+    """Queue a single controller-button press."""
     await interaction.response.defer(thinking=False, ephemeral=True)
     nxbt_daemon = interaction.client.dman.running_daemons["NXBTDaemon"]
     if not nxbt_daemon.connected:
@@ -98,6 +103,7 @@ async def switch(interaction: discord.Interaction, action: app_commands.Choice[s
 @nonglobal_command()
 @privileged_only()
 async def use_channel_as_input(interaction: discord.Interaction):
+    """Treat messages in the current channel as controller input."""
     await interaction.response.defer(thinking=False, ephemeral=True)
     if interaction.channel_id is None or interaction.guild_id is None:
         await interaction.followup.send(
@@ -128,6 +134,7 @@ async def use_channel_as_input(interaction: discord.Interaction):
 @is_owner()
 @privileged_only()
 async def stop_using_channel_as_input(interaction: discord.Interaction):
+    """Stop treating messages in the current channel as controller input."""
     await interaction.response.defer(thinking=False, ephemeral=True)
     onmessage_key = f"nxbt_{interaction.guild_id}_{interaction.channel_id}"
     if onmessage_key in OnMessage.units:
@@ -140,6 +147,7 @@ async def stop_using_channel_as_input(interaction: discord.Interaction):
 @is_owner()
 @nxbt_permission()
 async def define_macro(interaction: discord.Interaction, message: discord.Message):
+    """Define a macro from the selected message."""
     await interaction.response.defer(thinking=False, ephemeral=True)
     content = message.content
     macro = Macro(content, force=True)
@@ -158,6 +166,7 @@ async def define_macro(interaction: discord.Interaction, message: discord.Messag
 async def queue_macro_context(
     interaction: discord.Interaction, message: discord.Message
 ):
+    """Queue a macro parsed from the selected message."""
     await interaction.response.defer(thinking=False, ephemeral=True)
     nxbt_daemon = interaction.client.dman.running_daemons["NXBTDaemon"]
     content = message.content
@@ -176,6 +185,7 @@ async def queue_macro_context(
 @daemon_running("NXBTDaemon")
 @app_commands.default_permissions(administrator=True)
 async def queue_macro(interaction: discord.Interaction, macro: str):
+    """Queue a previously defined macro by name."""
     await interaction.response.defer(thinking=False, ephemeral=True)
     nxbt_daemon = interaction.client.dman.running_daemons["NXBTDaemon"]
     if not nxbt_daemon.connected:
@@ -194,6 +204,7 @@ async def queue_macro(interaction: discord.Interaction, macro: str):
 @app_commands.command()
 @nxbt_permission()
 async def get_macro(interaction: discord.Interaction, macro: str):
+    """Display the stored definition for a named macro."""
     await interaction.response.defer()
     macro_str = Macro._macro_tree.get(macro.lower(), None)
     if macro_str is None:
@@ -206,10 +217,12 @@ async def get_macro(interaction: discord.Interaction, macro: str):
 @app_commands.default_permissions(attach_files=True)
 @daemon_running("CVDaemon")
 async def show(interaction: discord.Interaction):
+    """Send the latest frame captured by the computer-vision daemon."""
     await interaction.response.defer()
 
     # Try to get the CVDaemon memory
     def tryload(interaction):
+        """Return the computer-vision daemon namespace when available."""
         ns = None
         cv = interaction.client.dman.running_daemons.get("CVDaemon", None)
         if cv is not None:
@@ -238,6 +251,7 @@ async def show(interaction: discord.Interaction):
 @app_commands.default_permissions(administrator=True)
 @daemon_running("NXBTDaemon")
 async def pause(interaction: discord.Interaction):
+    """Pause Nintendo Switch macro playback."""
     nxbt_daemon = interaction.client.dman.running_daemons["NXBTDaemon"]
     nxbt_daemon.pause()
     await interaction.response.send_message("Macro Playback paused.")
@@ -248,6 +262,7 @@ async def pause(interaction: discord.Interaction):
 @app_commands.default_permissions(administrator=True)
 @daemon_running("NXBTDaemon")
 async def unpause(interaction: discord.Interaction):
+    """Resume Nintendo Switch macro playback."""
     nxbt_daemon = interaction.client.dman.running_daemons["NXBTDaemon"]
     nxbt_daemon.unpause()
     await interaction.response.send_message("Macro Playback resumed.")
@@ -258,6 +273,7 @@ async def unpause(interaction: discord.Interaction):
 @app_commands.default_permissions(administrator=True)
 @daemon_running("NXBTDaemon")
 async def loop(interaction: discord.Interaction, value: bool):
+    """Enable or disable repeating queued macro playback."""
     nxbt_daemon = interaction.client.dman.running_daemons["NXBTDaemon"]
     nxbt_daemon.set_loop(loop=value)
     await interaction.response.send_message("Loop Behavior updated.")
@@ -268,6 +284,7 @@ async def loop(interaction: discord.Interaction, value: bool):
 @app_commands.default_permissions(administrator=True)
 @daemon_running("NXBTDaemon")
 async def stop(interaction: discord.Interaction):
+    """Stop macro playback and clear the playback queue."""
     nxbt_daemon = interaction.client.dman.running_daemons["NXBTDaemon"]
     nxbt_daemon.stop()
     await interaction.response.send_message("Macro Playback stopped, queue cleared.")
@@ -278,6 +295,7 @@ async def stop(interaction: discord.Interaction):
 @app_commands.default_permissions(administrator=True)
 @daemon_running("NXBTDaemon")
 async def macro_clear(interaction: discord.Interaction):
+    """Clear the daemon's queued macros."""
     await interaction.response.defer()
     nxbt_daemon = interaction.client.dman.running_daemons["NXBTDaemon"]
     success = await nxbt_daemon.clear_queue()
@@ -290,6 +308,7 @@ async def macro_clear(interaction: discord.Interaction):
 @get_macro.autocomplete("macro")
 @queue_macro.autocomplete("macro")
 async def macro_autocomplete(interaction: discord.Interaction, current: str):
+    """Suggest stored macro names matching the query."""
     choices = [
         app_commands.Choice(name=macro_name, value=macro_name)
         for macro_name in Macro._macro_tree.keys()
@@ -304,6 +323,7 @@ async def macro_autocomplete(interaction: discord.Interaction, current: str):
 async def set_hunt(
     interaction: discord.Interaction, hunt: str, self_encounter: bool = False
 ):
+    """Set the active hunt and configure encounter logging and looping."""
     await interaction.response.defer()
     interaction.client.args.hunt = hunt
     cv_daemon = interaction.client.dman.running_daemons["CVDaemon"]
@@ -321,6 +341,7 @@ async def set_hunt(
 @app_commands.default_permissions(administrator=True)
 @is_owner()
 async def clear_hunt(interaction: discord.Interaction):
+    """Clear the active hunt from the bot and computer-vision daemon."""
     await interaction.response.defer()
     interaction.client.args.hunt = None
     interaction.client.dman.running_daemons["CVDaemon"].set_hunt(None)

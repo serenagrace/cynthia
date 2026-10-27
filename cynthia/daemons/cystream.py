@@ -1,3 +1,5 @@
+"""Serve captured video frames and bot status through a local web app."""
+
 import asyncio
 import gzip
 import json
@@ -17,10 +19,12 @@ from .dman import FB0
 
 
 def create_app(drive, ns, uns, fb):
+    """Build the FastAPI app that streams frames and serves status endpoints."""
     viewers = {"count": 0}
     latest = {"seq": 0, "chunk": None}
 
     def encode(frame):
+        """Resize a frame and encode it as JPEG bytes."""
         success, buffer = cv2.imencode(
             ".jpg",
             cv2.resize(frame, None, fx=0.5, fy=0.5, interpolation=cv2.INTER_AREA),
@@ -28,6 +32,7 @@ def create_app(drive, ns, uns, fb):
         return buffer.tobytes() if success else None
 
     async def encoder():
+        """Encode new shared-memory frames while viewers are connected."""
         while ns.run:
             if viewers["count"] == 0 or uns.fbptr is None:
                 await asyncio.sleep(0.05)
@@ -48,6 +53,7 @@ def create_app(drive, ns, uns, fb):
 
     @asynccontextmanager
     async def lifespan(_):
+        """Start the frame encoder with the app and cancel it on shutdown."""
         task = asyncio.create_task(encoder())
         try:
             yield
@@ -60,6 +66,7 @@ def create_app(drive, ns, uns, fb):
     app.state.latest = latest
 
     async def frame_generator():
+        """Yield newly encoded multipart frames to a streaming response."""
         viewers["count"] += 1
         last_seq = latest["seq"]
         try:
@@ -74,6 +81,7 @@ def create_app(drive, ns, uns, fb):
 
     @app.get("/api/user_status")
     async def status():
+        """Return the saved user status mapping."""
         try:
             with drive.open("user_status.json", "r", touch=True) as f:
                 status_data = json.load(f)
@@ -83,16 +91,19 @@ def create_app(drive, ns, uns, fb):
 
     @app.get("/api/viewers")
     async def viewer_count():
+        """Return the current number of video stream viewers."""
         return {"viewers": viewers["count"]}
 
     @app.get("/video_feed", response_class=HTMLResponse)
     async def video_feed_page():
+        """Serve the local HTML page for the video stream."""
         with drive.open("site/html/video_feed.html", "r") as f:
             html_content = f.read()
         return HTMLResponse(content=html_content, status_code=200)
 
     @app.get("/api/stream_endpoint")
     async def video_feed():
+        """Stream captured frames as a multipart MJPEG response."""
         ns.uvc_hash = -1
         return StreamingResponse(
             frame_generator(),
@@ -106,21 +117,29 @@ class GzipLogHandler(logging.StreamHandler):
     """Appends log lines to a .gz file, flushed per record so it stays readable."""
 
     def __init__(self, path):
+        """Open a gzip log stream and format each record with a timestamp."""
         super().__init__(gzip.open(path, "at", encoding="utf-8"))
         self.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
 
     def flush(self):
+        """Flush the log record and sync the gzip stream."""
         super().flush()
         self.stream.buffer.flush(zlib_mode=zlib.Z_SYNC_FLUSH)
 
     def close(self):
+        """Close the stream handler and its gzip file."""
         super().close()
         self.stream.close()
 
 
 class CYStream(Daemon):
+    """Run the local FastAPI video and status service in a process."""
+
     def __init__(self, dman):
+        """Create the web worker and attach compressed access logging."""
+
         def loop(ns, uns, fba, fbb, drive):
+            """Serve the FastAPI app over the local HTTP interface."""
             with (
                 closing(shared_memory.SharedMemory(name=fba)) as shmA,
                 closing(shared_memory.SharedMemory(name=fbb)) as shmB,

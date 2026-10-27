@@ -1,3 +1,5 @@
+"""Administrative test commands for verification, insights, and member events."""
+
 import discord
 from discord import app_commands
 
@@ -10,6 +12,7 @@ from cynthia.views import InsightView
 @is_owner()
 @nonglobal_command()
 async def verify(interaction: discord.Interaction, code: app_commands.Range[str, 6, 6]):
+    """Check an OTP code and return whether verification succeeded."""
     await interaction.response.send_message(
         interaction.client.verify(code), ephemeral=True
     )
@@ -19,6 +22,7 @@ async def verify(interaction: discord.Interaction, code: app_commands.Range[str,
 @app_commands.guild_only()
 @app_commands.default_permissions(administrator=True)
 async def insight(interaction: discord.Interaction, userid: str):
+    """Open an insight view for a member identified by Discord ID."""
     user = await interaction.client.fetch_user(int(userid))
     member = await interaction.guild.fetch_member(int(userid))
     if member is None:
@@ -34,6 +38,7 @@ async def insight(interaction: discord.Interaction, userid: str):
 @app_commands.guild_only()
 @app_commands.default_permissions(manage_messages=True)
 async def greet(interaction: discord.Interaction, userid: str):
+    """Send a welcome message for a member identified by Discord ID."""
     member = await interaction.guild.fetch_member(int(userid))
     channel = discord.utils.get(interaction.guild.text_channels, name="general-chat")
     if member is None:
@@ -66,6 +71,7 @@ async def greet(interaction: discord.Interaction, userid: str):
 @app_commands.guild_only()
 @app_commands.default_permissions(administrator=True)
 async def test_join(interaction: discord.Interaction, userid: str):
+    """Dispatch a member-join event for an existing server member."""
     member = interaction.guild.get_member(int(userid))
     if member is None:
         try:

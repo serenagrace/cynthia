@@ -1,8 +1,11 @@
+"""Collect build and runtime metadata for the bot."""
+
 import subprocess
 from datetime import datetime
 
 
 def get_app_info():
+    """Return the current Git revision and build and run timestamps."""
     githash = "??????"
     try:
         githash = (

@@ -1,3 +1,5 @@
+"""Interactive moderation insight views for server members."""
+
 import re
 from datetime import datetime, timedelta, timezone
 
@@ -17,22 +19,30 @@ SUSPICION_TYPES = {
 
 
 class Suspicions(Namespace):
+    """Track and format account signals used by member insight views."""
+
     def __init__(self):
+        """Initialize every known suspicion signal as false."""
         super().__init__({k: False for k in SUSPICION_TYPES.keys()})
 
     def __iter__(self):
+        """Yield descriptions for each active suspicion."""
         for k, v in self._nspace_dict.items():
             if v:
                 yield SUSPICION_TYPES[k]
 
     def __len__(self):
+        """Return the number of active suspicion signals."""
         return sum(1 for v in self._nspace_dict.values() if v)
 
 
 class InsightView(discord.ui.LayoutView):
+    """Show account details and allow authorized moderation actions."""
+
     VIEWS = {}
 
     def __init__(self, user, member):
+        """Build and register an insight view for a Discord member."""
         super().__init__(timeout=60 * 60 * 24)
         self.action_row = None
 
@@ -50,7 +60,7 @@ class InsightView(discord.ui.LayoutView):
 
     @staticmethod
     def build_sections(member, user, suspicions=None):
-
+        """Build the user, role, and analysis sections for the view."""
         if suspicions is None:
             suspicions = InsightView.gather_suspicions(user, member)
 
@@ -102,6 +112,7 @@ class InsightView(discord.ui.LayoutView):
         return sections
 
     def compile_view(self, sections=None):
+        """Add the supplied or generated sections and action row to the view."""
         if sections is None:
             sections = self.build_sections(self.member, self.user, self.suspicions)
 
@@ -114,6 +125,7 @@ class InsightView(discord.ui.LayoutView):
 
     @staticmethod
     def gather_suspicions(user, member):
+        """Detect account age, avatar, username, rejoin, and spammer signals."""
         suspicions = Suspicions()
         if datetime.now(timezone.utc) - user.created_at < timedelta(weeks=30):
             suspicions.account_age = True
@@ -126,6 +138,7 @@ class InsightView(discord.ui.LayoutView):
         return suspicions
 
     def _save_view(self):
+        """Register this view by guild and user ID for later updates."""
         if str(self.guild.id) not in InsightView.VIEWS:
             InsightView.VIEWS[str(self.guild.id)] = dict()
         if str(self.user.id) not in InsightView.VIEWS[str(self.guild.id)]:
@@ -133,7 +146,10 @@ class InsightView(discord.ui.LayoutView):
         InsightView.VIEWS[str(self.guild.id)][str(self.user.id)].append(self)
 
     class ActionRow(discord.ui.ActionRow):
+        """Buttons for greeting, kicking, or banning the inspected member."""
+
         def __init__(self, view, member):
+            """Store the parent view and hide greeting when suspicions exist."""
             super().__init__()
             self.insight_view = view
             self.member = member
@@ -145,6 +161,7 @@ class InsightView(discord.ui.LayoutView):
         async def greet_button(
             self, interaction: discord.Interaction, button: discord.ui.Button
         ):
+            """Send a welcome message and mark the member as greeted."""
             channel = discord.utils.get(
                 interaction.guild.text_channels, name="general-chat"
             )
@@ -169,6 +186,7 @@ class InsightView(discord.ui.LayoutView):
         async def kick_button(
             self, interaction: discord.Interaction, button: discord.ui.Button
         ):
+            """Record and carry out a moderation kick."""
             await self.insight_view.kicked()
             await self.member.kick(reason="Suspicious account.")
 
@@ -177,16 +195,19 @@ class InsightView(discord.ui.LayoutView):
         async def ban_button(
             self, interaction: discord.Interaction, button: discord.ui.Button
         ):
+            """Record and carry out a moderation ban."""
             await self.insight_view.banned()
             await self.member.ban(
                 reason=f"Banned by insight command. Suspicions: {', '.join([suspicion[2:] for suspicion in self.insight_view.suspicions])}"
             )
 
     async def update_view(self):
+        """Edit the attached Discord message with the current view state."""
         if self.message is not None:
             await self.message.edit(view=self)
 
     async def greeted(self, auto=False):
+        """Update status and remove the greeting action after a greeting."""
         self.update_status(
             f"*✅ User has been greeted{' automatically' if auto else ''}.*"
         )
@@ -196,11 +217,13 @@ class InsightView(discord.ui.LayoutView):
 
     @classmethod
     async def user_greeted(cls, guild_id, user_id, auto=False):
+        """Mark every active view for a user as greeted."""
         if str(user_id) in cls.VIEWS[str(guild_id)]:
             for view in cls.VIEWS[str(guild_id)][str(user_id)]:
                 await view.greeted(auto=auto)
 
     async def kicked(self, auto=False):
+        """Update status and remove actions after a kick."""
         self.voluntary_leave = False
         self.update_status(
             f"*🚫 User has been kicked{' automatically' if auto else ''}.*"
@@ -212,11 +235,13 @@ class InsightView(discord.ui.LayoutView):
 
     @classmethod
     async def user_kicked(cls, guild_id, user_id, auto=False):
+        """Mark every active view for a user as kicked."""
         if str(user_id) in cls.VIEWS[str(guild_id)]:
             for view in cls.VIEWS[str(guild_id)][str(user_id)]:
                 await view.kicked(auto=auto)
 
     async def banned(self, auto=False):
+        """Update status and remove moderation actions after a ban."""
         self.voluntary_leave = False
         self.update_status(
             f"*🚫 User has been banned{' automatically' if auto else ''}.*"
@@ -227,11 +252,13 @@ class InsightView(discord.ui.LayoutView):
 
     @classmethod
     async def user_banned(cls, guild_id, user_id, auto=False):
+        """Mark every active view for a user as banned."""
         if str(user_id) in cls.VIEWS[str(guild_id)]:
             for view in cls.VIEWS[str(guild_id)][str(user_id)]:
                 await view.banned(auto=auto)
 
     async def left(self):
+        """Update status after a voluntary departure and remove member actions."""
         if not self.voluntary_leave:
             return
         self.update_status("*❓ User has left the server.*")
@@ -242,11 +269,13 @@ class InsightView(discord.ui.LayoutView):
 
     @classmethod
     async def user_left(cls, guild_id, user_id):
+        """Mark every active view for a user as left."""
         if str(user_id) in cls.VIEWS[str(guild_id)]:
             for view in cls.VIEWS[str(guild_id)][str(user_id)]:
                 await view.left()
 
     async def on_timeout(self):
+        """Mark the view as expired, unregister it, and update its message."""
         if self.status_section is None:
             self.update_status("*⏰ This view has timed out.*")
         if self.action_row is not None:
@@ -257,12 +286,14 @@ class InsightView(discord.ui.LayoutView):
 
     @classmethod
     async def do_timeout(cls):
+        """Expire every currently registered insight view."""
         for guild_id in cls.VIEWS:
             for user_id in cls.VIEWS[guild_id]:
                 for view in cls.VIEWS[guild_id][user_id]:
                     await view.on_timeout()
 
     def update_status(self, status):
+        """Replace the status display with the supplied text."""
         if self.status_section is not None:
             self.remove_item(self.status_section)
         self.status_section = discord.ui.TextDisplay(content=status)

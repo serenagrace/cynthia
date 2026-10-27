@@ -1,3 +1,5 @@
+"""Discover, start, stop, and reload daemon processes."""
+
 import asyncio
 import importlib
 import logging
@@ -18,23 +20,30 @@ logger.setLevel(logging.DEBUG)
 
 
 class FB0:
+    """Dimensions and buffer helpers for captured video frames."""
+
     WIDTH = 1920
     HEIGHT = 1080
     CHANNELS = 3
 
     @staticmethod
     def nbytes():
+        """Return the byte size of one RGB frame buffer."""
         return FB0.WIDTH * FB0.HEIGHT * FB0.CHANNELS * numpy.dtype(numpy.uint8).itemsize
 
     @staticmethod
     def shape():
+        """Return the array shape for one RGB frame buffer."""
         return (FB0.HEIGHT, FB0.WIDTH, FB0.CHANNELS)
 
 
 class DMan:
+    """Manage daemon discovery, shared frame buffers, and process lifecycle."""
+
     RELOADABLE = ("CYStream", "UVCDaemon")
 
     def __init__(self, context):
+        """Create shared state, discover daemons, and start loaded daemons."""
         self.context = context
         self.drive = Drive(self.context.config.drive_path)
         self.__modules = list()
@@ -54,6 +63,7 @@ class DMan:
         self.run_daemons()
 
     def load_daemons(self):
+        """Import daemon modules and register their daemon subclasses."""
         importlib.invalidate_caches()
         self.clear_daemons()
 
@@ -107,6 +117,7 @@ class DMan:
         return len(self.loaded_daemons), errors
 
     def run_daemons(self, *, daemons=None):
+        """Start all loaded daemons or only the named daemons."""
         if daemons is not None:
             for _daemon in daemons:
                 if _daemon not in self.__loaded_daemons:
@@ -125,11 +136,13 @@ class DMan:
                 self.__running_daemons[name] = daemon(self)
 
     def clear_daemons(self):
+        """Reset discovered daemon classes while retaining modules for reload."""
         self.__previously_loaded_modules = getattr(self, "__loaded_modules", list())
         self.__loaded_modules = list()
         self.__loaded_daemons = Namespace()
 
     async def stop_daemons(self, *, daemons=None):
+        """Signal selected daemons to stop and clean up their processes."""
         if daemons is None:
             daemons = list(self.__running_daemons.keys())
         daemons = [
@@ -195,27 +208,35 @@ class DMan:
 
     @property
     def modules(self):
+        """Return discovered daemon module names."""
         return self.__modules
 
     @property
     def loaded_modules(self):
+        """Return daemon module names imported successfully."""
         return self.__loaded_modules
 
     @property
     def daemon_directory(self):
+        """Return the directory used to discover daemon modules."""
         return self.__directory
 
     @property
     def loaded_daemons(self):
+        """Return the mapping of registered daemon classes."""
         return self.__loaded_daemons
 
     @property
     def running_daemons(self):
+        """Return the mapping of active daemon instances."""
         return self.__running_daemons
 
 
 def daemon_running(daemon: str):
+    """Create a command check that requires a named daemon to be running."""
+
     async def predicate(interaction):
+        """Check whether the interaction's client has the named daemon."""
         if hasattr(interaction.client, "dman"):
             return daemon in interaction.client.dman.running_daemons
         return False

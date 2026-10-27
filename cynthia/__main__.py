@@ -1,3 +1,5 @@
+"""Command-line entry point for the Cynthia bot."""
+
 import argparse
 import logging
 import subprocess
@@ -12,7 +14,7 @@ logging.getLogger("nxbt").setLevel(logging.INFO)
 
 
 def main():
-
+    """Load configuration, start the bot, and handle its shutdown action."""
     parser = argparse.ArgumentParser()
     # parser.add_argument("--uvcgui", action="store_true", help="Enable UVC GUI")
     parser.add_argument("--config", default="config.yaml", help="Override config file")

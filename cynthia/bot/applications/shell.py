@@ -1,3 +1,5 @@
+"""Privileged command for running a shell command on the bot host."""
+
 import subprocess
 from tempfile import TemporaryFile
 
@@ -11,6 +13,7 @@ from cynthia.utils.auth import privileged_only
 @app_commands.default_permissions(administrator=True)
 @privileged_only()
 async def shell(interaction: discord.Interaction, command: str):
+    """Run a command and send its output or exit status to the caller."""
     await interaction.response.defer()
     message = None
     try:

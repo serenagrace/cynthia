@@ -1,3 +1,5 @@
+"""Discord bot implementation and lifecycle management."""
+
 import asyncio
 import gzip
 import importlib.resources
@@ -24,7 +26,10 @@ _logger.setLevel(logging.DEBUG)
 
 
 class Bot(commands.Bot):
+    """Configure Discord integrations, commands, daemons, and cleanup."""
+
     def __init__(self, context, *, onexit=None, test_mode=False, test_guild_id=None):
+        """Initialize bot services and optionally disable daemons for tests."""
         if test_mode and test_guild_id is None:
             raise ValueError("Test mode requires an explicit test guild ID.")
         self.test_mode = test_mode
@@ -65,11 +70,13 @@ class Bot(commands.Bot):
             load_macros(self.drive)
 
             async def onmessage_cleanup(*_):
+                """Persist message handlers during bot shutdown."""
                 save_onmessage(self.database)
 
             self.onexit["onmessage"] = onmessage_cleanup
 
         async def dman_cleanup(*_):
+            """Stop all managed daemons during bot shutdown."""
             await self.dman.stop_daemons()
 
         self.onexit["dman"] = dman_cleanup
@@ -78,6 +85,7 @@ class Bot(commands.Bot):
         self.loaded_cog_count = 0
 
     async def reload_tree(self, interaction=None):
+        """Load command modules, sync commands, and report reload results."""
         _logger.info("Fetching command modules...")
         n = 0
         n, errors = await self.tree.load_commands()
@@ -104,12 +112,14 @@ class Bot(commands.Bot):
         )
 
     async def reload_application(self, module):
+        """Reload one command module and sync the updated command tree."""
         errors = await self.tree.reload_module(module)
         self.loaded_command_count = len(self.tree.get_commands())
         await self._sync_command_tree()
         return errors
 
     async def _sync_command_tree(self):
+        """Sync commands globally or to the configured test guild."""
         if self.test_mode:
             guild = discord.Object(id=self.command_guild_id)
             self.tree.copy_global_to(guild=guild)
@@ -135,6 +145,7 @@ class Bot(commands.Bot):
             return []
 
     def _discover_cogs(self, traversable, current_pkg: str):
+        """Recursively find cog modules beneath a package directory."""
         cog_extensions = []
 
         for item in traversable.iterdir():
@@ -153,6 +164,7 @@ class Bot(commands.Bot):
         return cog_extensions
 
     async def load_cogs(self):
+        """Discover and load cog extensions, logging individual failures."""
         _logger.info("Loading cogs...")
         cogs_pkg_path = "cynthia.bot.cogs"
         cogs_pkg = importlib.resources.files(cogs_pkg_path)
@@ -193,6 +205,7 @@ class Bot(commands.Bot):
         return None
 
     async def setup_hook(self):
+        """Load permissions, cogs, and application commands during startup."""
         guilds = [] if self.test_mode else await self.get_all_guilds()
         _logger.info(f"Currently member in {len(guilds)} guilds.")
         self.perms = Namespace(self.permsloader(self))
@@ -201,11 +214,13 @@ class Bot(commands.Bot):
         await self.reload_tree()
 
     async def on_ready(self):
+        """Load message handlers and mark the bot as online."""
         await load_onmessage(self)
         _logger.info(color_str("Ready.", "yellow"))
         await self.change_presence(status=discord.Status.online)
 
     async def on_message(self, message):
+        """Run registered message handlers and respond to permitted messages."""
         if message.author.id == self.user.id:
             return
 
@@ -230,6 +245,7 @@ class Bot(commands.Bot):
         await self.messenger.respond(message)
 
     async def wake_message(self, interaction=None, errors=None):
+        """Report startup status and command-loading errors to the owner."""
         if errors is None:
             errors = list()
         embed = discord.Embed(
@@ -264,6 +280,7 @@ class Bot(commands.Bot):
             await self.messenger.msg_owner(embed, alert=True)
 
     async def close(self):
+        """Run registered cleanup tasks before closing the Discord client."""
         if self.onexit is not None:
             exit_tasks = self.onexit.values()
             self.onexit = None
@@ -284,9 +301,11 @@ class Bot(commands.Bot):
         await super().close()
 
     def raise_(self, ExceptionType, /, *args, **kwargs):
+        """Raise an exception type, matching the client's callback interface."""
         raise ExceptionType()
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Record shutdown exceptions and delegate client exit handling."""
         if exc_type is not None:
             if self.kill_reason is not None:
                 if not isinstance(self.kill_reason, list):
@@ -298,9 +317,13 @@ class Bot(commands.Bot):
 
 
 class _DisabledDMan:
+    """No-op daemon manager used when the bot runs in test mode."""
+
     def __init__(self):
+        """Initialize empty daemon state for test-mode operation."""
         self.running_daemons = {}
         self.uns = Namespace({"nxbt_daemon_stop": False, "nxbt_connection_lost": False})
 
     async def stop_daemons(self):
+        """Match the daemon manager shutdown API without starting daemons."""
         return None

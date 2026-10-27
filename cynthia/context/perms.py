@@ -15,20 +15,26 @@ FLAKE_NAMES = {"u": "user", "r": "role"}
 
 
 def guild_key(guild_id):
+    """Format a guild ID as its permissions-context key."""
     return str(GuildFlake(str(guild_id)))
 
 
 class PermsLoader:
+    """Load, normalize, check, and persist user and guild permissions."""
+
     def __init__(self, filename):
+        """Create a permissions loader for an existing file."""
         if not Path(filename).exists():
             raise FileNotFoundError("Specified perms file does not exist.")
         self.filename = filename
 
     @staticmethod
     def default():
+        """Return the default permission lists."""
         return Defaults().perms
 
     def _load(self, bot):
+        """Load permissions and build contexts for known and saved guilds."""
         with open(self.filename, "r") as f:
             self._file_perms = force_obj_is_dict(yaml.load(f, Loader=yaml.Loader))
 
@@ -50,6 +56,7 @@ class PermsLoader:
         return {ctx: self._build_context(self._file_perms.get(ctx)) for ctx in contexts}
 
     def _build_context(self, file_ctx=None):
+        """Merge a saved context with defaults and include the configured owner."""
         # Fresh lists per context so edits to one guild never leak into another
         ctx_perms = {**self.default(), **force_obj_is_dict(file_ctx)}
         for privilege_list in ctx_perms:
@@ -71,6 +78,7 @@ class PermsLoader:
 
     @staticmethod
     def _entry_target(entry):
+        """Return a permission entry without its allow or deny prefix."""
         return str(entry).lstrip("+-")
 
     def grant(self, context, perm, kind, uid, *, allow=True):
@@ -87,6 +95,7 @@ class PermsLoader:
         return "updated" if existing else "added"
 
     def revoke(self, context, perm, kind, uid):
+        """Remove a user's or role's permission entry; return whether one existed."""
         entries = self._perms[context][perm]
         target = f"{kind}:{uid}"
         kept = [e for e in entries if self._entry_target(e) != target]
@@ -95,6 +104,7 @@ class PermsLoader:
         return removed
 
     def allow_command(self, context, command):
+        """Allow a command in a context; return whether the list changed."""
         commands = self._perms[context]["allowed_commands"]
         if command in commands:
             return False
@@ -102,6 +112,7 @@ class PermsLoader:
         return True
 
     def disallow_command(self, context, command):
+        """Remove a command allowance; return whether the list changed."""
         commands = self._perms[context]["allowed_commands"]
         if command not in commands:
             return False
@@ -115,6 +126,7 @@ class PermsLoader:
         )
 
     def check(self, ctx, *, command=None, perm=None):
+        """Check one permission or return all permissions for an interaction."""
         if perm == "allowed_commands":
             guild = getattr(ctx, "guild", None)
             return command in self._perms["global"]["allowed_commands"] or (
@@ -146,6 +158,7 @@ class PermsLoader:
     def check_perm(
         self, *, user: str, guild: str, roles: list[str], ctx: str, perm: str
     ):
+        """Resolve a permission across global, guild, role, and user rules."""
         # `guild` is "global" or a guild context key ("g:<id>")
         if perm not in self._perms["global"]:
             return False
@@ -182,10 +195,12 @@ class PermsLoader:
         return result
 
     def __call__(self, bot):
+        """Return cached permissions, loading guild contexts on first access."""
         if not hasattr(self, "_perms"):
             self._perms = self._load(bot)
         return self._perms
 
     def save(self, updated_perms):
+        """Write the supplied permissions mapping to the configured file."""
         with open(self.filename, "w") as f:
             yaml.dump(updated_perms, f)

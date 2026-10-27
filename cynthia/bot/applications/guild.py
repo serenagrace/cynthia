@@ -1,3 +1,5 @@
+"""Guild-only commands for changing the bot's server profile."""
+
 import aiohttp
 import discord
 from discord import app_commands
@@ -10,6 +12,7 @@ from discord import app_commands
 async def set_server_avatar(
     interaction: discord.Interaction, file: discord.Attachment = None, url: str = None
 ):
+    """Set the bot's server avatar from an image attachment or URL."""
     # 1. Check if the user uploaded an image or provided a URL
     avatar_bytes = b""
     if url is None and file is None:
@@ -62,6 +65,7 @@ async def set_server_avatar(
 @app_commands.default_permissions(manage_guild=True)
 @app_commands.checks.has_permissions(manage_guild=True)
 async def set_server_nickname(interaction: discord.Interaction, nickname: str = None):
+    """Set the bot's nickname in the current server."""
     if nickname is None:
         nickname = "Cynthia"
     await interaction.guild.me.edit(nick=nickname)

@@ -1,3 +1,5 @@
+"""Command for listing application commands available to the caller."""
+
 import asyncio
 
 import discord
@@ -5,6 +7,7 @@ from discord import app_commands
 
 
 async def run_check(check: callable, interaction: discord.Interaction) -> bool:
+    """Run a command check, awaiting it when it is asynchronous."""
     if asyncio.iscoroutinefunction(check):
         return await check(interaction)
     else:
@@ -13,6 +16,7 @@ async def run_check(check: callable, interaction: discord.Interaction) -> bool:
 
 @app_commands.command()
 async def help(interaction: discord.Interaction):
+    """List commands whose permission checks pass for this interaction."""
     await interaction.response.defer()
     commands = await interaction.client.tree.fetch_commands()
     available_commands = []

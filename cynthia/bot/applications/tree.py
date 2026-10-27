@@ -1,3 +1,5 @@
+"""Discover, load, and reload Discord application command modules."""
+
 import importlib
 import logging
 import sys
@@ -10,17 +12,23 @@ logger.setLevel(logging.DEBUG)
 
 
 class TreeLoadError(Exception):
+    """Raised when an application command tree cannot be loaded."""
+
     def __init__(self, message):
+        """Initialize the loading error with a diagnostic message."""
         super().__init__(message)
 
 
 class CommandTree(discord.app_commands.CommandTree):
+    """Discord command tree that loads commands from application modules."""
 
     def __init__(self, client):
+        """Initialize the tree for the bot client."""
         self.client = client
         super().__init__(client)
 
     async def on_error(self, interaction, error):
+        """Send a safe interaction error and log unexpected failures."""
         if isinstance(error, discord.app_commands.CheckFailure):
             message = str(error) or "You do not have permission to use this command."
             message = f"❌ {message}"
@@ -33,6 +41,7 @@ class CommandTree(discord.app_commands.CommandTree):
             await interaction.response.send_message(message, ephemeral=True)
 
     async def load_commands(self):
+        """Discover and load command modules, returning count and errors."""
         importlib.invalidate_caches()
         self.clear_commands()
         self.__directory = Path(__file__).parent
@@ -117,6 +126,7 @@ class CommandTree(discord.app_commands.CommandTree):
         return [error] if error else []
 
     def clear_commands(self):
+        """Clear loaded-command bookkeeping and registered Discord commands."""
         self.__loaded_modules = []
         self.__module_commands = {}
         self.__loaded_commands = []
@@ -124,16 +134,20 @@ class CommandTree(discord.app_commands.CommandTree):
 
     @property
     def modules(self):
+        """Return discovered application module names."""
         return self.__modules
 
     @property
     def loaded_modules(self):
+        """Return application modules loaded without errors."""
         return self.__loaded_modules
 
     @property
     def application_directory(self):
+        """Return the directory used to discover application modules."""
         return self.__directory
 
     @property
     def loaded_commands(self):
+        """Return qualified names of commands registered in the tree."""
         return self.__loaded_commands

@@ -1,3 +1,5 @@
+"""Commands for discovering and reloading bot cogs."""
+
 import discord
 from discord import app_commands
 
@@ -5,6 +7,7 @@ from cynthia.utils.auth import is_owner
 
 
 async def cog_autocomplete(interaction: discord.Interaction, current: str):
+    """Suggest discovered cogs matching the user's query."""
     prefix = "cynthia.bot.cogs."
     return [
         app_commands.Choice(name=c.removeprefix(prefix), value=c)
@@ -19,6 +22,7 @@ async def cog_autocomplete(interaction: discord.Interaction, current: str):
 @app_commands.dm_only()
 @is_owner()
 async def reload_cog(interaction: discord.Interaction, cog: str):
+    """Reload one discovered cog and report the result privately."""
     await interaction.response.defer(thinking=True, ephemeral=True)
     error = await interaction.client.reload_cog(cog)
     if error:

@@ -1,3 +1,5 @@
+"""Capture video frames from the configured USB video device."""
+
 import asyncio
 import io
 import logging
@@ -21,8 +23,13 @@ ELGATO_USB_ID = "0fd9:009b"
 
 
 class UVCDaemon(Daemon):
+    """Read UVC frames into alternating shared-memory buffers."""
+
     def __init__(self, dman):
+        """Initialize shared frame metadata and start the capture process."""
+
         def loop(ns, uns, fba, fbb):
+            """Capture frames and publish them through shared memory."""
             with (
                 closing(shared_memory.SharedMemory(name=fba)) as shmA,
                 closing(shared_memory.SharedMemory(name=fbb)) as shmB,
@@ -34,6 +41,7 @@ class UVCDaemon(Daemon):
                 )
 
                 async def main_task():
+                    """Read frames and update the active shared buffer metadata."""
                     uvc = UVC()
                     await uvc.setup()
 
@@ -65,10 +73,14 @@ class UVCDaemon(Daemon):
 
 
 class UVC:
+    """Open and read frames from a USB video capture device."""
+
     def __init__(self):
+        """Initialize with no active video capture."""
         self.cap = None
 
     async def setup(self):
+        """Reset the USB device and configure its video capture."""
         subprocess.run(["usbreset", ELGATO_USB_ID])
 
         await asyncio.sleep(2)  # Wait for the device to reset
@@ -85,6 +97,7 @@ class UVC:
         await self.read_frame()
 
     async def read_frame(self):
+        """Read and vertically flip a frame, or return None on timeout."""
         if self.cap is None:
             await self.setup()
         ret = False
@@ -109,6 +122,7 @@ class UVC:
 
     @staticmethod
     def frame_to_buffer(frame):
+        """Encode a frame as PNG and return it in a rewound byte buffer."""
         success, buffer = cv2.imencode(".png", frame)
         if not success:
             logger.error("Failed to encode frame as PNG.")
@@ -118,5 +132,6 @@ class UVC:
         return io_buf
 
     def release(self):
+        """Release the active video capture, if one exists."""
         if self.cap is not None:
             self.cap.release()

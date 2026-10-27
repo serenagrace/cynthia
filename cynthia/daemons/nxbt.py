@@ -1,3 +1,5 @@
+"""Daemon that connects to Nintendo Switch and plays queued macros."""
+
 import asyncio
 import logging
 import multiprocessing
@@ -22,11 +24,16 @@ logger.setLevel(logging.DEBUG)
 
 
 class NXBTDaemon(Daemon):
+    """Manage NXBT connection state and execute queued controller macros."""
+
     POLL_RATE = 0.5
     GRACE_PERIOD = 5.0
 
     def __init__(self, dman):
+        """Create daemon state, its work queue, and the worker process."""
+
         def loop(ns, uns, tqueue, macro_tree, drive):
+            """Run the NXBT worker process until its shared run flag clears."""
             logger = logging.getLogger(__name__)
             logging.basicConfig(level=logging.DEBUG)
             logging.getLogger("nxbt").setLevel(logging.INFO)
@@ -37,6 +44,7 @@ class NXBTDaemon(Daemon):
             disconnected_since = None
 
             async def main_task():
+                """Handle controller connection, macro playback, and shutdown."""
                 nonlocal controller
                 nonlocal playing_gen
                 nonlocal playing
@@ -184,28 +192,34 @@ class NXBTDaemon(Daemon):
         self.start(daemon=False)
 
     def queue(self, macro):
+        """Add a macro definition to the playback queue."""
         self.tqueue.put(str(macro))
 
     def stop(self):
+        """Stop playback, pause execution, and signal the worker to drain."""
         self.ns.stop = True
         self.ns.pause = True
         self.ns.loop = False
         self.tqueue.put(None)
 
     def unpause(self):
+        """Resume playback and clear pending stop notifications."""
         self.ns.pause = False
         self.uns.nxbt_daemon_stop = False
         self.uns.messaged = False
 
     def pause(self):
+        """Pause playback without clearing the queue."""
         self.ns.pause = True
 
     def set_loop(self, *, loop=True):
+        """Set whether completed macros are added back to the queue."""
         self.ns.loop = loop
         if loop:
             self.ns.pause = True
 
     async def connect(self):
+        """Request a controller connection and wait for its result."""
         self.ns.connect = True
 
         try:
@@ -217,6 +231,7 @@ class NXBTDaemon(Daemon):
         return self.ns.connected
 
     async def disconnect(self):
+        """Request a controller disconnection and wait for completion."""
         self.ns.disconnect = True
         try:
             async with asyncio.timeout(45):
@@ -228,9 +243,11 @@ class NXBTDaemon(Daemon):
 
     @property
     def connected(self):
+        """Return whether the worker reports an active controller connection."""
         return self.ns.connected
 
     async def clear_queue(self):
+        """Stop playback, wait for the queue to clear, and resume the daemon."""
         self.stop()
         try:
             async with asyncio.timeout(30):

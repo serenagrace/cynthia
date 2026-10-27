@@ -1,3 +1,5 @@
+"""Application commands backed by game and Pokémon reference data."""
+
 import csv
 import json
 import logging
@@ -20,16 +22,21 @@ logger.setLevel(logging.DEBUG)
 
 
 class Compendium:
+    """Load, refresh, and persist remote reference datasets."""
+
     children = []
 
     def __init__(self, child, client, datasets):
+        """Store the drive and remote dataset definitions."""
         self.drive = client.drive
         self.datasets = datasets
 
     async def __ainit__(self):
+        """Build datasets when the application is initialized."""
         await self.build()
 
     async def build(self):
+        """Load each dataset, fetch current data, update it, and save it."""
         for key in self.datasets.keys():
             self.load(key)
             newdata = await getattr(self, f"fetch_{key}_data")()
@@ -37,12 +44,14 @@ class Compendium:
             self.save(key)
 
     async def reload(self):
+        """Fetch, update, and save each dataset without reloading cached data."""
         for key in self.datasets.keys():
             newdata = await getattr(self, f"fetch_{key}_data")()
             self.update(key, newdata)
             self.save(key)
 
     def load(self, dataset: str):
+        """Load a dataset from drive storage, if a saved file exists."""
         temp = None
         filename = f"compendium/{self.__class__.__name__.lower()}/{dataset}_data.json"
         if self.drive.exists(filename, is_file=True):
@@ -51,6 +60,7 @@ class Compendium:
         setattr(self, f"{dataset}_data", temp)
 
     def update(self, dataset, new_data):
+        """Merge fetched JSON data and set timestamps for new or changed entries."""
         with open("tmp.json", "w") as f:
             f.write(new_data)
         for key, value in json.loads(new_data).items():
@@ -66,6 +76,7 @@ class Compendium:
                 )
 
     def save(self, dataset):
+        """Persist a dataset when the configured drive is enabled."""
         if self.drive.enabled:
             filename = (
                 f"compendium/{self.__class__.__name__.lower()}/{dataset}_data.json"
@@ -75,6 +86,8 @@ class Compendium:
 
 
 class STS(Compendium):
+    """Fetch Slay the Spire data and expose card and relic lookup commands."""
+
     base_url = "https://slaythespire.wiki.gg/wiki/"
     img_url = "https://slaythespire.wiki.gg/images/"
     COLORS = Namespace(
@@ -94,6 +107,7 @@ class STS(Compendium):
 
     @staticmethod
     def format_text(string, upgraded=False):
+        """Format wiki markup and icons for Discord embed text."""
         string = re.sub(
             r"\[(?P<a>[^\|]*)\|(?P<b>[^\]]*)\]",
             r"\g<b>" if upgraded else r"\g<a>",
@@ -111,6 +125,7 @@ class STS(Compendium):
         return string
 
     def __init__(self, client):
+        """Configure card and relic data sources for the compendium."""
         super().__init__(
             self,
             client,
@@ -136,6 +151,7 @@ class STS(Compendium):
         )
 
     async def fetch_card_data(self):
+        """Fetch and convert card data from the configured wiki modules."""
         for url in self.datasets["card"]:
             response = await requests.get(url)
             if response.status_code == 200:
@@ -169,6 +185,7 @@ class STS(Compendium):
                 return card_data
 
     async def fetch_relic_data(self):
+        """Fetch and convert relic data from the configured wiki module."""
         response = await requests.get(self.datasets["relic"][0])
         if response.status_code == 200:
             relic_data = response.text
@@ -202,10 +219,13 @@ class STS(Compendium):
             return relic_data
 
     def apps(self):
+        """Return the Slay the Spire lookup command and autocomplete handler."""
+
         @app_commands.command()
         @app_commands.default_permissions(send_messages=True)
         @nonglobal_command()
         async def sts(interaction, query: str):
+            """Show a matching card or relic in a Discord embed."""
             if query in self.card_data.keys():
                 card_info = self.card_data[query]
 
@@ -221,7 +241,10 @@ class STS(Compendium):
                 embed.set_image(url=self.img_url + card_info["Image"])
 
                 class SmithView(discord.ui.View):
+                    """Interactive view for toggling a card's upgraded details."""
+
                     def __init__(self, parent, card_info):
+                        """Store card data and initialize the upgrade toggle."""
                         super().__init__()
                         self.parent = parent
                         self.card_info = card_info
@@ -229,6 +252,7 @@ class STS(Compendium):
                         self.message = None
 
                     async def on_timeout(self):
+                        """Remove the view from its message when it expires."""
                         if self.message:
                             try:
                                 _embed = self.message.embeds[0]
@@ -240,6 +264,7 @@ class STS(Compendium):
                         label="Smith", emoji="🔨", style=discord.ButtonStyle.gray
                     )
                     async def toggle_button(self, interaction, button):
+                        """Toggle the card between base and upgraded details."""
                         self.state = not self.state
 
                         _embed = interaction.message.embeds[0]
@@ -296,6 +321,7 @@ class STS(Compendium):
 
         @sts.autocomplete("query")
         async def query_autocomplete(interaction, current):
+            """Suggest card and relic names matching the query."""
             matches = process.extract(
                 current, self.card_data.keys() | self.relic_data.keys(), limit=10
             )
@@ -308,11 +334,14 @@ class STS(Compendium):
 
 
 class SerebiiParser:
-    pass
+    """Reserved parser type for Serebii reference data."""
 
 
 class PokemonDB:
+    """Load Pokémon reference data and expose species lookup commands."""
+
     def __init__(self, client=None):
+        """Load the Pokémon CSV dataset into a name-indexed mapping."""
         self.pokemon_data = Namespace()
 
         csv_path = "/raidarchive/cynthia_drive/pokemonDB_dataset.csv"
@@ -323,10 +352,13 @@ class PokemonDB:
                 self.pokemon_data[name] = Namespace(row)
 
     def apps(self):
+        """Return Pokémon lookup commands and their species autocomplete."""
+
         @app_commands.command()
         @app_commands.default_permissions(send_messages=True)
         @nonglobal_command()
         async def pokemon(interaction: discord.Interaction, species: str):
+            """Show type, abilities, catch rate, and EV yield for a species."""
             species = species.replace("_", " ")
             if species.lower() not in self.pokemon_data:
                 await interaction.response.send_message("Invalid species.")
@@ -346,6 +378,7 @@ class PokemonDB:
         @app_commands.default_permissions(send_messages=True)
         @nonglobal_command()
         async def ev(interaction: discord.Interaction, species: str):
+            """Show the EV yield for a Pokémon species."""
             species = species.replace("_", " ")
             if species.lower() not in self.pokemon_data:
                 await interaction.response.send_message("Invalid species.")
@@ -358,6 +391,7 @@ class PokemonDB:
         @pokemon.autocomplete("species")
         @ev.autocomplete("species")
         async def pokemon_autocomplete(interaction: discord.Interaction, current: str):
+            """Suggest Pokémon species matching the query."""
             current = current.replace("_", " ")
             choices = [
                 app_commands.Choice(
@@ -376,6 +410,7 @@ class PokemonDB:
 @is_owner()
 @nonglobal_command()
 async def compendium_reload(interaction: discord.Interaction):
+    """Refresh each registered compendium dataset."""
     await interaction.response.defer(ephemeral=True)
     for child in Compendium.children:
         child.reload()

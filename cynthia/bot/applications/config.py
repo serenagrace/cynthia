@@ -1,3 +1,5 @@
+"""Owner-only commands for reading and editing runtime configuration."""
+
 import discord
 from discord import app_commands
 
@@ -8,6 +10,7 @@ from cynthia.utils.auth import is_owner
 @app_commands.default_permissions(administrator=True)
 @is_owner()
 async def cget(interaction: discord.Interaction, key: str):
+    """Show the current value for a configuration key."""
     value = interaction.client.config.get(key, discord.utils.MISSING)
     if value is discord.utils.MISSING:
         await interaction.response.send_message(
@@ -28,6 +31,7 @@ async def cset(
     force: bool = False,
     reload: bool = False,
 ):
+    """Set a configuration value, optionally creating a missing key."""
     value = interaction.client.config.get(key, discord.utils.MISSING)
     if value is discord.utils.MISSING:
         if not force:
@@ -48,6 +52,7 @@ async def cset(
 @app_commands.default_permissions(administrator=True)
 @is_owner()
 async def cappend(interaction: discord.Interaction, key: str, val: str):
+    """Append a value to a configuration list."""
     value = interaction.client.config.get(key, discord.utils.MISSING)
     if value is discord.utils.MISSING:
         await interaction.response.send_message(

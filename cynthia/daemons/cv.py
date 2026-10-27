@@ -1,3 +1,5 @@
+"""Detect scenes and text in captured video frames."""
+
 import asyncio
 import logging
 import re
@@ -26,9 +28,12 @@ ocr = PaddleOCR(use_angle_cls=True, lang="en")
 
 
 class Scene:
+    """Describe a reference image and its comparison region."""
+
     def __init__(
         self, buffer, *_, x=0, y=0, w=1920, h=1080, text=None, grayscale=False
     ):
+        """Store a reference frame and its crop and comparison settings."""
         self.buffer = buffer
         self.x = x
         self.y = y
@@ -38,6 +43,7 @@ class Scene:
         self.grayscale = grayscale
 
     def ssim_match(self, buffer):
+        """Return structural similarity between the reference and a frame crop."""
         x, y, w, h = self.x, self.y, self.w, self.h
         cropped = buffer[y : y + h, x : x + w]
         if self.grayscale:
@@ -55,8 +61,13 @@ class Scene:
 
 
 class CVDaemon(Daemon):
+    """Analyze captured frames and publish game and encounter state."""
+
     def __init__(self, dman):
+        """Create shared state and start the computer-vision worker."""
+
         def loop(ns, uns, fba, fbb, drive):
+            """Read shared frames and process them until shutdown."""
             with (
                 closing(shared_memory.SharedMemory(name=fba)) as shmA,
                 closing(shared_memory.SharedMemory(name=fbb)) as shmB,
@@ -69,7 +80,10 @@ class CVDaemon(Daemon):
                 frame = numpy.zeros(FB0.shape(), dtype=numpy.uint8)
 
                 async def main_task():
+                    """Classify scenes, detect encounters, and publish each frame."""
+
                     def encounter_timer(uns_time, timer, game):
+                        """Log elapsed encounter time and flag long encounters."""
                         encounter_time = (uns_time - timer) / 1_000_000
                         with drive.open(ns.encounter_log, "a") as f:
                             f.write(f"{datetime.now()},{game},{encounter_time:0f}\n")
@@ -201,15 +215,20 @@ class CVDaemon(Daemon):
         self.start()
 
     def set_hunt(self, hunt):
+        """Update the encounter log path for the active hunt."""
         self.ns.encounter_log = encounter_log_name(hunt)
 
     def set_self_encounter(self, *, self_encounter=True):
+        """Set whether encounter detection uses the self-encounter flow."""
         self.ns.self_encounter = self_encounter
 
 
 class CV:
+    """OCR helpers and reference scenes used by the computer-vision daemon."""
+
     @staticmethod
     def scrape_text(buffer, *_, x=0, y=0, w=1920, h=1080):
+        """Extract text from a frame crop, retrying OCR with inverted colors."""
         cropped = buffer[y : y + h][x : x + w]
         gray = cv2.cvtColor(cropped, cv2.COLOR_BGR2GRAY)
         result = ocr.ocr(gray, cls=True)

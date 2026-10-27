@@ -1,3 +1,5 @@
+"""Cog that updates Discord activity and publishes user status."""
+
 import io
 import itertools
 import json
@@ -10,34 +12,42 @@ from cynthia.utils.encounters import encounter_log_name
 
 
 class StatusCog(commands.Cog):
+    """Derive bot and rich-presence status from daemon state."""
+
     def __init__(self, bot):
+        """Initialize status state and the rotating hunt activity cycle."""
         self.bot = bot
         self.hunt_cycle = itertools.cycle(["game", "hunt", "count"])
         self.bot_activity = None
         self.user_activity = None
 
     async def cog_load(self):
+        """Start the periodic presence and user-status update tasks."""
         self.set_status.start()
         self.update_status.start()
 
     @tasks.loop(seconds=3.0)
     async def update_status(self):
+        """Refresh status data and write the user-facing status file."""
         self.bot_activity, self.user_activity = await self.get_status()
         with self.bot.drive.open("user_status.json", "w") as f:
             json.dump(self.user_activity, f, indent=4)
 
     @tasks.loop(seconds=15.0)
     async def set_status(self):
+        """Update Discord presence, rotating through hunt activity values."""
         activity = self.bot_activity
         if isinstance(self.bot_activity, dict):
             activity = self.bot_activity.get(next(self.hunt_cycle), None)
         await self.bot.change_presence(activity=activity)
 
     async def get_status(self):
+        """Build Discord and rich-presence status from computer-vision state."""
         bot_activity = None
         user_activity = None
 
         def tryload(bot):
+            """Return the computer-vision daemon namespace when available."""
             ns = None
             cv = bot.dman.running_daemons.get("CVDaemon", None)
             if cv is not None:
@@ -146,9 +156,11 @@ class StatusCog(commands.Cog):
 
     @set_status.before_loop
     async def before_status(self):
+        """Wait for the bot connection before starting the status loop."""
         # Essential: Wait until bot is connected
         await self.bot.wait_until_ready()
 
 
 async def setup(bot):
+    """Register the status cog with the bot."""
     await bot.add_cog(StatusCog(bot))

@@ -1,3 +1,5 @@
+"""Owner command for controlling the configured Roku device."""
+
 import discord
 from discord import app_commands
 from roku import Roku
@@ -9,7 +11,10 @@ from cynthia.utils.auth import is_owner
 @app_commands.default_permissions(administrator=True)
 @is_owner()
 async def remote(interaction: discord.Interaction):
+    """Open an interactive remote for the configured Roku device."""
+
     def RokuRemoteView(roku: Roku) -> discord.ui.View:
+        """Build a button view that sends remote commands to a Roku."""
         view = discord.ui.View(timeout=None)
         buttons = [
             ("Up", "up"),
@@ -27,7 +32,10 @@ async def remote(interaction: discord.Interaction):
         for label, command in buttons:
 
             def callback_factory(command):
+                """Create a button callback for one Roku command."""
+
                 async def callback(interaction: discord.Interaction):
+                    """Send the Roku command and update its power indicator."""
                     getattr(roku, command)()
                     if roku.power_state == "Off":
                         await interaction.message.remove_reaction(
@@ -48,7 +56,6 @@ async def remote(interaction: discord.Interaction):
             view.add_item(button)
         return view
 
-    """Control your Roku device remotely."""
     roku = Roku(interaction.client.config.roku_ip)
     roku.poweron()
     await interaction.response.send_message(
