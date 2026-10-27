@@ -90,6 +90,15 @@ class Bot(commands.Bot):
             )
         )
 
+    async def reload_application(self, module):
+        errors = await self.tree.reload_module(module)
+        self.loaded_command_count = len(self.tree.get_commands())
+        await self.tree.sync()
+        guild = discord.Object(id="1061724997330157669")
+        self.tree.copy_global_to(guild=guild)
+        await self.tree.sync(guild=guild)
+        return errors
+
     async def get_all_guilds(self) -> list:
         """Returns guilds from local cache, or fetches them from the API if cache is empty."""
         # 1. Try reading directly from memory cache
@@ -143,6 +152,25 @@ class Bot(commands.Bot):
             _logger.warning("No cogs loaded.")
         self.loaded_cog_count = count
 
+    async def reload_cog(self, extension):
+        """Reload one cog; discord.py rolls back to the old cog if the new one fails."""
+        self.discovered_cogs = self._discover_cogs(
+            importlib.resources.files("cynthia.bot.cogs"), "cynthia.bot.cogs"
+        )
+        if extension not in self.discovered_cogs:
+            return f"Unknown cog: {extension}"
+        try:
+            if extension in self.extensions:
+                await self.reload_extension(extension)
+            else:
+                await self.load_extension(extension)
+        except Exception as e:
+            _logger.error(f"Failed to reload cog {extension}: {e!r}")
+            return repr(e)
+        self.loaded_cog_count = len(self.extensions)
+        await self.tree.sync()
+        return None
+
     async def setup_hook(self):
         guilds = await self.get_all_guilds()
         _logger.info(f"Currently member in {len(guilds)} guilds.")
@@ -161,7 +189,8 @@ class Bot(commands.Bot):
             return
 
         for key, unit in OnMessage.units.items():
-            await unit.call(self, message)
+            if await unit.call(self, message):
+                _logger.debug(f"Ran onmessage unit: {key}")
 
         try:
             if not self.perms_check(

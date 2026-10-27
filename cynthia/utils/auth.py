@@ -13,32 +13,53 @@ def verify_factory(secret: str) -> Callable[[str], bool]:
     return verify
 
 
+def _require(ok: bool, message: str) -> bool:
+    if not ok:
+        raise app_commands.CheckFailure(message)
+    return True
+
+
 def is_owner(strict: bool = True):
     async def predicate(interaction: discord.Interaction) -> bool:
         if strict:
-            return str(interaction.user.id) == interaction.client.owner
-        return interaction.client.perms_check(interaction, perm="owners")
+            return _require(
+                str(interaction.user.id) == interaction.client.owner,
+                "Only the bot owner can use this command.",
+            )
+        return _require(
+            interaction.client.perms_check(interaction, perm="owners"),
+            "You need the `owners` permission to use this command.",
+        )
 
     return app_commands.check(predicate)
 
 
 def privileged_only():
     async def predicate(interaction: discord.Interaction) -> bool:
-        return interaction.client.perms_check(interaction, perm="privileged")
+        return _require(
+            interaction.client.perms_check(interaction, perm="privileged"),
+            "You need the `privileged` permission to use this command.",
+        )
 
     return app_commands.check(predicate)
 
 
 def nxbt_permission():
     async def predicate(interaction: discord.Interaction) -> bool:
-        return interaction.client.perms_check(interaction, perm="nxbt")
+        return _require(
+            interaction.client.perms_check(interaction, perm="nxbt"),
+            "You need the `nxbt` permission to use this command.",
+        )
 
     return app_commands.check(predicate)
 
 
 def drive_permission():
     async def predicate(interaction: discord.Interaction) -> bool:
-        return interaction.client.perms_check(interaction, perm="drive")
+        return _require(
+            interaction.client.perms_check(interaction, perm="drive"),
+            "You need the `drive` permission to use this command.",
+        )
 
     return app_commands.check(predicate)
 
@@ -47,8 +68,11 @@ def nonglobal_command():
     async def predicate(interaction: discord.Interaction) -> bool:
         if interaction.guild is None:
             return True
-        return interaction.client.perms_check(
-            interaction, perm="allowed_commands", command=interaction.command.name
+        return _require(
+            interaction.client.perms_check(
+                interaction, perm="allowed_commands", command=interaction.command.name
+            ),
+            f"`/{interaction.command.name}` is not allowed in this server.",
         )
 
     return app_commands.check(predicate)

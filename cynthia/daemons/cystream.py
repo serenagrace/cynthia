@@ -4,12 +4,31 @@ import cv2
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse, FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
+import gzip
 import json
+import logging
 import numpy
 from multiprocessing import shared_memory
 from .daemon import Daemon
 from .dman import FB0
 import uvicorn
+import zlib
+
+
+class GzipLogHandler(logging.StreamHandler):
+    """Appends log lines to a .gz file, flushed per record so it stays readable."""
+
+    def __init__(self, path):
+        super().__init__(gzip.open(path, "at", encoding="utf-8"))
+        self.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
+
+    def flush(self):
+        super().flush()
+        self.stream.buffer.flush(zlib_mode=zlib.Z_SYNC_FLUSH)
+
+    def close(self):
+        super().close()
+        self.stream.close()
 
 
 class CYStream(Daemon):
@@ -110,7 +129,22 @@ class CYStream(Daemon):
                         )
 
                     ns.done = True
-                    uvicorn.run(app, host="127.0.0.1", port=8000)
+                    config = uvicorn.Config(
+                        app,
+                        host="127.0.0.1",
+                        port=8000,
+                        log_config=None,
+                        access_log=True,
+                    )
+                    # Config() sets both uvicorn loggers to one level; split them afterwards
+                    logging.getLogger("uvicorn.error").setLevel(logging.WARNING)
+                    access = logging.getLogger("uvicorn.access")
+                    access.setLevel(logging.INFO)
+                    access.propagate = False
+                    access_path = drive.path("uvicorn_access.log.gz")
+                    if access_path is not None:
+                        access.addHandler(GzipLogHandler(access_path))
+                    uvicorn.Server(config).run()
 
                 main_task()
 

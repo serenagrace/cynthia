@@ -382,4 +382,4 @@ async def compendium_reload(interaction: discord.Interaction):
 
 
 # STS Wiki Broken RN?
-__application__ = [ PokemonDB ]
+__application__ = [PokemonDB]

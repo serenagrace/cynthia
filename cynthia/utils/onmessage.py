@@ -50,13 +50,16 @@ class OnMessage:
             self.action = getattr(self, action_type + "_action", self.default_action)
 
     async def call(self, client, message):
+        if self.logger is None:
+            self.logger = client.logger
         if self.channel is not None and message.channel.id != self.channel.id:
-            return
+            return False
         if self.guild is not None and message.guild.id != self.guild.id:
-            return
+            return False
         if await self.condition(client, message):
-            self.logger.debug(f"Running onmessage unit: {key}")
             await self.action(client, message)
+            return True
+        return False
 
 
 async def load_onmessage(client):
