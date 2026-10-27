@@ -137,6 +137,39 @@ def test_insight_event_updates_every_open_view():
     asyncio.run(run())
 
 
+def test_insight_ban_button_keeps_view_state_after_removing_action_row():
+    async def run():
+        InsightView.VIEWS.clear()
+        user = make_user(
+            name="Suspicious1234",
+            created_at=datetime.now(timezone.utc) - timedelta(days=5),
+            avatar=None,
+        )
+        member = make_member(user)
+        view = InsightView(user, member)
+        events = []
+        view.message = SimpleNamespace(
+            edit=AsyncMock(side_effect=lambda **_: events.append("view update"))
+        )
+        member.ban = AsyncMock(side_effect=lambda **_: events.append("ban"))
+        interaction = SimpleNamespace()
+        button = view.action_row.ban_button
+        callback = button.callback.callback.__wrapped__
+
+        await callback(view.action_row, interaction, button)
+
+        assert events == ["view update", "ban"]
+        member.ban.assert_awaited_once()
+        reason = member.ban.await_args.kwargs["reason"]
+        assert reason.startswith("Banned by insight command. Suspicions:")
+        assert "Account is less than 6 months old." in reason
+        assert "Default Avatar." in reason
+        assert view.action_row.view is None
+        InsightView.VIEWS.clear()
+
+    asyncio.run(run())
+
+
 def test_bouncer_simulation_auto_bans_suspicious_user():
     async def run():
         InsightView.VIEWS.clear()

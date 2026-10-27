@@ -135,7 +135,7 @@ class InsightView(discord.ui.LayoutView):
     class ActionRow(discord.ui.ActionRow):
         def __init__(self, view, member):
             super().__init__()
-            self._view = view
+            self.insight_view = view
             self.member = member
             if len(view.suspicions) == 0:
                 self.remove_item(self.greet_button)
@@ -162,14 +162,14 @@ class InsightView(discord.ui.LayoutView):
                 url=interaction.guild.icon.url if interaction.guild.icon else None
             )
             await channel.send(embed=embed)
-            await self._view.greeted()
+            await self.insight_view.greeted()
 
         @discord.ui.button(label="Kick", style=discord.ButtonStyle.red)
         @button_requires_permission(kick_members=True)
         async def kick_button(
             self, interaction: discord.Interaction, button: discord.ui.Button
         ):
-            await self._view.kicked()
+            await self.insight_view.kicked()
             await self.member.kick(reason="Suspicious account.")
 
         @discord.ui.button(label="Ban", style=discord.ButtonStyle.red)
@@ -177,9 +177,9 @@ class InsightView(discord.ui.LayoutView):
         async def ban_button(
             self, interaction: discord.Interaction, button: discord.ui.Button
         ):
-            await self._view.banned()
+            await self.insight_view.banned()
             await self.member.ban(
-                reason=f"Banned by insight command. Suspicions: {', '.join([suspicion[2:] for suspicion in self._view.suspicions])}"
+                reason=f"Banned by insight command. Suspicions: {', '.join([suspicion[2:] for suspicion in self.insight_view.suspicions])}"
             )
 
     async def update_view(self):
