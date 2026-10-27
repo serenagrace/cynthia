@@ -3,9 +3,11 @@ Permissions Loader and handler.
 """
 
 from pathlib import Path
+
 import yaml
-from cynthia.utils.types import force_obj_is_list, force_obj_is_dict
+
 from cynthia.utils.snowflake import GuildFlake, PermFlake
+from cynthia.utils.types import force_obj_is_dict, force_obj_is_list
 
 from .defaults import Defaults
 

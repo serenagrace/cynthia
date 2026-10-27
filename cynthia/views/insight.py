@@ -1,8 +1,10 @@
-import discord
-from datetime import datetime, timezone, timedelta
-from cynthia.utils.auth import button_requires_permission
-from cynthia.utils import Namespace
 import re
+from datetime import datetime, timedelta, timezone
+
+import discord
+
+from cynthia.utils import Namespace
+from cynthia.utils.auth import button_requires_permission
 
 SUSPICION_TYPES = {
     "account_age": "⚠️ Account is less than 6 months old.",

@@ -3,9 +3,12 @@ Config Loader and handler.
 """
 
 from pathlib import Path
+
 import yaml
-from .defaults import Defaults
+
 from cynthia.utils.snowflake import UserFlake
+
+from .defaults import Defaults
 
 
 class ConfigLoader:

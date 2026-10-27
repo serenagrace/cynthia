@@ -10,7 +10,7 @@ dependencies = [
     "cynthia",
     "discord-py",
     "grapheme==0.6.0",
-    "nxbt",
+    "nxbt @ git+https://github.com/serenagrace/nxbt@cynthia-patches",
     "python-dotenv==1.1.0",
     "pyyaml==6.0.2",
     "pyotp",
@@ -27,15 +27,21 @@ dependencies = [
     "opencv-python-headless<4.10"
 ]
 
+[project.optional-dependencies]
+dev = ["black", "isort", "pytest"]
+
 [project.scripts]
 cynthia="cynthia.__main__:main"
 
 [tool.setuptools]
 py-modules=["cynthia"]
 
-[tool.commitizen]
-name = "cz_conventional_commits"
-tag_format = "$version"
-version_scheme = "pep440"
-version_provider = "pep621"
-update_changelog_on_bump = true
+[tool.isort]
+profile = "black"
+py_version = 311
+skip_gitignore = true
+skip = ["env", "build", "dist"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["discord_live: opt-in, read-only checks against the configured test bot"]

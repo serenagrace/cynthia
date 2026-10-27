@@ -1,19 +1,22 @@
 import asyncio
-from contextlib import closing
-from datetime import datetime
+import logging
 import re
 import time
-import cv2
-from skimage.metrics import structural_similarity as ssim
-from paddleocr import PaddleOCR
-import numpy
+from contextlib import closing
+from datetime import datetime
 from multiprocessing import shared_memory
-import logging
+
+import cv2
 import discord
+import numpy
+from paddleocr import PaddleOCR
+from skimage.metrics import structural_similarity as ssim
+
+from cynthia.utils.encounters import encounter_log_name
+
 from .daemon import Daemon
 from .dman import FB0
 from .uvc import UVC
-from cynthia.utils.encounters import encounter_log_name
 
 logging.getLogger("pytesseract").setLevel(logging.INFO)
 logging.getLogger("ppocr").setLevel(logging.INFO)

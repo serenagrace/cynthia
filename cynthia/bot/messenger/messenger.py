@@ -1,4 +1,5 @@
 import discord
+
 from .response_matrix import ResponseMatrix
 
 

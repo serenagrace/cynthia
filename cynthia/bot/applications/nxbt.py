@@ -1,18 +1,20 @@
-import discord
-from discord import app_commands
-from cynthia.utils.auth import (
-    nxbt_permission,
-    privileged_only,
-    nonglobal_command,
-    is_owner,
-)
-from cynthia.utils.nxbt_utils import Macro, Input
-from cynthia.utils.onmessage import OnMessage
-from cynthia.utils.encounters import encounter_log_name
-from cynthia.daemons.dman import daemon_running
 import asyncio
 import io
+
+import discord
 import nxbt
+from discord import app_commands
+
+from cynthia.daemons.dman import daemon_running
+from cynthia.utils.auth import (
+    is_owner,
+    nonglobal_command,
+    nxbt_permission,
+    privileged_only,
+)
+from cynthia.utils.encounters import encounter_log_name
+from cynthia.utils.nxbt_utils import Input, Macro
+from cynthia.utils.onmessage import OnMessage
 
 
 @app_commands.command()

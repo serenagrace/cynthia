@@ -1,7 +1,8 @@
-import pyotp
 import functools
-import discord
 from typing import Callable
+
+import discord
+import pyotp
 from discord import app_commands
 
 

@@ -1,7 +1,9 @@
+import asyncio
+
 import discord
 from discord import app_commands
-from cynthia.utils.auth import nonglobal_command, is_owner
-import asyncio
+
+from cynthia.utils.auth import is_owner, nonglobal_command
 
 
 async def ping_status(host: str) -> list:

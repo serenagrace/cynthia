@@ -1,18 +1,21 @@
 import asyncio
-import nxbt
+import logging
 import multiprocessing
-from cynthia.utils.nxbt_utils import (
-    Macro,
-    load_macros,
-    save_macros,
-    nxbt_connect,
-    nxbt_disconnect,
-)
-from .daemon import Daemon
 import os
 import time
 from queue import Empty
-import logging
+
+import nxbt
+
+from cynthia.utils.nxbt_utils import (
+    Macro,
+    load_macros,
+    nxbt_connect,
+    nxbt_disconnect,
+    save_macros,
+)
+
+from .daemon import Daemon
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)

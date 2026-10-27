@@ -1,7 +1,8 @@
 import re
+from typing import Union
+
 import discord
 from discord import app_commands
-from typing import Union
 
 PERMS = ("privileged", "nxbt", "drive", "admins", "owners")
 VIEW_ORDER = ("owners", "admins", "privileged", "nxbt", "drive")

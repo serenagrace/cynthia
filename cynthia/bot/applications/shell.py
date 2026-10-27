@@ -1,8 +1,10 @@
+import subprocess
+from tempfile import TemporaryFile
+
 import discord
 from discord import app_commands
-from tempfile import TemporaryFile
+
 from cynthia.utils.auth import privileged_only
-import subprocess
 
 
 @app_commands.command()

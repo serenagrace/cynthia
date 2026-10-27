@@ -1,6 +1,7 @@
+import asyncio
+
 import discord
 from discord import app_commands
-import asyncio
 
 
 async def run_check(check: callable, interaction: discord.Interaction) -> bool:

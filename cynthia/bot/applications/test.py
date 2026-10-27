@@ -1,6 +1,7 @@
 import discord
 from discord import app_commands
-from cynthia.utils.auth import nonglobal_command, is_owner
+
+from cynthia.utils.auth import is_owner, nonglobal_command
 from cynthia.views import InsightView
 
 

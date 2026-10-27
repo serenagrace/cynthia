@@ -1,9 +1,10 @@
-import subprocess
 import argparse
-from .context import Context
-from .bot import Bot
-from .utils.auth import verify_factory
 import logging
+import subprocess
+
+from .bot import Bot
+from .context import Context
+from .utils.auth import verify_factory
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.DEBUG)

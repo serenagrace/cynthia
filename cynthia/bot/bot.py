@@ -1,34 +1,44 @@
 import asyncio
-import discord
-from discord.ext import commands
 import gzip
 import importlib.resources
+import logging
 from pathlib import Path
-from .messenger import Messenger
-from .applications import CommandTree, TreeLoadError
+
+import discord
+from discord.ext import commands
+
 from cynthia.daemons import DMan
 from cynthia.utils import Namespace
 from cynthia.utils.db import Database
 from cynthia.utils.drive import Drive
 from cynthia.utils.logger import Logger
 from cynthia.utils.nxbt_utils import load_macros, save_macros
-from cynthia.utils.onmessage import load_onmessage, save_onmessage, OnMessage
+from cynthia.utils.onmessage import OnMessage, load_onmessage, save_onmessage
 from cynthia.utils.strings import color_str
-import logging
+
+from .applications import CommandTree, TreeLoadError
+from .messenger import Messenger
 
 _logger = logging.getLogger(__name__)
 _logger.setLevel(logging.DEBUG)
 
 
 class Bot(commands.Bot):
-    def __init__(self, context, *, onexit=None):
+    def __init__(self, context, *, onexit=None, test_mode=False, test_guild_id=None):
+        if test_mode and test_guild_id is None:
+            raise ValueError("Test mode requires an explicit test guild ID.")
+        self.test_mode = test_mode
+        self.command_guild_id = test_guild_id
         self.config = context.config
         self.app_meta = context.app_meta
         self.args = context.args
         self.messenger = Messenger(self)
         self.drive = Drive(self.config.drive_path)
         self.database = Database(self.drive)
-        self.dman = DMan(context)
+        if test_mode:
+            self.dman = _DisabledDMan()
+        else:
+            self.dman = DMan(context)
         self.onexit = {}
         if onexit is not None:
             self.onexit["user"] = onexit
@@ -76,28 +86,39 @@ class Bot(commands.Bot):
             _logger.info(f"Loading {n} commands...")
             for error in errors:
                 _logger.error(error)
-            await self.tree.sync()
+            await self._sync_command_tree()
             _logger.info("Done.")
-        self.tree.copy_global_to(guild=discord.Object(id="1061724997330157669"))
-        await self.tree.sync(guild=discord.Object(id="1061724997330157669"))
-        await self.wake_message(interaction, errors)
+        if not self.test_mode:
+            await self.wake_message(interaction, errors)
 
         _logger.info("Loaded commands.")
-        _logger.debug(
-            "\n"
-            + "\n".join(
-                f" - {command.name}" for command in await self.tree.fetch_commands()
+        fetched_commands = (
+            await self.tree.fetch_commands(
+                guild=discord.Object(id=self.command_guild_id)
             )
+            if self.test_mode
+            else await self.tree.fetch_commands()
+        )
+        _logger.debug(
+            "\n" + "\n".join(f" - {command.name}" for command in fetched_commands)
         )
 
     async def reload_application(self, module):
         errors = await self.tree.reload_module(module)
         self.loaded_command_count = len(self.tree.get_commands())
+        await self._sync_command_tree()
+        return errors
+
+    async def _sync_command_tree(self):
+        if self.test_mode:
+            guild = discord.Object(id=self.command_guild_id)
+            self.tree.copy_global_to(guild=guild)
+            await self.tree.sync(guild=guild)
+            return
         await self.tree.sync()
         guild = discord.Object(id="1061724997330157669")
         self.tree.copy_global_to(guild=guild)
         await self.tree.sync(guild=guild)
-        return errors
 
     async def get_all_guilds(self) -> list:
         """Returns guilds from local cache, or fetches them from the API if cache is empty."""
@@ -168,11 +189,11 @@ class Bot(commands.Bot):
             _logger.error(f"Failed to reload cog {extension}: {e!r}")
             return repr(e)
         self.loaded_cog_count = len(self.extensions)
-        await self.tree.sync()
+        await self._sync_command_tree()
         return None
 
     async def setup_hook(self):
-        guilds = await self.get_all_guilds()
+        guilds = [] if self.test_mode else await self.get_all_guilds()
         _logger.info(f"Currently member in {len(guilds)} guilds.")
         self.perms = Namespace(self.permsloader(self))
         self.perms_check = self.permsloader.check
@@ -274,3 +295,12 @@ class Bot(commands.Bot):
             else:
                 self.kill_reason = (exc_type, exc_val, exc_tb)
         await super().__aexit__(exc_type, exc_val, exc_tb)
+
+
+class _DisabledDMan:
+    def __init__(self):
+        self.running_daemons = {}
+        self.uns = Namespace({"nxbt_daemon_stop": False, "nxbt_connection_lost": False})
+
+    async def stop_daemons(self):
+        return None

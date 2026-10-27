@@ -1,8 +1,9 @@
-import discord.app_commands
 import importlib
-import sys
 import logging
+import sys
 from pathlib import Path
+
+import discord.app_commands
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)

@@ -1,6 +1,8 @@
+from typing import Optional
+
 import discord
 from discord import app_commands
-from typing import Optional
+
 from cynthia.utils.auth import drive_permission
 
 

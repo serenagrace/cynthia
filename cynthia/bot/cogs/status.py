@@ -1,9 +1,11 @@
-import discord
 import io
-from discord.ext import tasks, commands
 import itertools
-from datetime import datetime
 import json
+from datetime import datetime
+
+import discord
+from discord.ext import commands, tasks
+
 from cynthia.utils.encounters import encounter_log_name
 
 

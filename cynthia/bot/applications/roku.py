@@ -1,7 +1,8 @@
 import discord
 from discord import app_commands
-from cynthia.utils.auth import is_owner
 from roku import Roku
+
+from cynthia.utils.auth import is_owner
 
 
 @app_commands.command()

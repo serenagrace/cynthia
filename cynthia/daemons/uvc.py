@@ -1,13 +1,15 @@
 import asyncio
-from contextlib import closing
-import cv2
-from multiprocessing import shared_memory
 import io
-import numpy
+import logging
 import subprocess
 import time
-import logging
+from contextlib import closing
+from multiprocessing import shared_memory
+
+import cv2
+import numpy
 import xxhash
+
 from .daemon import Daemon
 from .dman import FB0
 

@@ -1,8 +1,9 @@
-import nxbt
-import logging
-import re
 import asyncio
 import json
+import logging
+import re
+
+import nxbt
 
 from cynthia.utils.strings import shift, unshift
 
