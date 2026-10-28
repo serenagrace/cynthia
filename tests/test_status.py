@@ -1,14 +1,23 @@
 import asyncio
+import json
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+from cynthia.bot.applications.status import clear_status, set_status
 from cynthia.bot.cogs.status import StatusCog
 from cynthia.utils.drive import Drive
 from cynthia.utils.encounters import encounter_log_name
 from cynthia.utils.namespace import Namespace
 
 
-def make_status_cog(tmp_path, *, hunt, self_encounter=False):
+def make_vars(text=None, start=None):
+    return Namespace({"status": Namespace({"text": text, "start": start})})
+
+
+def make_status_cog(
+    tmp_path, *, hunt, self_encounter=False, playing=True, home=False, vars=None
+):
     log_name = encounter_log_name(hunt) if hunt else None
     if log_name:
         (tmp_path / log_name).write_text(
@@ -17,8 +26,8 @@ def make_status_cog(tmp_path, *, hunt, self_encounter=False):
     daemon = SimpleNamespace(
         ns=SimpleNamespace(
             game="Pokemon Brilliant Diamond",
-            home=False,
-            playing=True,
+            home=home,
+            playing=playing,
             self_encounter=self_encounter,
             embed=None,
             png=None,
@@ -33,6 +42,7 @@ def make_status_cog(tmp_path, *, hunt, self_encounter=False):
             ),
         ),
         args=SimpleNamespace(hunt=hunt),
+        vars=vars or make_vars(),
         drive=Drive(tmp_path),
         messenger=SimpleNamespace(msg_owner=AsyncMock()),
     )
@@ -45,7 +55,7 @@ def test_status_hunt_uses_per_hunt_log_and_count(tmp_path):
     bot_activity, user_activity = asyncio.run(cog.get_status())
 
     assert log_name == "encounter_times.uxie.log"
-    assert bot_activity["count"].name == "2 encounters"
+    assert bot_activity[2].name == "2 encounters"
     assert user_activity["details"] == "Hunting shiny Uxie"
     assert user_activity["state"] == "2 encounters"
     assert isinstance(user_activity["timestamps"]["start"], int)
@@ -58,7 +68,7 @@ def test_status_self_encounter_uses_reset_count(tmp_path):
 
     bot_activity, user_activity = asyncio.run(cog.get_status())
 
-    assert bot_activity["count"].name == "2 resets"
+    assert bot_activity[2].name == "2 resets"
     assert user_activity["details"] == "Looking for shiny Uxie"
     assert user_activity["state"] == "2 resets"
 
@@ -71,3 +81,88 @@ def test_status_without_hunt_reports_game_only(tmp_path):
     assert bot_activity.name == "Pokemon Brilliant Diamond"
     assert user_activity["name"] == "Pokemon Brilliant Diamond"
     assert "details" not in user_activity
+
+
+def test_status_custom_text_added_to_game_activity(tmp_path):
+    start = datetime(2026, 10, 27, 12, tzinfo=timezone.utc)
+    cog, _ = make_status_cog(tmp_path, hunt=None, vars=make_vars("Resetting", start))
+
+    bot_activity, user_activity = asyncio.run(cog.get_status())
+
+    assert bot_activity[0].name == "Pokemon Brilliant Diamond"
+    assert bot_activity[1].name == "Resetting"
+    assert user_activity["details"] == "Resetting"
+    assert user_activity["timestamps"] == {"start": int(start.timestamp() * 1000)}
+    json.dumps(user_activity)
+
+
+def test_status_custom_text_without_time_has_no_timestamps(tmp_path):
+    cog, _ = make_status_cog(tmp_path, hunt=None, vars=make_vars("Resetting"))
+
+    _, user_activity = asyncio.run(cog.get_status())
+
+    assert "timestamps" not in user_activity
+
+
+def test_status_hunt_takes_precedence_over_custom_text(tmp_path):
+    cog, _ = make_status_cog(tmp_path, hunt="Uxie", vars=make_vars("Custom"))
+
+    _, user_activity = asyncio.run(cog.get_status())
+
+    assert user_activity["details"] == "Hunting shiny Uxie"
+
+
+def test_status_custom_text_when_not_playing(tmp_path):
+    cog, _ = make_status_cog(
+        tmp_path, hunt=None, playing=False, vars=make_vars("Be right back")
+    )
+
+    bot_activity, user_activity = asyncio.run(cog.get_status())
+
+    assert bot_activity.name == "Be right back"
+    assert user_activity is None
+
+
+def test_status_no_activity_when_idle_without_text(tmp_path):
+    cog, _ = make_status_cog(tmp_path, hunt=None, playing=False)
+
+    assert asyncio.run(cog.get_status()) == (None, None)
+
+
+def _interaction(vars):
+    return SimpleNamespace(
+        client=SimpleNamespace(vars=vars),
+        response=SimpleNamespace(send_message=AsyncMock()),
+    )
+
+
+def test_set_status_command_updates_vars():
+    vars = make_vars()
+    interaction = _interaction(vars)
+
+    asyncio.run(set_status.callback(interaction, "Shiny hunting"))
+
+    assert vars.status.text == "Shiny hunting"
+    assert vars.status.start is not None
+    interaction.response.send_message.assert_awaited_once()
+
+
+def test_set_status_command_without_time():
+    vars = make_vars(start=datetime.now(timezone.utc))
+    interaction = _interaction(vars)
+
+    asyncio.run(set_status.callback(interaction, "Shiny hunting", False))
+
+    assert vars.status.text == "Shiny hunting"
+    assert vars.status.start is None
+
+
+def test_clear_status_command_resets_vars():
+    vars = make_vars("Shiny hunting", datetime.now(timezone.utc))
+    interaction = _interaction(vars)
+
+    asyncio.run(clear_status.callback(interaction))
+
+    assert vars.status.text is None
+    assert vars.status.start is None
+    interaction.response.send_message.assert_awaited_once()

@@ -37,6 +37,7 @@ class Bot(commands.Bot):
         self.config = context.config
         self.app_meta = context.app_meta
         self.args = context.args
+        self.vars = context.vars
         self.messenger = Messenger(self)
         self.drive = Drive(self.config.drive_path)
         self.database = Database(self.drive)

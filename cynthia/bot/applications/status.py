@@ -126,4 +126,26 @@ async def loaded_commands(interaction: discord.Interaction):
     )
 
 
-__application__ = [status, loaded_modules, loaded_commands]
+@app_commands.command()
+@app_commands.dm_only()
+@is_owner()
+async def set_status(
+    interaction: discord.Interaction, description: str, time: bool = True
+):
+    """Set the bot's Discord status."""
+    interaction.client.vars.status.text = description
+    interaction.client.vars.status.start = discord.utils.utcnow() if time else None
+    await interaction.response.send_message("Bot status updated.", ephemeral=True)
+
+
+@app_commands.command()
+@app_commands.dm_only()
+@is_owner()
+async def clear_status(interaction: discord.Interaction):
+    """Clear the bot's Discord status."""
+    interaction.client.vars.status.text = None
+    interaction.client.vars.status.start = None
+    await interaction.response.send_message("Bot status cleared.", ephemeral=True)
+
+
+__application__ = [status, loaded_modules, loaded_commands, set_status, clear_status]

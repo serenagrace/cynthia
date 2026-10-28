@@ -107,6 +107,7 @@ def test_test_bot_exercises_live_guild_and_safe_command_callbacks(tmp_path):
                 {"run_timestamp": "test", "git_hash": "test", "git_timestamp": "test"}
             ),
             args=Namespace({"hunt": None}),
+            vars=Namespace({"status": Namespace({"start": None, "text": None})}),
             permsloader=PermsLoader(perms_file),
         )
         bot = Bot(context, test_mode=True, test_guild_id=guild_id)

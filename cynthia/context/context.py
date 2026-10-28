@@ -20,6 +20,7 @@ class Context:
         self.perms = Namespace(PermsLoader.default())
         self.app_meta = Namespace(get_app_info())
         self.args = Namespace(vars(args))
+        self.vars = Namespace({"status": Namespace({"start": None, "text": None})})
 
     def update_config(self, updated_config, updated_perms):
         """Persist the bot's updated configuration and permissions."""

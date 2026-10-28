@@ -17,7 +17,7 @@ class StatusCog(commands.Cog):
     def __init__(self, bot):
         """Initialize status state and the rotating hunt activity cycle."""
         self.bot = bot
-        self.hunt_cycle = itertools.cycle(["game", "hunt", "count"])
+        self.status_cycle = None
         self.bot_activity = None
         self.user_activity = None
 
@@ -29,7 +29,14 @@ class StatusCog(commands.Cog):
     @tasks.loop(seconds=3.0)
     async def update_status(self):
         """Refresh status data and write the user-facing status file."""
-        self.bot_activity, self.user_activity = await self.get_status()
+        bot_activity, self.user_activity = await self.get_status()
+        if bot_activity != self.bot_activity:
+            self.bot_activity = bot_activity
+            if self.bot_activity is not None:
+                if isinstance(self.bot_activity, list):
+                    self.status_cycle = itertools.cycle(self.bot_activity)
+                else:
+                    self.status_cycle = None
         with self.bot.drive.open("user_status.json", "w") as f:
             json.dump(self.user_activity, f, indent=4)
 
@@ -37,8 +44,8 @@ class StatusCog(commands.Cog):
     async def set_status(self):
         """Update Discord presence, rotating through hunt activity values."""
         activity = self.bot_activity
-        if isinstance(self.bot_activity, dict):
-            activity = self.bot_activity.get(next(self.hunt_cycle), None)
+        if self.status_cycle is not None:
+            activity = next(self.status_cycle)
         await self.bot.change_presence(activity=activity)
 
     async def get_status(self):
@@ -112,11 +119,11 @@ class StatusCog(commands.Cog):
                         else:
                             encounter_str = f"{count} encounters"
 
-                    bot_activity = {
-                        "game": discord.Game(name=game),
-                        "hunt": discord.CustomActivity(name=hunting_str),
-                        "count": discord.CustomActivity(name=encounter_str),
-                    }
+                    bot_activity = [
+                        discord.Game(name=game),
+                        discord.CustomActivity(name=hunting_str),
+                        discord.CustomActivity(name=encounter_str),
+                    ]
                     user_activity = {
                         "type": "playing",
                         "name": game,
@@ -125,6 +132,21 @@ class StatusCog(commands.Cog):
                         "timestamps": {"start": start},
                         "assets": {"large_image": large_image},
                     }
+                elif self.bot.vars.status.text is not None:
+                    bot_activity = [
+                        discord.Game(name=game),
+                        discord.CustomActivity(name=self.bot.vars.status.text),
+                    ]
+                    user_activity = {
+                        "type": "playing",
+                        "name": game,
+                        "details": self.bot.vars.status.text,
+                        "assets": {"large_image": large_image},
+                    }
+                    if self.bot.vars.status.start is not None:
+                        user_activity["timestamps"] = {
+                            "start": int(self.bot.vars.status.start.timestamp() * 1000)
+                        }
                 else:
                     bot_activity = discord.Game(name=game)
                     user_activity = {
@@ -132,6 +154,8 @@ class StatusCog(commands.Cog):
                         "name": game,
                         "assets": {"large_image": large_image},
                     }
+        elif self.bot.vars.status.text is not None:
+            bot_activity = discord.CustomActivity(name=self.bot.vars.status.text)
         else:
             bot_activity = None
         shiny_stop = getattr(self.bot.dman.uns, "nxbt_daemon_stop", False)
