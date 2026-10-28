@@ -127,12 +127,18 @@ class NXBTDaemon(Daemon):
                             try:
                                 _input = next(playing_gen)
                                 logger.debug(f"Playing {str(_input)}")
-                                await _input.play(nx, controller)
+                                next_step = await _input.play(nx, controller, uns=uns)
+                                if next_step is not None:
+                                    playing_gen = next_step.walk()
                             except StopIteration:
                                 ns.playing = False
                                 playing_gen = None
                                 if ns.loop:
                                     tqueue.put(str(playing))
+                            except Exception:
+                                logger.exception("Macro playback failed")
+                                ns.playing = False
+                                playing_gen = None
                             continue
                     elif playing_gen is not None:
                         ns.playing = False
@@ -164,13 +170,15 @@ class NXBTDaemon(Daemon):
                             ns.stop = False
                         await asyncio.sleep(NXBTDaemon.POLL_RATE)
 
-                save_macros(drive)
-
-                if ns.connected:
-                    await nxbt_disconnect(nx, controller)
-
-                # Mark process safe to boom
-                self.ns.done = True
+                try:
+                    save_macros(drive)
+                    if ns.connected:
+                        await nxbt_disconnect(nx, controller)
+                except Exception:
+                    logger.exception("NXBT shutdown cleanup failed")
+                finally:
+                    # Mark process safe to boom
+                    self.ns.done = True
 
             asyncio.run(main_task())
 
@@ -185,6 +193,8 @@ class NXBTDaemon(Daemon):
         self.uns.nxbt_daemon_stop = False
         self.ns.connected = False
         self.uns.nxbt_connection_lost = False
+        self.uns.match_scene_id = None
+        self.uns.scene_matched = False
         self.ns.playing = False
         self.ns.pause = True
         self.ns.stop = False

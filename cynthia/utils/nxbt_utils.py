@@ -68,11 +68,11 @@ class Input:
         self.up_duration = up_duration
         self.block = block
 
-    async def play(self, nx, controller):
+    async def play(self, nx, controller, uns=None):
         """Press the configured buttons on a controller."""
         if not self.input_list:
             await asyncio.sleep(self.down_duration + self.up_duration)
-            return
+            return None
         try:
             await asyncio.wait_for(
                 asyncio.to_thread(
@@ -86,7 +86,7 @@ class Input:
                 timeout=self.down_duration + self.up_duration + 1,
             )
         except TimeoutError:
-            pass
+            return None
 
     def __str__(self):
         """Serialize this input as macro text."""
@@ -130,7 +130,12 @@ class Macro:
     @classmethod
     def get(cls, name):
         """Return a macro loaded from the bound macro tree."""
-        return Macro(cls._macro_tree[name.lower()])
+        macro_text = cls._macro_tree.get(name.lower(), "")
+        if not macro_text:
+            logger.warning(
+                f"Macro '{name}' looked up but not found in macro tree-- falling back to empty macro."
+            )
+        return Macro(macro_text, name=name)
 
     @classmethod
     def bind_macro_tree(cls, macro_tree):
@@ -184,9 +189,17 @@ class Macro:
                 if self.name is None:
                     self.name = macro_name
 
-        content = unshift(inputs.strip(), exclude="$").split("\n")
+        content = unshift(inputs.strip(), exclude="$?:()").split("\n")
         for line in content:
 
+            # Ternary parsing: scene_id ? true_macro : false_macro
+            result = re.search(
+                r"\s*([a-z0-9-]+)\s*\?\s*([a-z-]+)\s*\:\s*([a-z-]+)", line
+            )
+            if result:
+                scene_id, true_macro, false_macro = result.groups()
+                self.input_list.append(Ternary(scene_id, true_macro, false_macro))
+                continue
             block = True
 
             def detect_and_remove(line: str, match: str):
@@ -242,8 +255,8 @@ class Macro:
             self.input_list.append(
                 Input(
                     _inputs,
-                    down_duration=down_duration,
-                    up_duration=up_duration,
+                    down_duration=float(down_duration),
+                    up_duration=float(up_duration),
                     block=block,
                 )
             )
@@ -258,14 +271,14 @@ class Macro:
         """Remove every input from the macro."""
         self.input_list = list()
 
-    async def play(self, nx, controller):
+    async def play(self, nx, controller, *, uns=None):
         """Play each input when the controller is connected."""
         if nx is None or controller is None:
             return
         if nx.state[controller]["state"] != "connected":
             return
         for _input in self.input_list:
-            await _input.play(nx, controller)
+            await _input.play(nx, controller, uns=uns)
 
     def walk(self):
         """Yield macro inputs in playback order."""
@@ -275,6 +288,39 @@ class Macro:
     def __str__(self):
         """Serialize the macro as one input per line."""
         return "\n".join(str(_input) for _input in self.input_list)
+
+
+class Ternary:
+    """A macro that performs one of two actions based on an SSIM match."""
+
+    def __init__(self, scene_id, true_macro, false_macro):
+        """Store the macros to play for each case."""
+        self.scene_id = scene_id.replace("-", "_")
+        self.true_macro = true_macro.replace("-", "_")
+        self.false_macro = false_macro.replace("-", "_")
+
+    async def play(self, nx, controller, uns=None):
+        """Play the true or false macro based on the SSIM match."""
+        if await self._evaluate(uns=uns):
+            return Macro.get(self.true_macro)
+        else:
+            return Macro.get(self.false_macro)
+
+    def __str__(self):
+        """Serialize the ternary as a macro definition."""
+        return f"{self.scene_id} ? {self.true_macro} : {self.false_macro}"
+
+    async def _evaluate(self, uns=None):
+        """Return whether ssim match succeeds on CVDaemon within one second."""
+        if uns is None:
+            return False
+        uns.match_scene_id = self.scene_id
+        uns.scene_matched = False
+        await asyncio.sleep(1)
+        uns.match_scene_id = None
+        if uns.scene_matched:
+            return True
+        return False
 
 
 def load_macros(drive):

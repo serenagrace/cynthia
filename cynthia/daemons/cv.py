@@ -116,6 +116,8 @@ class CVDaemon(Daemon):
                             )
                             scores["bdsp_tbox"] = CV.bdsp_tbox_scene.ssim_match(frame)
                             scores["bdsp_run"] = CV.bdsp_run_scene.ssim_match(frame)
+                            scores["route_202"] = CV.route_202_scene.ssim_match(frame)
+                            scores["roamer"] = CV.bdsp_roamer_scene.ssim_match(frame)
                             buffer = UVC.frame_to_buffer(frame)
                             filename = "frame.png"
 
@@ -134,6 +136,11 @@ class CVDaemon(Daemon):
                             if sorted_scores[0][1] > 0.9:
                                 score_text[0] = f"**{score_text[0]}**"
                             embed.add_field(name="Scenes:", value="\n".join(score_text))
+
+                            if uns.match_scene_id is not None:
+                                if uns.match_scene_id in scores:
+                                    if scores[uns.match_scene_id] > 0.98:
+                                        uns.scene_matched = True
 
                             if sorted_scores[0][1] > 0.9:
                                 if sorted_scores[0][0] in ("home", "afk_home"):
@@ -204,6 +211,8 @@ class CVDaemon(Daemon):
         super().__init__(dman, dman.drive, fbs=(0,))
         self.ns.uvc_time = -1
         self.uns.nxbt_daemon_stop = False
+        self.uns.match_scene_id = None
+        self.uns.scene_matched = False
         self.ns.png = None
         self.ns.home = False
         self.ns.game = None
@@ -276,4 +285,18 @@ class CV:
         y=970,
         w=330,
         h=80,
+    )
+    bdsp_roamer_scene = Scene(
+        cv2.imread("/raidarchive/cynthia_drive/scenes/roamer.png"),
+        x=1435,
+        y=214,
+        w=124,
+        h=97,
+    )
+    route_202_scene = Scene(
+        cv2.imread("/raidarchive/cynthia_drive/scenes/bdsp_route_202.png"),
+        x=1475,
+        y=222,
+        w=70,
+        h=60,
     )
