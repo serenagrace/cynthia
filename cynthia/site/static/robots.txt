@@ -1,0 +1,41 @@
+# -------------------------------------------------------------
+# 1. Block aggressive AI training scrapers and web harvesters
+# -------------------------------------------------------------
+User-agent: GPTBot
+User-agent: ChatGPT-User
+User-agent: CCBot
+User-agent: ClaudeBot
+User-agent: Anthropic-AI
+User-agent: Bytespider
+User-agent: PerplexityBot
+User-agent: Amazonbot
+User-agent: FacebookBot
+User-agent: Google-Extended
+Disallow: /
+
+# -------------------------------------------------------------
+# 2. Block aggressive SEO analysis crawlers (High request volume)
+# -------------------------------------------------------------
+User-agent: AhrefsBot
+User-agent: SemrushBot
+User-agent: MJ12bot
+User-agent: DotBot
+User-agent: Rogerbot
+User-agent: SerpstatBot
+Disallow: /
+
+# -------------------------------------------------------------
+# 3. Rules for general web crawlers (e.g., Google, Bing, DuckDuckGo)
+# -------------------------------------------------------------
+User-agent: *
+# Throttle requests if supported by the crawler (e.g., Bing)
+Crawl-delay: 10
+
+# Option A: Allow indexing, but block specific resource-heavy paths
+Disallow: /api/
+Disallow: /auth/
+Disallow: /admin/
+Disallow: /search/
+
+# Option B: Uncomment line below if you want to block ALL general bots completely
+# Disallow: /

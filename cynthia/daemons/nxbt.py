@@ -9,6 +9,7 @@ from queue import Empty
 
 import nxbt
 
+from cynthia.utils.encounters import average_interval_ms
 from cynthia.utils.nxbt_utils import (
     Macro,
     load_macros,
@@ -28,6 +29,21 @@ class NXBTDaemon(Daemon):
 
     POLL_RATE = 0.5
     GRACE_PERIOD = 5.0
+    WATCHDOG_DEFAULT_TIMEOUT = 600.0
+    WATCHDOG_AVERAGE_FACTOR = 2
+
+    @staticmethod
+    def watchdog_timeout(drive, log_name):
+        """Return twice the average encounter interval, or the default if unknown."""
+        try:
+            with drive.open(log_name, "r", touch=True) as f:
+                average_ms = average_interval_ms(f.readlines())
+        except Exception:
+            logger.exception("Failed to read encounter log for watchdog")
+            average_ms = None
+        if not average_ms:
+            return NXBTDaemon.WATCHDOG_DEFAULT_TIMEOUT
+        return average_ms / 1000 * NXBTDaemon.WATCHDOG_AVERAGE_FACTOR
 
     def __init__(self, dman):
         """Create daemon state, its work queue, and the worker process."""
@@ -42,6 +58,9 @@ class NXBTDaemon(Daemon):
             playing_gen = None
             playing = None
             disconnected_since = None
+            watchdog_since = None
+            watchdog_seen_encounter = None
+            watchdog_timeout = NXBTDaemon.WATCHDOG_DEFAULT_TIMEOUT
 
             async def main_task():
                 """Handle controller connection, macro playback, and shutdown."""
@@ -49,6 +68,9 @@ class NXBTDaemon(Daemon):
                 nonlocal playing_gen
                 nonlocal playing
                 nonlocal disconnected_since
+                nonlocal watchdog_since
+                nonlocal watchdog_seen_encounter
+                nonlocal watchdog_timeout
                 Macro.bind_macro_tree(macro_tree)
                 load_macros(drive)
 
@@ -107,19 +129,53 @@ class NXBTDaemon(Daemon):
                                 ns.connected = False
                                 ns.playing = False
                                 playing_gen = None
+                                ns.epoch += 1
                                 ns.stop = True
                             else:
                                 await asyncio.sleep(NXBTDaemon.POLL_RATE)
                             continue
 
-                    if not ns.stop:
-                        if ns.pause or not ns.connected:
-                            await asyncio.sleep(NXBTDaemon.POLL_RATE)
-                            continue
-                        if uns.nxbt_daemon_stop:
-                            await Macro("hold c").play(nx, controller)
-                            ns.pause = True
-                            continue
+                    # Restart the looping macro if a hunt makes no progress for too long
+                    now = time.time()
+                    last_encounter = getattr(uns, "last_encounter_time", None)
+                    if (
+                        ns.loop
+                        and ns.connected
+                        and not ns.pause
+                        and not ns.stop
+                        and playing_gen is not None
+                    ):
+                        if (
+                            watchdog_since is None
+                            or last_encounter != watchdog_seen_encounter
+                        ):
+                            watchdog_since = now
+                            watchdog_seen_encounter = last_encounter
+                            watchdog_timeout = NXBTDaemon.watchdog_timeout(
+                                drive, getattr(uns, "encounter_log", None)
+                            )
+                        elif now - watchdog_since >= watchdog_timeout:
+                            logger.warning("Watchdog triggered, restarting macro.")
+                            playing_gen = playing.walk()
+                            uns.watchdog_triggered = True
+                            watchdog_since = now
+                    else:
+                        watchdog_since = None
+
+                    if ns.stop:
+                        # Abort the current macro; stale queued items are dropped by epoch
+                        playing_gen = None
+                        ns.playing = False
+                        ns.stop = False
+                        continue
+
+                    if ns.pause or not ns.connected:
+                        await asyncio.sleep(NXBTDaemon.POLL_RATE)
+                        continue
+                    if uns.nxbt_daemon_stop:
+                        await Macro("hold c").play(nx, controller)
+                        ns.pause = True
+                        continue
 
                     if ns.connected:
                         # Keep playing current Macro
@@ -134,7 +190,7 @@ class NXBTDaemon(Daemon):
                                 ns.playing = False
                                 playing_gen = None
                                 if ns.loop:
-                                    tqueue.put(str(playing))
+                                    tqueue.put((ns.epoch, str(playing)))
                             except Exception:
                                 logger.exception("Macro playback failed")
                                 ns.playing = False
@@ -145,20 +201,10 @@ class NXBTDaemon(Daemon):
                         playing_gen = None
 
                     try:
-                        _input = tqueue.get_nowait()
+                        epoch, _input = tqueue.get_nowait()
 
-                        if _input is None:
-                            # Poison Pill marks when the stop signal was sent
-                            if ns.stop:
-                                ns.stop = False
-                            continue
-
-                        # If stop signal, loop over queue until poison pill or queue is empty
-                        if ns.stop:
-                            continue
-
-                        if not isinstance(_input, str):
-                            # TODO logger error
+                        # Queued before the last stop/clear
+                        if epoch != ns.epoch or not isinstance(_input, str):
                             continue
 
                         playing = Macro(_input)
@@ -166,8 +212,6 @@ class NXBTDaemon(Daemon):
                         ns.playing = True
 
                     except Empty:
-                        if ns.stop:
-                            ns.stop = False
                         await asyncio.sleep(NXBTDaemon.POLL_RATE)
 
                 try:
@@ -193,24 +237,27 @@ class NXBTDaemon(Daemon):
         self.uns.nxbt_daemon_stop = False
         self.ns.connected = False
         self.uns.nxbt_connection_lost = False
+        self.uns.watchdog_triggered = False
+        self.uns.last_encounter_time = None
         self.uns.match_scene_id = None
         self.uns.scene_matched = False
         self.ns.playing = False
         self.ns.pause = True
         self.ns.stop = False
+        self.ns.epoch = 0
         self.loop = loop
         self.start(daemon=False)
 
     def queue(self, macro):
         """Add a macro definition to the playback queue."""
-        self.tqueue.put(str(macro))
+        self.tqueue.put((self.ns.epoch, str(macro)))
 
     def stop(self):
-        """Stop playback, pause execution, and signal the worker to drain."""
+        """Stop playback, pause execution, and invalidate everything queued."""
+        self.ns.epoch += 1
         self.ns.stop = True
         self.ns.pause = True
         self.ns.loop = False
-        self.tqueue.put(None)
 
     def unpause(self):
         """Resume playback and clear pending stop notifications."""

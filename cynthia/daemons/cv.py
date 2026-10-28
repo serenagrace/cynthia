@@ -88,6 +88,7 @@ class CVDaemon(Daemon):
                         with drive.open(ns.encounter_log, "a") as f:
                             f.write(f"{datetime.now()},{game},{encounter_time:0f}\n")
                         print(f"Encounter Time: {encounter_time:.0f}ms")
+                        uns.last_encounter_time = time.time()
 
                         if encounter_time > 2000:
                             return True
@@ -222,12 +223,14 @@ class CVDaemon(Daemon):
         self.ns.playing = False
         self.ns.self_encounter = False
         self.ns.encounter_log = encounter_log_name(dman.context.args.hunt)
+        self.uns.encounter_log = self.ns.encounter_log
         self.loop = loop
         self.start()
 
     def set_hunt(self, hunt):
         """Update the encounter log path for the active hunt."""
         self.ns.encounter_log = encounter_log_name(hunt)
+        self.uns.encounter_log = self.ns.encounter_log
 
     def set_self_encounter(self, *, self_encounter=True):
         """Set whether encounter detection uses the self-encounter flow."""

@@ -15,7 +15,7 @@ from cynthia.daemons.cystream import GzipLogHandler
 from cynthia.utils.drive import Drive
 from cynthia.utils.encounters import (
     DEFAULT_ENCOUNTER_LOG,
-    average_encounter_ms,
+    average_interval_ms,
     encounter_log_name,
 )
 from cynthia.utils.namespace import Namespace
@@ -55,13 +55,12 @@ def test_drive_checks_and_gzip_io(tmp_path):
     assert Drive(None).path("missing") is None
 
 
-def test_average_encounter_ms_drops_outliers():
-    lines = [
-        f"2026-01-01 00:00:0{i}.0,Game,{ms}\n"
-        for i, ms in enumerate((1000, 1200, 900, 600000))
-    ]
-    assert average_encounter_ms(lines) == 1033.3333333333333
-    assert average_encounter_ms([]) is None
+def test_average_interval_ms_drops_outliers():
+    stamps = ("00:00:00", "00:00:01", "00:00:03", "00:00:04", "01:00:00")
+    lines = [f"2026-01-01 {t}.0,Game,500\n" for t in stamps]
+    assert average_interval_ms(lines) == 1333.3333333333333
+    assert average_interval_ms(lines[:1]) is None
+    assert average_interval_ms([]) is None
 
 
 def test_encounter_log_name_is_stable():

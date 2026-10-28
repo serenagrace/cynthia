@@ -8,7 +8,11 @@ from datetime import datetime
 import discord
 from discord.ext import commands, tasks
 
-from cynthia.utils.encounters import average_encounter_ms, encounter_log_name
+from cynthia.utils.encounters import (
+    average_interval_ms,
+    encounter_log_name,
+    log_timestamp_ms,
+)
 
 
 class StatusCog(commands.Cog):
@@ -39,6 +43,25 @@ class StatusCog(commands.Cog):
                     self.status_cycle = None
         with self.bot.drive.open("user_status.json", "w") as f:
             json.dump(self.user_activity, f, indent=4)
+        with self.bot.drive.open("activity_stats.json", "w") as f:
+            json.dump(self.get_activity_stats(), f, indent=4)
+
+    def get_activity_stats(self):
+        """Return raw timestamps (epoch ms) for the site to turn into durations."""
+        stats = {"bot_started": self.bot.started_at_ms}
+        if self.bot.args.hunt:
+            with self.bot.drive.open(
+                encounter_log_name(self.bot.args.hunt), "r", touch=True
+            ) as f:
+                lines = f.readlines()
+            stamps = [t for t in map(log_timestamp_ms, lines) if t is not None]
+            if stamps:
+                stats["hunt_started"] = stamps[0]
+                stats["last_encounter"] = stamps[-1]
+            average_ms = average_interval_ms(lines)
+            if average_ms is not None:
+                stats["average_interval_ms"] = round(average_ms)
+        return stats
 
     @tasks.loop(seconds=15.0)
     async def set_status(self):
@@ -99,13 +122,11 @@ class StatusCog(commands.Cog):
                     hunting_str += f"shiny {self.bot.args.hunt.title()}"
                     start = None
                     count = None
-                    average_ms = None
                     with self.bot.drive.open(
                         encounter_log_name(self.bot.args.hunt), "r", touch=True
                     ) as f:
                         lines = f.readlines()
                         count = sum(1 for _ in lines)
-                        average_ms = average_encounter_ms(lines)
                         if lines:
                             start = int(
                                 datetime.strptime(
@@ -134,10 +155,6 @@ class StatusCog(commands.Cog):
                         "timestamps": {"start": start},
                         "assets": {"large_image": large_image},
                     }
-                    if average_ms is not None:
-                        user_activity["stats"] = {
-                            "average_encounter_ms": round(average_ms)
-                        }
                 elif self.bot.vars.status.text is not None:
                     bot_activity = [
                         discord.Game(name=game),
@@ -171,6 +188,13 @@ class StatusCog(commands.Cog):
                 "Connection to NXBTDaemon lost!", alert=True
             )
             self.bot.dman.uns.nxbt_connection_lost = False
+        if getattr(self.bot.dman.uns, "watchdog_triggered", False):
+            self.bot.dman.uns.watchdog_triggered = False
+            await self.bot.messenger.msg_owner(
+                "Hunt watchdog triggered: no encounter for too long, "
+                "restarted the current macro.",
+                alert=True,
+            )
         if shiny_stop:
             messaged = getattr(self.bot.dman.uns, "messaged", False)
             if not messaged:

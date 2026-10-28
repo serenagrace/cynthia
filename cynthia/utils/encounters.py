@@ -1,6 +1,7 @@
 """Naming helpers for encounter timing logs."""
 
 import re
+from datetime import datetime
 
 DEFAULT_ENCOUNTER_LOG = "encounter_times.log"
 
@@ -13,24 +14,38 @@ def encounter_log_name(hunt=None):
     return f"encounter_times.{slug}.log"
 
 
-def average_encounter_ms(lines, outlier_factor=3):
-    """Mean encounter time in ms from log lines, or None if unavailable.
+def log_timestamp_ms(line):
+    """Epoch ms of an encounter log line, or None if the line is malformed."""
+    try:
+        return int(
+            datetime.strptime(
+                line.split(",")[0].strip(), "%Y-%m-%d %H:%M:%S.%f"
+            ).timestamp()
+            * 1000
+        )
+    except ValueError:
+        return None
 
-    Times above outlier_factor x the median are dropped, since long gaps
+
+def average_interval_ms(lines, outlier_factor=3):
+    """Mean time in ms between consecutive log entries, or None if unavailable.
+
+    Gaps above outlier_factor x the median are dropped, since long gaps
     usually mean the bot was not running between encounters.
     """
-    times = []
+    stamps = []
     for line in lines:
         try:
-            value = float(line.rsplit(",", 1)[1])
-        except (IndexError, ValueError):
+            stamps.append(
+                datetime.strptime(line.split(",")[0].strip(), "%Y-%m-%d %H:%M:%S.%f")
+            )
+        except ValueError:
             continue
-        if value > 0:
-            times.append(value)
-    if not times:
+    gaps = [(b - a).total_seconds() * 1000 for a, b in zip(stamps, stamps[1:]) if b > a]
+    if not gaps:
         return None
-    ordered = sorted(times)
+    ordered = sorted(gaps)
     mid = len(ordered) // 2
     median = ordered[mid] if len(ordered) % 2 else sum(ordered[mid - 1 : mid + 1]) / 2
-    kept = [t for t in times if t <= median * outlier_factor]
+    kept = [g for g in gaps if g <= median * outlier_factor]
     return sum(kept) / len(kept)

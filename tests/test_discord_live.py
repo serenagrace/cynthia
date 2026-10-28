@@ -98,7 +98,6 @@ def test_test_bot_exercises_live_guild_and_safe_command_callbacks(tmp_path):
     async def run():
         perms_file = tmp_path / "perms.yaml"
         perms_file.write_text("{}")
-        (tmp_path / "site" / "html").mkdir(parents=True)
         context = SimpleNamespace(
             config=Namespace(
                 {"drive_path": str(tmp_path), "owner": str(owner_id), "silent": True}

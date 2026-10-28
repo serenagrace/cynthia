@@ -7,6 +7,7 @@ import logging
 import zlib
 from contextlib import asynccontextmanager, closing
 from multiprocessing import shared_memory
+from pathlib import Path
 
 import cv2
 import numpy
@@ -17,12 +18,15 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from .daemon import Daemon
 from .dman import FB0
 
+SITE_DIR = Path(__file__).resolve().parent.parent / "site"
+
 
 def create_app(drive, ns, uns, fb):
     """Build the FastAPI app that streams frames and serves status endpoints."""
     viewers = {"count": 0}
     latest = {"seq": 0, "chunk": None}
     last_status = {}
+    last_stats = {}
 
     def encode(frame):
         """Resize a frame and encode it as JPEG bytes."""
@@ -86,12 +90,27 @@ def create_app(drive, ns, uns, fb):
         try:
             with drive.open("user_status.json", "r", touch=True) as f:
                 status_data = json.load(f)
+            if status_data is None:
+                # The status writer dumps null when no activity is available
+                status_data = {}
             last_status.clear()
             last_status.update(status_data)
         except json.JSONDecodeError:
             # The writer truncates before writing; serve the last good value
             status_data = dict(last_status)
         return status_data
+
+    @app.get("/api/activity_stats")
+    async def activity_stats():
+        """Return raw activity timestamps; the site computes durations."""
+        try:
+            with drive.open("activity_stats.json", "r", touch=True) as f:
+                stats = json.load(f)
+            last_stats.clear()
+            last_stats.update(stats or {})
+        except json.JSONDecodeError:
+            stats = dict(last_stats)
+        return stats or {}
 
     @app.get("/api/ssim_data")
     async def ssim_data():
@@ -107,8 +126,7 @@ def create_app(drive, ns, uns, fb):
     @app.get("/video_feed", response_class=HTMLResponse)
     async def video_feed_page():
         """Serve the local HTML page for the video stream."""
-        with drive.open("site/html/video_feed.html", "r") as f:
-            html_content = f.read()
+        html_content = (SITE_DIR / "html" / "video_feed.html").read_text()
         return HTMLResponse(content=html_content, status_code=200)
 
     @app.get("/api/stream_endpoint")

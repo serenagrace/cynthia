@@ -4,6 +4,7 @@ import asyncio
 import gzip
 import importlib.resources
 import logging
+import time
 from pathlib import Path
 
 import discord
@@ -32,6 +33,7 @@ class Bot(commands.Bot):
         """Initialize bot services and optionally disable daemons for tests."""
         if test_mode and test_guild_id is None:
             raise ValueError("Test mode requires an explicit test guild ID.")
+        self.started_at_ms = int(time.time() * 1000)
         self.test_mode = test_mode
         self.command_guild_id = test_guild_id
         self.config = context.config
