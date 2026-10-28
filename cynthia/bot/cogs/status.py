@@ -8,7 +8,7 @@ from datetime import datetime
 import discord
 from discord.ext import commands, tasks
 
-from cynthia.utils.encounters import encounter_log_name
+from cynthia.utils.encounters import average_encounter_ms, encounter_log_name
 
 
 class StatusCog(commands.Cog):
@@ -99,11 +99,13 @@ class StatusCog(commands.Cog):
                     hunting_str += f"shiny {self.bot.args.hunt.title()}"
                     start = None
                     count = None
+                    average_ms = None
                     with self.bot.drive.open(
                         encounter_log_name(self.bot.args.hunt), "r", touch=True
                     ) as f:
                         lines = f.readlines()
                         count = sum(1 for _ in lines)
+                        average_ms = average_encounter_ms(lines)
                         if lines:
                             start = int(
                                 datetime.strptime(
@@ -132,6 +134,10 @@ class StatusCog(commands.Cog):
                         "timestamps": {"start": start},
                         "assets": {"large_image": large_image},
                     }
+                    if average_ms is not None:
+                        user_activity["stats"] = {
+                            "average_encounter_ms": round(average_ms)
+                        }
                 elif self.bot.vars.status.text is not None:
                     bot_activity = [
                         discord.Game(name=game),

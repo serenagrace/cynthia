@@ -130,6 +130,7 @@ class CVDaemon(Daemon):
                                     reverse=True,
                                 )
                             )
+                            uns.ssim_scores = sorted_scores[:5]
                             score_text = [
                                 f"{key}: {value}" for key, value in sorted_scores
                             ]
@@ -213,6 +214,7 @@ class CVDaemon(Daemon):
         self.uns.nxbt_daemon_stop = False
         self.uns.match_scene_id = None
         self.uns.scene_matched = False
+        self.uns.ssim_scores = []
         self.ns.png = None
         self.ns.home = False
         self.ns.game = None

@@ -13,7 +13,11 @@ from cynthia.bot.applications.tree import CommandTree
 from cynthia.context.perms import PermsLoader, guild_key
 from cynthia.daemons.cystream import GzipLogHandler
 from cynthia.utils.drive import Drive
-from cynthia.utils.encounters import DEFAULT_ENCOUNTER_LOG, encounter_log_name
+from cynthia.utils.encounters import (
+    DEFAULT_ENCOUNTER_LOG,
+    average_encounter_ms,
+    encounter_log_name,
+)
 from cynthia.utils.namespace import Namespace
 from cynthia.utils.snowflake import GuildFlake, PermFlake, Snowflake
 from cynthia.utils.types import force_obj_is_dict, force_obj_is_list
@@ -49,6 +53,15 @@ def test_drive_checks_and_gzip_io(tmp_path):
     with gzip.open(target, "rt") as stream:
         assert stream.read() == "record"
     assert Drive(None).path("missing") is None
+
+
+def test_average_encounter_ms_drops_outliers():
+    lines = [
+        f"2026-01-01 00:00:0{i}.0,Game,{ms}\n"
+        for i, ms in enumerate((1000, 1200, 900, 600000))
+    ]
+    assert average_encounter_ms(lines) == 1033.3333333333333
+    assert average_encounter_ms([]) is None
 
 
 def test_encounter_log_name_is_stable():

@@ -22,6 +22,7 @@ def create_app(drive, ns, uns, fb):
     """Build the FastAPI app that streams frames and serves status endpoints."""
     viewers = {"count": 0}
     latest = {"seq": 0, "chunk": None}
+    last_status = {}
 
     def encode(frame):
         """Resize a frame and encode it as JPEG bytes."""
@@ -85,9 +86,18 @@ def create_app(drive, ns, uns, fb):
         try:
             with drive.open("user_status.json", "r", touch=True) as f:
                 status_data = json.load(f)
+            last_status.clear()
+            last_status.update(status_data)
         except json.JSONDecodeError:
-            status_data = {}
+            # The writer truncates before writing; serve the last good value
+            status_data = dict(last_status)
         return status_data
+
+    @app.get("/api/ssim_data")
+    async def ssim_data():
+        """Return the top 5 SSIM scene match scores from the CV daemon."""
+        scores = getattr(uns, "ssim_scores", None) or []
+        return {"scores": [{"scene": k, "score": float(v)} for k, v in scores[:5]]}
 
     @app.get("/api/viewers")
     async def viewer_count():
