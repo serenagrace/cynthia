@@ -48,6 +48,14 @@ DURATIONS = {
 }
 
 
+# A tap that gets stretched by Bluetooth lag opens the quick settings menu with
+# "Sleep Mode" selected, so taps of HOME are checked for it afterwards.
+QUICK_SETTINGS_WINDOW = 1.0
+QUICK_SETTINGS_POLL = 0.1
+QUICK_SETTINGS_RETRIES = 3
+HOME_TAP_MAX_DOWN = 0.5
+
+
 class Input:
     """Represent one or more controller buttons with timing settings."""
 
@@ -86,7 +94,59 @@ class Input:
                 timeout=self.down_duration + self.up_duration + 1,
             )
         except TimeoutError:
-            return None
+            pass
+        if (
+            uns is not None
+            and nxbt.Buttons.HOME in self.input_list
+            and self.down_duration < HOME_TAP_MAX_DOWN
+        ):
+            await self._recover_from_quick_settings(nx, controller, uns)
+        return None
+
+    async def _quick_settings_open(self, uns):
+        """Watch CVDaemon frames briefly and report whether quick settings is open."""
+        uns.quick_settings_open = False
+        uns.quick_settings_watch = True
+        try:
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + QUICK_SETTINGS_WINDOW
+            while loop.time() < deadline:
+                if uns.quick_settings_open:
+                    return True
+                await asyncio.sleep(QUICK_SETTINGS_POLL)
+            return bool(uns.quick_settings_open)
+        finally:
+            uns.quick_settings_watch = False
+
+    async def _recover_from_quick_settings(self, nx, controller, uns):
+        """Close the quick settings menu with B and repeat the HOME tap."""
+        for _ in range(QUICK_SETTINGS_RETRIES):
+            if not await self._quick_settings_open(uns):
+                return
+            logger.warning("Quick settings menu opened, closing it and retrying HOME.")
+            uns.quick_settings_recovered = (
+                getattr(uns, "quick_settings_recovered", 0) or 0
+            ) + 1
+            for buttons in ([nxbt.Buttons.B], self.input_list):
+                await asyncio.to_thread(
+                    nx.press_buttons,
+                    controller,
+                    buttons,
+                    down=self.down_duration,
+                    up=0.5,
+                    block=True,
+                )
+        if await self._quick_settings_open(uns):
+            # Never let a later A press land on Sleep Mode
+            logger.error("Quick settings menu still open after retries.")
+            await asyncio.to_thread(
+                nx.press_buttons,
+                controller,
+                [nxbt.Buttons.B],
+                down=self.down_duration,
+                up=0.5,
+                block=True,
+            )
 
     def __str__(self):
         """Serialize this input as macro text."""

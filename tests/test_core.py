@@ -17,6 +17,7 @@ from cynthia.utils.encounters import (
     DEFAULT_ENCOUNTER_LOG,
     average_interval_ms,
     encounter_log_name,
+    parse_encounter_log,
 )
 from cynthia.utils.namespace import Namespace
 from cynthia.utils.snowflake import GuildFlake, PermFlake, Snowflake
@@ -61,6 +62,30 @@ def test_average_interval_ms_drops_outliers():
     assert average_interval_ms(lines) == 1333.3333333333333
     assert average_interval_ms(lines[:1]) is None
     assert average_interval_ms([]) is None
+
+
+def test_stop_start_markers_are_excluded_from_hunt_time():
+    lines = [
+        "2026-01-01 00:00:00.0,Game,500\n",
+        "2026-01-01 00:00:02.0,Game,500\n",
+        "2026-01-01 00:00:03.0,#STOP,paused\n",
+        "2026-01-01 01:00:03.0,#START,\n",
+        "2026-01-01 01:00:05.0,Game,500\n",
+        "2026-01-01 01:00:06.0,#STOP,shutdown\n",
+    ]
+    log = parse_encounter_log(lines)
+    assert len(log.encounters) == 3
+    assert log.paused_ms == 3_600_000
+    assert log.stopped_at is not None
+    assert average_interval_ms(lines) == 2500
+
+
+def test_start_without_stop_counts_gap_as_pause():
+    lines = [
+        "2026-01-01 00:00:00.0,Game,500\n",
+        "2026-01-01 00:10:00.0,#START,\n",
+    ]
+    assert parse_encounter_log(lines).paused_ms == 600_000
 
 
 def test_encounter_log_name_is_stable():

@@ -3,7 +3,6 @@
 import io
 import itertools
 import json
-from datetime import datetime
 
 import discord
 from discord.ext import commands, tasks
@@ -11,7 +10,7 @@ from discord.ext import commands, tasks
 from cynthia.utils.encounters import (
     average_interval_ms,
     encounter_log_name,
-    log_timestamp_ms,
+    parse_encounter_log,
 )
 
 
@@ -47,17 +46,25 @@ class StatusCog(commands.Cog):
             json.dump(self.get_activity_stats(), f, indent=4)
 
     def get_activity_stats(self):
-        """Return raw timestamps (epoch ms) for the site to turn into durations."""
+        """Return raw timestamps (epoch ms) for the site to turn into durations.
+
+        Active hunt time is (hunt_stopped_at or now) - (hunt_started + hunt_correction_ms),
+        where the correction is time spent not hunting in completed stop/start pauses.
+        """
         stats = {"bot_started": self.bot.started_at_ms}
         if self.bot.args.hunt:
             with self.bot.drive.open(
                 encounter_log_name(self.bot.args.hunt), "r", touch=True
             ) as f:
                 lines = f.readlines()
-            stamps = [t for t in map(log_timestamp_ms, lines) if t is not None]
-            if stamps:
-                stats["hunt_started"] = stamps[0]
-                stats["last_encounter"] = stamps[-1]
+            log = parse_encounter_log(lines)
+            if log.first is not None:
+                stats["hunt_started"] = log.first
+                stats["hunt_correction_ms"] = log.paused_ms
+            if log.stopped_at is not None:
+                stats["hunt_stopped_at"] = log.stopped_at
+            if log.encounters:
+                stats["last_encounter"] = log.encounters[-1]
             average_ms = average_interval_ms(lines)
             if average_ms is not None:
                 stats["average_interval_ms"] = round(average_ms)
@@ -120,21 +127,11 @@ class StatusCog(commands.Cog):
                     else:
                         hunting_str = "Hunting "
                     hunting_str += f"shiny {self.bot.args.hunt.title()}"
-                    start = None
-                    count = None
                     with self.bot.drive.open(
                         encounter_log_name(self.bot.args.hunt), "r", touch=True
                     ) as f:
-                        lines = f.readlines()
-                        count = sum(1 for _ in lines)
-                        if lines:
-                            start = int(
-                                datetime.strptime(
-                                    lines[0].split(",")[0].strip(),
-                                    "%Y-%m-%d %H:%M:%S.%f",
-                                ).timestamp()
-                                * 1000
-                            )
+                        log = parse_encounter_log(f.readlines())
+                    count = len(log.encounters)
 
                     if count:
                         if ns.self_encounter:
@@ -152,7 +149,10 @@ class StatusCog(commands.Cog):
                         "name": game,
                         "details": hunting_str,
                         "state": encounter_str,
-                        "timestamps": {"start": start},
+                        "timestamps": {
+                            "start": log.first,
+                            "correction": log.paused_ms,
+                        },
                         "assets": {"large_image": large_image},
                     }
                 elif self.bot.vars.status.text is not None:
@@ -193,6 +193,14 @@ class StatusCog(commands.Cog):
             await self.bot.messenger.msg_owner(
                 "Hunt watchdog triggered: no encounter for too long, "
                 "restarted the current macro.",
+                alert=True,
+            )
+        recovered = getattr(self.bot.dman.uns, "quick_settings_recovered", 0)
+        if recovered:
+            self.bot.dman.uns.quick_settings_recovered = 0
+            await self.bot.messenger.msg_owner(
+                f"Quick settings menu opened by a stretched HOME press "
+                f"({recovered}x); closed it and retried.",
                 alert=True,
             )
         if shiny_stop:

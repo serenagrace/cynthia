@@ -252,8 +252,14 @@
 
         function tickStats() {
             const now = Date.now();
+            // Stats exclude time not hunting: the correction is added to the start,
+            // and the clock freezes at the stop time while the hunt is stopped.
+            const huntEnd = activityStats.hunt_stopped_at ?? now;
+            const huntStart = typeof activityStats.hunt_started === "number"
+                ? activityStats.hunt_started + (activityStats.hunt_correction_ms || 0)
+                : undefined;
             const rows = [
-                ["stat-hunt", "st-hunt", activityStats.hunt_started, (v) => formatDuration(now - v)],
+                ["stat-hunt", "st-hunt", huntStart, (v) => formatDuration(huntEnd - v)],
                 ["stat-uptime", "st-uptime", activityStats.bot_started, (v) => formatDuration(now - v)],
                 ["stat-avg", "st-avg", activityStats.average_interval_ms, formatDuration],
                 ["stat-last", "st-last", activityStats.last_encounter, (v) => formatDuration(now - v)],

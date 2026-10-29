@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name="cynthia"
 version="1.5.9"
-requires-python="==3.14.11"
+requires-python=">=3.11,<3.12"
 dependencies = [
     "about-time==4.2.1",
     "cynthia",
@@ -29,12 +29,16 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["black", "isort", "pytest"]
+cyclient = ["pypresence", "requests"]
 
 [project.scripts]
 cynthia="cynthia.__main__:main"
 
-[tool.setuptools]
-py-modules=["cynthia"]
+[tool.setuptools.package-data]
+"cynthia.daemons" = ["scenes/*.png"]
+
+[tool.setuptools.packages.find]
+include = ["cynthia*"]
 
 [tool.isort]
 profile = "black"
@@ -45,4 +49,8 @@ skip = ["env", "build", "dist"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["discord_live: opt-in, read-only checks against the configured test bot"]
-filterwarnings = ["ignore:'audioop' is deprecated and slated for removal in Python 3\\.13:DeprecationWarning:discord\\.player"]
+filterwarnings = [
+    "ignore:'audioop' is deprecated and slated for removal in Python 3\\.13:DeprecationWarning:discord\\.player",
+    "ignore:pkg_resources is deprecated as an API:DeprecationWarning",
+    "ignore:'imghdr' is deprecated and slated for removal in Python 3\\.13:DeprecationWarning",
+]

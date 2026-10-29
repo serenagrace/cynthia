@@ -9,7 +9,13 @@ from queue import Empty
 
 import nxbt
 
-from cynthia.utils.encounters import average_interval_ms
+from cynthia.utils.encounters import (
+    DEFAULT_ENCOUNTER_LOG,
+    START_MARKER,
+    STOP_MARKER,
+    average_interval_ms,
+    marker_line,
+)
 from cynthia.utils.nxbt_utils import (
     Macro,
     load_macros,
@@ -31,19 +37,31 @@ class NXBTDaemon(Daemon):
     GRACE_PERIOD = 5.0
     WATCHDOG_DEFAULT_TIMEOUT = 600.0
     WATCHDOG_AVERAGE_FACTOR = 2
+    WATCHDOG_MIN_SAMPLES = 15
 
     @staticmethod
     def watchdog_timeout(drive, log_name):
-        """Return twice the average encounter interval, or the default if unknown."""
+        """Return twice the average encounter interval, or the default if too few samples."""
         try:
             with drive.open(log_name, "r", touch=True) as f:
-                average_ms = average_interval_ms(f.readlines())
+                average_ms = average_interval_ms(
+                    f.readlines(), min_samples=NXBTDaemon.WATCHDOG_MIN_SAMPLES
+                )
         except Exception:
             logger.exception("Failed to read encounter log for watchdog")
             average_ms = None
         if not average_ms:
             return NXBTDaemon.WATCHDOG_DEFAULT_TIMEOUT
         return average_ms / 1000 * NXBTDaemon.WATCHDOG_AVERAGE_FACTOR
+
+    @staticmethod
+    def mark_hunting(drive, log_name, kind, reason=""):
+        """Append a hunt start/stop marker to the encounter log."""
+        try:
+            with drive.open(log_name or DEFAULT_ENCOUNTER_LOG, "a") as f:
+                f.write(marker_line(kind, reason))
+        except Exception:
+            logger.exception("Failed to write hunt marker")
 
     def __init__(self, dman):
         """Create daemon state, its work queue, and the worker process."""
@@ -61,6 +79,35 @@ class NXBTDaemon(Daemon):
             watchdog_since = None
             watchdog_seen_encounter = None
             watchdog_timeout = NXBTDaemon.WATCHDOG_DEFAULT_TIMEOUT
+            hunting_log = None
+
+            def sync_hunt_marker(shutdown=False):
+                """Log a #STOP/#START marker when the hunting state changes."""
+                nonlocal hunting_log
+                log_name = getattr(uns, "encounter_log", None) or DEFAULT_ENCOUNTER_LOG
+                hunting = (
+                    not shutdown
+                    and ns.loop
+                    and ns.connected
+                    and not ns.pause
+                    and not ns.stop
+                )
+                if hunting_log is not None and (not hunting or hunting_log != log_name):
+                    if shutdown:
+                        reason = "shutdown"
+                    elif not ns.connected:
+                        reason = "disconnected"
+                    elif not ns.loop:
+                        reason = "stopped"
+                    elif hunting_log != log_name:
+                        reason = "hunt changed"
+                    else:
+                        reason = "paused"
+                    NXBTDaemon.mark_hunting(drive, hunting_log, STOP_MARKER, reason)
+                    hunting_log = None
+                if hunting and hunting_log is None:
+                    NXBTDaemon.mark_hunting(drive, log_name, START_MARKER)
+                    hunting_log = log_name
 
             async def main_task():
                 """Handle controller connection, macro playback, and shutdown."""
@@ -82,6 +129,7 @@ class NXBTDaemon(Daemon):
                     )
 
                 while ns.run:
+                    sync_hunt_marker()
                     if ns.disconnect:
                         ns.disconnect = False
                         if not ns.connected:
@@ -214,6 +262,7 @@ class NXBTDaemon(Daemon):
                     except Empty:
                         await asyncio.sleep(NXBTDaemon.POLL_RATE)
 
+                sync_hunt_marker(shutdown=True)
                 try:
                     save_macros(drive)
                     if ns.connected:

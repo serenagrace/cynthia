@@ -99,7 +99,7 @@ function snippet() {
   if ($("gray").checked) args.push("grayscale=True");
   return [
     `    ${$("name").value}_scene = Scene(`,
-    `${ind}cv2.imread("/raidarchive/cynthia_drive/scenes/${file}"),`,
+    `${ind}cv2.imread(str(SCENES_DIR / "${file}")),`,
     ...args.map(a => `${ind}${a},`),
     "    )",
   ].join("\n");

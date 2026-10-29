@@ -7,6 +7,7 @@ import time
 from contextlib import closing
 from datetime import datetime
 from multiprocessing import shared_memory
+from pathlib import Path
 
 import cv2
 import discord
@@ -25,6 +26,7 @@ logging.getLogger("ppocr").setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 ocr = PaddleOCR(use_angle_cls=True, lang="en")
+SCENES_DIR = Path(__file__).resolve().parent / "scenes"
 
 
 class Scene:
@@ -106,6 +108,12 @@ class CVDaemon(Daemon):
                             ns.uvc_time = uns_time
                             frame[:] = fb[fbptr][:]
                             perf_time = time.perf_counter()
+                            # Only compared while a HOME tap is being checked
+                            if uns.quick_settings_watch:
+                                uns.quick_settings_open = (
+                                    CV.quick_settings_scene.ssim_match(frame)
+                                    > CV.QUICK_SETTINGS_THRESHOLD
+                                )
                             scores = {}
                             scores["home"] = CV.home_screen_scene.ssim_match(frame)
                             scores["afk_home"] = CV.afk_home_screen_scene.ssim_match(
@@ -213,6 +221,8 @@ class CVDaemon(Daemon):
         super().__init__(dman, dman.drive, fbs=(0,))
         self.ns.uvc_time = -1
         self.uns.nxbt_daemon_stop = False
+        self.uns.quick_settings_watch = False
+        self.uns.quick_settings_open = False
         self.uns.match_scene_id = None
         self.uns.scene_matched = False
         self.uns.ssim_scores = []
@@ -256,50 +266,57 @@ class CV:
                 text = "\n".join([line[1][0] for line in result[0]])
         return text
 
+    # Opaque "Sleep Mode" button of the quick settings menu; the rest of the menu
+    # is translucent and varies with whatever is behind it.
+    QUICK_SETTINGS_THRESHOLD = 0.95
+    quick_settings_scene = Scene(
+        cv2.imread(str(SCENES_DIR / "quick_settings_sleep.png")),
+        x=1222,
+        y=180,
+        w=640,
+        h=120,
+        grayscale=True,
+    )
     home_screen_scene = Scene(
-        cv2.imread("/raidarchive/cynthia_drive/scenes/switch_home_screen.png"),
+        cv2.imread(str(SCENES_DIR / "switch_home_screen.png")),
         y=720,
         h=200,
     )
     afk_home_screen_scene = Scene(
-        cv2.imread("/raidarchive/cynthia_drive/scenes/switch_home_screen_afk.png"),
+        cv2.imread(str(SCENES_DIR / "switch_home_screen_afk.png")),
         y=720,
         h=200,
     )
     boot_screen_scene = Scene(
-        cv2.imread("/raidarchive/cynthia_drive/scenes/switch_boot_screen.png"),
+        cv2.imread(str(SCENES_DIR / "switch_boot_screen.png")),
         x=1580,
         y=920,
     )
-    elgato_no_signal_scene = Scene(
-        cv2.imread("/raidarchive/cynthia_drive/scenes/elgato_no_signal.png")
-    )
-    bdsp_boot_scene = Scene(
-        cv2.imread("/raidarchive/cynthia_drive/scenes/bdsp_boot.png")
-    )
+    elgato_no_signal_scene = Scene(cv2.imread(str(SCENES_DIR / "elgato_no_signal.png")))
+    bdsp_boot_scene = Scene(cv2.imread(str(SCENES_DIR / "bdsp_boot.png")))
     bdsp_tbox_scene = Scene(
-        cv2.imread("/raidarchive/cynthia_drive/scenes/bdsp_tbox.png"),
+        cv2.imread(str(SCENES_DIR / "bdsp_tbox.png")),
         x=90,
         y=873,
         w=50,
         h=180,
     )
     bdsp_run_scene = Scene(
-        cv2.imread("/raidarchive/cynthia_drive/scenes/bdsp_run.png"),
+        cv2.imread(str(SCENES_DIR / "bdsp_run.png")),
         x=1550,
         y=970,
         w=330,
         h=80,
     )
     bdsp_roamer_scene = Scene(
-        cv2.imread("/raidarchive/cynthia_drive/scenes/roamer.png"),
+        cv2.imread(str(SCENES_DIR / "roamer.png")),
         x=1435,
         y=214,
         w=124,
         h=97,
     )
     route_202_scene = Scene(
-        cv2.imread("/raidarchive/cynthia_drive/scenes/bdsp_route_202.png"),
+        cv2.imread(str(SCENES_DIR / "bdsp_route_202.png")),
         x=1475,
         y=222,
         w=70,
