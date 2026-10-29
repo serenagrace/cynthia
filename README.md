@@ -180,7 +180,22 @@ Macro names are matched as substrings of a line. A very short name such as `a` o
 
 ### Sample macros
 
-`examples/macros/` has real shiny-hunting macros: `mespirit`, `cresselia`, `shaymin`, `arceus` and `darkrai`, plus the macros they call (`roamer_decide`, `encounter_roamer`, `roamer_reroll`, `screen_record`, `pause`, `run_up_down`). Each file starts with its `$name` line, so paste a file's contents into a Discord message and use **Define Macro**. Define the helper macros first. The conditional steps use scenes such as `route_202`, `roamer` and `bdsp_run`, which come from the CV daemon.
+`examples/macros/` has shiny-hunting macros for BDSP: `mespirit` (Mesprit), `cresselia`, `shaymin`, `arceus` and `darkrai`, plus the helpers they call (`roamer_decide`, `encounter_roamer`, `roamer_reroll`, `screen_record`, `pause` and `run_up_down`). Each file starts with its `$name` line. Paste each file's contents into Discord and use **Define Macro**. Define the helper macros before the target macro; saved definitions persist in the configured drive.
+
+These macros need a working Switch capture feed and the CV daemon. In BDSP settings, set **Text Box** to style 22 for reliable scene matching. Save in front of the target with the game open, then leave the Switch at the **Change Grip/Order** menu.
+
+Connect and start a hunt with the target name and matching macro name:
+
+```text
+/connect
+/set_hunt Darkrai
+/queue_macro darkrai
+/unpause
+```
+
+Replace `Darkrai` and `darkrai` with your target and its macro name. The Mesprit macro is named `mespirit`. `cyclient` is optional; run it on your desktop to sync your Discord Rich Presence with the bot's detected game status.
+
+The conditional steps use scenes such as `route_202`, `roamer` and `bdsp_run`, provided by the CV daemon.
 
 ## Tools
 
