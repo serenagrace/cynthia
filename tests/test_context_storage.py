@@ -22,6 +22,7 @@ def test_context_uses_isolated_config_permissions_and_env_files(tmp_path, monkey
     monkeypatch.setattr(
         "cynthia.context.context.get_app_info",
         lambda: {
+            "version": "1.6.0",
             "git_hash": "test",
             "git_timestamp": "test",
             "run_timestamp": "test",
@@ -60,7 +61,12 @@ def test_drive_path_env_overrides_config(tmp_path, monkeypatch):
     monkeypatch.delenv("DRIVE_PATH", raising=False)
     monkeypatch.setattr(
         "cynthia.context.context.get_app_info",
-        lambda: {"git_hash": "t", "git_timestamp": "t", "run_timestamp": "t"},
+        lambda: {
+            "version": "1.6.0",
+            "git_hash": "t",
+            "git_timestamp": "t",
+            "run_timestamp": "t",
+        },
     )
     args = SimpleNamespace(config=str(config_path), perms=str(perms_path), hunt=None)
 

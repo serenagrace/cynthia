@@ -2,10 +2,11 @@
 
 import subprocess
 from datetime import datetime
+from importlib.metadata import version
 
 
 def get_app_info():
-    """Return the current Git revision and build and run timestamps."""
+    """Return the project version, Git revision, and build and run timestamps."""
     githash = "??????"
     try:
         githash = (
@@ -26,6 +27,7 @@ def get_app_info():
         pass
     tstamp = datetime.fromtimestamp(int(latest_commit)).strftime("%Y-%m-%d %H:%M:%S")
     metadata = {
+        "version": version("cynthia"),
         "git_hash": githash,
         "git_timestamp": tstamp,
         "run_timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),

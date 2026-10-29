@@ -6,9 +6,16 @@ import discord
 from discord import app_commands
 
 from cynthia.utils.auth import is_owner, nonglobal_command
+from cynthia.utils.about import build_about_embed
 
 # Pinged when STATUS_HOSTS is not set in .env
 DEFAULT_HOSTS = ["discord.com", "github.com", "google.com"]
+
+
+@app_commands.command()
+async def about(interaction: discord.Interaction):
+    """Show the bot's version and startup information."""
+    await interaction.response.send_message(embed=build_about_embed(interaction.client))
 
 
 async def ping_status(host: str) -> list:
@@ -145,4 +152,11 @@ async def clear_status(interaction: discord.Interaction):
     await interaction.response.send_message("Bot status cleared.", ephemeral=True)
 
 
-__application__ = [status, loaded_modules, loaded_commands, set_status, clear_status]
+__application__ = [
+    about,
+    status,
+    loaded_modules,
+    loaded_commands,
+    set_status,
+    clear_status,
+]

@@ -12,6 +12,7 @@ from discord.ext import commands
 
 from cynthia.daemons import DMan
 from cynthia.utils import Namespace
+from cynthia.utils.about import build_about_embed
 from cynthia.utils.db import Database
 from cynthia.utils.drive import Drive
 from cynthia.utils.logger import Logger
@@ -254,34 +255,7 @@ class Bot(commands.Bot):
 
     async def wake_message(self, interaction=None, errors=None):
         """Report startup status and command-loading errors to the owner."""
-        if errors is None:
-            errors = list()
-        embed = discord.Embed(
-            title="Cynthia Online.",
-            url="https://github.com/serenagrace/cynthia",
-            color=0xD700FF,
-        )
-        embed.add_field(name="Launch Time:", value=f"{self.app_meta.run_timestamp}")
-        embed.set_footer(
-            text=f"#{self.app_meta.git_hash} {self.app_meta.git_timestamp}"
-        )
-        if self.loaded_command_count:
-            embed.add_field(
-                name="Loaded Commands:",
-                value=f"{self.loaded_command_count} from {'⚠️' if len(self.tree.loaded_modules) != len(self.tree.modules) else ''}({len(self.tree.loaded_modules)}/{len(self.tree.modules)}) modules",
-            )
-        if self.loaded_cog_count:
-            embed.add_field(
-                name="Loaded Cogs:",
-                value=f"{self.loaded_cog_count} from {'⚠️' if self.loaded_cog_count != len(self.discovered_cogs) else ''}({self.loaded_cog_count}/{len(self.discovered_cogs)}) modules",
-            )
-        if len(errors):
-            embed.add_field(
-                name="Errors:",
-                value="-"
-                + "\n-".join(errors[:3])
-                + ("\n..." if len(errors) > 3 else ""),
-            )
+        embed = build_about_embed(self, errors)
         if interaction is not None:
             await interaction.followup.send(embed=embed)
         else:
