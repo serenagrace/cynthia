@@ -18,3 +18,10 @@ dist/
 !.github/dependabot.yml
 perms.yaml
 relic_data.json
+/cynthia/daemons/scenes/bdsp_boot.png
+/cynthia/daemons/scenes/home_screen_quick_settings.png
+/cynthia/daemons/scenes/quick_settings_sample1.png
+/cynthia/daemons/scenes/quick_settings_sample2.png
+/cynthia/daemons/scenes/quick_settings_sample3.png
+/cynthia/daemons/scenes/sample_no_quick_settings.png
+/cynthia/daemons/scenes/switch_home_screen_full.png

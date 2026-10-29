@@ -45,8 +45,21 @@ Issues="https://github.com/serenagrace/cynthia/issues"
 [project.scripts]
 cynthia="cynthia.__main__:main"
 
+[tool.setuptools]
+include-package-data = false
+
 [tool.setuptools.package-data]
-"cynthia.daemons" = ["scenes/*.png"]
+"cynthia.daemons" = [
+    "scenes/bdsp_route_202.png",
+    "scenes/bdsp_run.png",
+    "scenes/bdsp_tbox.png",
+    "scenes/elgato_no_signal.png",
+    "scenes/quick_settings_sleep.png",
+    "scenes/roamer.png",
+    "scenes/switch_boot_screen.png",
+    "scenes/switch_home_screen.png",
+    "scenes/switch_home_screen_afk.png",
+]
 
 [tool.setuptools.packages.find]
 include = ["cynthia*"]

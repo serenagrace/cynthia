@@ -293,7 +293,6 @@ class CV:
         y=920,
     )
     elgato_no_signal_scene = Scene(cv2.imread(str(SCENES_DIR / "elgato_no_signal.png")))
-    bdsp_boot_scene = Scene(cv2.imread(str(SCENES_DIR / "bdsp_boot.png")))
     bdsp_tbox_scene = Scene(
         cv2.imread(str(SCENES_DIR / "bdsp_tbox.png")),
         x=90,
