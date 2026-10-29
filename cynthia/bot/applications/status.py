@@ -7,6 +7,9 @@ from discord import app_commands
 
 from cynthia.utils.auth import is_owner, nonglobal_command
 
+# Pinged when STATUS_HOSTS is not set in .env
+DEFAULT_HOSTS = ["discord.com", "github.com", "google.com"]
+
 
 async def ping_status(host: str) -> list:
     """Ping a host and return a status record for the result."""
@@ -64,14 +67,8 @@ async def bool_status(name: str, value: bool):
 async def gather_results(client):
     """Collect configured service, host, and drive status records."""
     tasks = [
-        systemctl_status("cynthia.service"),
-        systemctl_status("pihole-FTL.service"),
-        systemctl_status("nginx.service"),
-        ping_status("discord.com"),
-        ping_status("github.com"),
-        ping_status("google.com"),
-        ping_status("ALVIS"),
-        ping_status("rokutv"),
+        *(systemctl_status(service) for service in client.config.status_services),
+        *(ping_status(host) for host in client.status_hosts or DEFAULT_HOSTS),
         bool_status("Drive Available", client.logging_enabled),
     ]
 

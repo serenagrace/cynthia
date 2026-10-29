@@ -1,9 +1,12 @@
 """Command for listing application commands available to the caller."""
 
 import asyncio
+import logging
 
 import discord
 from discord import app_commands
+
+logger = logging.getLogger(__name__)
 
 
 async def run_check(check: callable, interaction: discord.Interaction) -> bool:
@@ -31,10 +34,10 @@ async def help(interaction: discord.Interaction):
                     *[run_check(check, interaction) for check in checks]
                 )
             ):
-                print("Command passed checks: ", cmd.name)
+                logger.debug("Command passed checks: %s", cmd.name)
                 available_commands.append(f"- /{cmd.name}")
         else:
-            print("Command has no checks: ", cmd.name)
+            logger.debug("Command has no checks: %s", cmd.name)
             available_commands.append(f"- /{cmd.name}")
     if available_commands:
         help_message = "Available commands:\n" + "\n".join(available_commands)

@@ -1,0 +1,96 @@
+$cresselia
+H
+wait
+hold X
+hold A
+hold A
+A
+A
+wait
+wait
+wait
+wait
+wait
+wait
+wait
+wait
+wait
+A
+A
+A
+wait
+wait
+A
+A
+A
+wait
+wait
+wait
+wait
+A
+A
+wait
+A
+A
+A
+A
+wait
+A
+A
+A
+wait
+wait
+hold B V
+wait
+hold B V
+hold B <
+hold B ^
+hold B <
+hold B <
+hold B ^
+hold B <
+hold B V
+hold B V
+hold B >
+hold B V
+(0.33,0.15) ^
+>
+A
+A
+A
+wait
+A
+A
+wait
+wait
+wait
+wait
+wait
+hold X
+hold A
+hold A
+V
+hold A
+hold A
+hold A
+wait
+wait
+B
+B
+B
+B
+B
+B
+B
+B
+wait
+wait
+>
+hold >
+hold B ^
+R
+hold B ^
+hold B >
+hold B ^
+hold B ^
+route_202 ? roamer_decide : screen_record

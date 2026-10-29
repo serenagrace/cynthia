@@ -1,0 +1,4 @@
+$run_up_down
+hold B ^
+hold B V
+bdsp_run ? pause : run_up_down

@@ -1,0 +1,58 @@
+$arceus
+tap H
+wait
+hold X
+hold A
+hold A
+A
+A
+wait
+wait
+wait
+wait
+wait
+wait
+wait
+wait
+wait
+A
+A
+A
+wait
+wait
+A
+A
+A
+wait
+wait
+wait
+wait
+^
+hold ^
+wait
+wait
+wait
+wait
+wait
+wait
+wait
+A
+A
+A
+A
+A
+A
+wait
+wait
+wait
+wait
+wait
+wait
+wait
+wait
+wait
+wait
+wait
+wait
+wait
+wait

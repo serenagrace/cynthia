@@ -45,7 +45,7 @@ class DMan:
     def __init__(self, context):
         """Create shared state, discover daemons, and start loaded daemons."""
         self.context = context
-        self.drive = Drive(self.context.config.drive_path)
+        self.drive = Drive(self.context.drive_path)
         self.__modules = list()
         self.__loaded_modules = list()
         self.__loaded_daemons = Namespace()

@@ -20,6 +20,9 @@ logging.getLogger("httpx").setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
+# Pokémon species CSV expected at the root of the drive
+POKEMON_DATASET = "pokemonDB_dataset.csv"
+
 
 class Compendium:
     """Load, refresh, and persist remote reference datasets."""
@@ -344,8 +347,14 @@ class PokemonDB:
         """Load the Pokémon CSV dataset into a name-indexed mapping."""
         self.pokemon_data = Namespace()
 
-        csv_path = "/raidarchive/cynthia_drive/pokemonDB_dataset.csv"
-        with open(csv_path, newline="", encoding="utf-8") as csvfile:
+        drive = getattr(client, "drive", None)
+        if drive is None or not drive.exists(POKEMON_DATASET, is_file=True):
+            logger.warning(
+                f"{POKEMON_DATASET} not found on the drive; /pokemon is disabled."
+            )
+            return
+
+        with open(drive.path(POKEMON_DATASET), newline="", encoding="utf-8") as csvfile:
             reader = csv.DictReader(csvfile)
             for row in reader:
                 name = row["Pokemon"].lower()

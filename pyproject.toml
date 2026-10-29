@@ -3,11 +3,19 @@ requires = ["setuptools >= 77.0.3"]
 build-backend = "setuptools.build_meta"
 [project]
 name="cynthia"
-version="1.5.9"
+version="1.6.0"
+description="Discord bot with Nintendo Switch (NXBT) automation and shiny-hunting video capture"
+readme="README.md"
+license="GPL-3.0-or-later"
+license-files=["LICENSE"]
+authors=[{name="serenagrace"}]
+classifiers=[
+    "Programming Language :: Python :: 3.11",
+    "Operating System :: POSIX :: Linux",
+]
 requires-python=">=3.11,<3.12"
 dependencies = [
     "about-time==4.2.1",
-    "cynthia",
     "discord-py",
     "grapheme==0.6.0",
     "nxbt @ git+https://github.com/serenagrace/nxbt@cynthia-patches",
@@ -16,7 +24,6 @@ dependencies = [
     "pyotp",
     "rapidfuzz",
     "requests-async",
-    "roku",
     "uvicorn",
     "scikit-image",
     "paddleocr==2.7.3",
@@ -30,6 +37,10 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["black", "isort", "pytest"]
 cyclient = ["pypresence", "requests"]
+
+[project.urls]
+Homepage="https://github.com/serenagrace/cynthia"
+Issues="https://github.com/serenagrace/cynthia/issues"
 
 [project.scripts]
 cynthia="cynthia.__main__:main"

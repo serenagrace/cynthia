@@ -17,6 +17,10 @@ class Context:
         self.permsloader = PermsLoader(args.perms)
         self.env = Namespace(EnvLoader(".env")())
         self.config = Namespace(self.configloader())
+        # DRIVE_PATH from the environment wins over `drive_path` in config.yaml
+        self.drive_path = self.env.get("DRIVE_PATH", None) or self.config.get(
+            "drive_path", None
+        )
         self.perms = Namespace(PermsLoader.default())
         self.app_meta = Namespace(get_app_info())
         self.args = Namespace(vars(args))

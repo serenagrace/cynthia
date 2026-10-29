@@ -41,7 +41,10 @@ class Bot(commands.Bot):
         self.args = context.args
         self.vars = context.vars
         self.messenger = Messenger(self)
-        self.drive = Drive(self.config.drive_path)
+        self.drive = Drive(context.drive_path)
+        self.sync_guild_id = context.env.get("SYNC_GUILD_ID", None) or None
+        hosts = context.env.get("STATUS_HOSTS", None) or ""
+        self.status_hosts = [h.strip() for h in hosts.split(",") if h.strip()]
         self.database = Database(self.drive)
         if test_mode:
             self.dman = _DisabledDMan()
@@ -129,9 +132,11 @@ class Bot(commands.Bot):
             await self.tree.sync(guild=guild)
             return
         await self.tree.sync()
-        guild = discord.Object(id="1061724997330157669")
-        self.tree.copy_global_to(guild=guild)
-        await self.tree.sync(guild=guild)
+        if self.sync_guild_id:
+            # Guild syncs apply immediately, unlike global syncs
+            guild = discord.Object(id=int(self.sync_guild_id))
+            self.tree.copy_global_to(guild=guild)
+            await self.tree.sync(guild=guild)
 
     async def get_all_guilds(self) -> list:
         """Returns guilds from local cache, or fetches them from the API if cache is empty."""
@@ -144,7 +149,7 @@ class Bot(commands.Bot):
             # fetch_guilds returns an AsyncIterator; we flatten it into a list
             return [guild async for guild in self.fetch_guilds(limit=None)]
         except Exception as e:
-            print(f"Failed to fetch guilds from API: {e}")
+            _logger.warning(f"Failed to fetch guilds from API: {e}")
             return []
 
     def _discover_cogs(self, traversable, current_pkg: str):

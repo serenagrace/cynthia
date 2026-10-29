@@ -89,7 +89,7 @@ class CVDaemon(Daemon):
                         encounter_time = (uns_time - timer) / 1_000_000
                         with drive.open(ns.encounter_log, "a") as f:
                             f.write(f"{datetime.now()},{game},{encounter_time:0f}\n")
-                        print(f"Encounter Time: {encounter_time:.0f}ms")
+                        logger.info(f"Encounter Time: {encounter_time:.0f}ms")
                         uns.last_encounter_time = time.time()
 
                         if encounter_time > 2000:

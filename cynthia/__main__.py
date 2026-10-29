@@ -40,7 +40,7 @@ def main():
 
     bot.run(_context.env.DISCORD_BOT_TOKEN)
 
-    print(bot.kill_reason)
+    logger.info(bot.kill_reason)
 
     _context.update_config(bot.config.dict(), bot.perms.dict())
 

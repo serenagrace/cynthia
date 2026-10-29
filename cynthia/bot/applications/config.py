@@ -29,7 +29,6 @@ async def cset(
     key: str,
     val: str,
     force: bool = False,
-    reload: bool = False,
 ):
     """Set a configuration value, optionally creating a missing key."""
     value = interaction.client.config.get(key, discord.utils.MISSING)
@@ -44,8 +43,6 @@ async def cset(
     else:
         interaction.client.config.set(key, val)
         await interaction.response.send_message("Config updated.")
-    if reload:
-        pass  # TODO
 
 
 @app_commands.command()

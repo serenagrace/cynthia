@@ -50,6 +50,47 @@ def test_context_uses_isolated_config_permissions_and_env_files(tmp_path, monkey
     assert "global:" in perms_path.read_text()
 
 
+def test_drive_path_env_overrides_config(tmp_path, monkeypatch):
+    config_path = tmp_path / "config.yaml"
+    perms_path = tmp_path / "perms.yaml"
+    config_path.write_text("owner: '123'\ndrive_path: /from/config\n")
+    perms_path.write_text("{}\n")
+    (tmp_path / ".env").write_text("")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("DRIVE_PATH", raising=False)
+    monkeypatch.setattr(
+        "cynthia.context.context.get_app_info",
+        lambda: {"git_hash": "t", "git_timestamp": "t", "run_timestamp": "t"},
+    )
+    args = SimpleNamespace(config=str(config_path), perms=str(perms_path), hunt=None)
+
+    assert Context(args).drive_path == "/from/config"
+
+    monkeypatch.setenv("DRIVE_PATH", "/from/env")
+    context = Context(args)
+    assert context.drive_path == "/from/env"
+    assert context.config.drive_path == "/from/config"
+
+
+def test_uvc_resets_usb_only_when_id_is_configured(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from cynthia.daemons import uvc
+
+    run = Mock()
+    monkeypatch.setattr(uvc.subprocess, "run", run)
+    monkeypatch.setattr(uvc.asyncio, "sleep", AsyncMock())
+    monkeypatch.setattr(uvc.cv2, "VideoCapture", Mock())
+    monkeypatch.setattr(uvc.UVC, "read_frame", AsyncMock())
+
+    for usb_id, expected in (("0fd9:009b", 1), (None, 0)):
+        run.reset_mock()
+        asyncio.run(uvc.UVC(usb_id).setup())
+        assert run.call_count == expected
+        if expected:
+            run.assert_called_once_with(["usbreset", usb_id])
+
+
 def test_env_loader_file_values_are_overridden_by_process_environment(
     tmp_path, monkeypatch
 ):

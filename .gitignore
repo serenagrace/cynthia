@@ -13,6 +13,8 @@ config.yaml
 config.yaml.bak
 message.log.gz
 dist/
-.github/
+.github/*
+!.github/workflows/
+!.github/dependabot.yml
 perms.yaml
 relic_data.json

@@ -1,6 +1,10 @@
 """Mapping wrapper that exposes string keys through attribute access."""
 
+import logging
+
 from cynthia.utils.types import force_obj_is_list
+
+logger = logging.getLogger(__name__)
 
 UNSPECIFIED = object()
 
@@ -65,7 +69,7 @@ class Namespace:
         elif attr in self.__dict__:
             return super().__getattribute__(attr)
         if attr not in self._nspace_dict.keys():
-            print(f"Namespace key `{attr}` not found.")
+            logger.debug(f"Namespace key `{attr}` not found.")
             raise KeyError(f"Specified key `{attr}` not found in namespace.")
         return self._nspace_dict[attr]
 
@@ -105,8 +109,8 @@ class Namespace:
     def __getitem__(self, key):
         """Return a mapping item or raise KeyError when the key is absent."""
         if key not in self._nspace_dict:
-            print(f"Namespace key `{key}` not found.")
-            raise KeyError("Specified key `{key}` not found in namespace.")
+            logger.debug(f"Namespace key `{key}` not found.")
+            raise KeyError(f"Specified key `{key}` not found in namespace.")
         return self._nspace_dict[key]
 
     def __contains__(self, key):
