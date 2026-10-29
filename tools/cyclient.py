@@ -2,8 +2,10 @@ import time
 
 # Replace with the Client ID you copied earlier
 CLIENT_ID = "1370896076856496210"
-API_URL = "https://serenegrace.io/api/user_status"
-FEED_URL = "https://serenegrace.io/video_feed"
+CYNTHIA_HOSTNAME = "serenegrace.io"
+CYNTHIA_PROTOCOL = "https://"
+API_URL = f"{CYNTHIA_PROTOCOL}{CYNTHIA_HOSTNAME}/api/user_status"
+FEED_URL = f"{CYNTHIA_PROTOCOL}{CYNTHIA_HOSTNAME}/video_feed"
 
 
 def corrected_start(data):

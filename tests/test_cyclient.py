@@ -8,6 +8,11 @@ cyclient = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(cyclient)
 
 
+def test_service_urls_share_configured_host_and_protocol():
+    assert cyclient.API_URL == "https://serenegrace.io/api/user_status"
+    assert cyclient.FEED_URL == "https://serenegrace.io/video_feed"
+
+
 def test_start_is_shifted_by_correction():
     data = {"timestamps": {"start": 1000, "correction": 500}}
     assert cyclient.corrected_start(data) == 1500
