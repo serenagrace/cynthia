@@ -17,6 +17,8 @@ from cynthia.utils.encounters import (
 
 GAME_IMAGE_ASSETS = {
     "pokemon home": "pokemon_home_logo",
+    "pokemon let s go pikachu": "pokemon_lets_go_pikachu_logo",
+    "pokemon let s go eevee": "pokemon_lets_go_eevee_logo",
     "pokemon legends arceus": "pokemon_legends_arceus_logo",
     "pokemon legends z a": "pokemon_legends_za_logo",
     "pokemon scarlet": "pokemon_scarlet_logo",

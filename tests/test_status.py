@@ -101,6 +101,8 @@ def test_status_without_hunt_reports_game_only(tmp_path):
     "game,asset",
     [
         ("Pokémon HOME", "pokemon_home_logo"),
+        ("Pokémon: Let's Go, Pikachu!", "pokemon_lets_go_pikachu_logo"),
+        ("Pokémon: Let's Go, Eevee!", "pokemon_lets_go_eevee_logo"),
         ("Pokémon Legends: Arceus", "pokemon_legends_arceus_logo"),
         ("Pokémon Legends: Z-A", "pokemon_legends_za_logo"),
         ("Pokémon Scarlet", "pokemon_scarlet_logo"),
@@ -120,6 +122,8 @@ def test_game_image_asset(game, asset):
     "game,asset",
     [
         ("Pokémon HOME", "pokemon_home_logo"),
+        ("Pokémon: Let's Go, Pikachu!", "pokemon_lets_go_pikachu_logo"),
+        ("Pokémon: Let's Go, Eevee!", "pokemon_lets_go_eevee_logo"),
         ("Pokémon Legends: Arceus", "pokemon_legends_arceus_logo"),
         ("Pokémon Legends: Z-A", "pokemon_legends_za_logo"),
         ("Pokémon Scarlet", "pokemon_scarlet_logo"),

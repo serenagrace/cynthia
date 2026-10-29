@@ -202,7 +202,7 @@ The conditional steps use scenes such as `route_202`, `roamer` and `bdsp_run`, p
 - `tools/scene_setup.html`: open it in a browser to crop a capture frame and generate scene parameters for the CV daemon.
 - `tools/cyclient.py`: optional Discord Rich Presence client. Install its dependencies with `python -m pip install -e ".[cyclient]"`.
 
-`cyclient` uses Discord Rich Presence art keys `pokemon_home_logo`, `pokemon_legends_arceus_logo`, `pokemon_legends_za_logo`, `pokemon_scarlet_logo`, `pokemon_violet_logo`, `pokemon_sword_logo` and `pokemon_shield_logo` for supported Pokémon titles. Upload artwork you have permission to use under those exact names in your Discord application's **Rich Presence > Art Assets**. Game artwork is not included in this repository.
+`cyclient` uses Discord Rich Presence art keys `pokemon_home_logo`, `pokemon_lets_go_pikachu_logo`, `pokemon_lets_go_eevee_logo`, `pokemon_legends_arceus_logo`, `pokemon_legends_za_logo`, `pokemon_scarlet_logo`, `pokemon_violet_logo`, `pokemon_sword_logo` and `pokemon_shield_logo` for supported Pokémon titles. Upload artwork you have permission to use under those exact names in your Discord application's **Rich Presence > Art Assets**. Game artwork is not included in this repository.
 
 ## Development
 
