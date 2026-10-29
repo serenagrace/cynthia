@@ -5,8 +5,8 @@ import asyncio
 import discord
 from discord import app_commands
 
-from cynthia.utils.auth import is_owner, nonglobal_command
 from cynthia.utils.about import build_about_embed
+from cynthia.utils.auth import is_owner, nonglobal_command
 
 # Pinged when STATUS_HOSTS is not set in .env
 DEFAULT_HOSTS = ["discord.com", "github.com", "google.com"]
