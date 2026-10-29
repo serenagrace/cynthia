@@ -180,7 +180,7 @@ Macro names are matched as substrings of a line. A very short name such as `a` o
 
 ### Sample macros
 
-`examples/macros/` has real shiny-hunting macros: `mespirit`, `cresselia`, `shaymin` and `arceus`, plus the macros they call (`roamer_decide`, `encounter_roamer`, `roamer_reroll`, `screen_record`, `pause`, `run_up_down`). Each file starts with its `$name` line, so paste a file's contents into a Discord message and use **Define Macro**. Define the helper macros first. The conditional steps use scenes such as `route_202`, `roamer` and `bdsp_run`, which come from the CV daemon.
+`examples/macros/` has real shiny-hunting macros: `mespirit`, `cresselia`, `shaymin`, `arceus` and `darkrai`, plus the macros they call (`roamer_decide`, `encounter_roamer`, `roamer_reroll`, `screen_record`, `pause`, `run_up_down`). Each file starts with its `$name` line, so paste a file's contents into a Discord message and use **Define Macro**. Define the helper macros first. The conditional steps use scenes such as `route_202`, `roamer` and `bdsp_run`, which come from the CV daemon.
 
 ## Tools
 
