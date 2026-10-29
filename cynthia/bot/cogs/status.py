@@ -19,10 +19,10 @@ GAME_IMAGE_ASSETS = {
     "pokemon home": "pokemon_home",
     "pokemon legends arceus": "pokemon_legends_arceus",
     "pokemon legends z a": "pokemon_legends_za",
-    "pokemon scarlet": "pokemon_scarlet_violet",
-    "pokemon violet": "pokemon_scarlet_violet",
-    "pokemon sword": "pokemon_sword_shield",
-    "pokemon shield": "pokemon_sword_shield",
+    "pokemon scarlet": "pokemon_scarlet",
+    "pokemon violet": "pokemon_violet",
+    "pokemon sword": "pokemon_sword",
+    "pokemon shield": "pokemon_shield",
 }
 
 
