@@ -197,12 +197,46 @@ Replace `Darkrai` and `darkrai` with your target and its macro name. The Mesprit
 
 The conditional steps use scenes such as `route_202`, `roamer` and `bdsp_run`, provided by the CV daemon.
 
+## Discord Rich Presence
+
+`tools/cyclient.py` reads the bot's `/api/user_status` endpoint and publishes the detected game and hunt as Rich Presence through the Discord desktop app. The bot must be running, and the configured host must be reachable from the computer running `cyclient`.
+
+Install the optional client dependencies from the repository root:
+
+```bash
+python -m pip install -e ".[cyclient]"
+```
+
+In `tools/cyclient.py`, set `CLIENT_ID` to your Discord application's Client ID from **Developer Portal > Your Application > General Information**. Set `CYNTHIA_HOSTNAME` to the hostname or IP address serving the bot, and set `CYNTHIA_PROTOCOL` to `https://` or `http://`. The same host and protocol are used for the status API and video-feed links.
+
+Run `cyclient` on a desktop where the Discord client is open:
+
+```bash
+python tools/cyclient.py
+```
+
+The script uses the project's public application ID and its art assets by default. To use your own application, upload art in **Developer Portal > Your Application > Rich Presence > Art Assets**. Asset keys must match exactly:
+
+| Detected game | Asset key |
+| --- | --- |
+| Pokémon HOME | `pokemon_home_logo` |
+| Pokémon: Let's Go, Pikachu! | `pokemon_lets_go_pikachu_logo` |
+| Pokémon: Let's Go, Eevee! | `pokemon_lets_go_eevee_logo` |
+| Pokémon Legends: Arceus | `pokemon_legends_arceus_logo` |
+| Pokémon Legends: Z-A | `pokemon_legends_za_logo` |
+| Pokémon Scarlet | `pokemon_scarlet_logo` |
+| Pokémon Violet | `pokemon_violet_logo` |
+| Pokémon Sword | `pokemon_sword_logo` |
+| Pokémon Shield | `pokemon_shield_logo` |
+| Pokémon Brilliant Diamond | `dialga_glow` |
+| Pokémon Shining Pearl | `palkia_glow` |
+| Other detected games or the Switch home screen | `nintendo_switch` |
+
+Use artwork you have permission to upload. This repository does not include game artwork. On the Switch home screen, CV reads the selected game title and corrects recognized OCR variations before publishing status; this is game-title matching, not game-specific encounter detection.
+
 ## Tools
 
 - `tools/scene_setup.html`: open it in a browser to crop a capture frame and generate scene parameters for the CV daemon.
-- `tools/cyclient.py`: optional Discord Rich Presence client. Install its dependencies with `python -m pip install -e ".[cyclient]"`.
-
-`cyclient` uses Discord Rich Presence art keys `pokemon_home_logo`, `pokemon_lets_go_pikachu_logo`, `pokemon_lets_go_eevee_logo`, `pokemon_legends_arceus_logo`, `pokemon_legends_za_logo`, `pokemon_scarlet_logo`, `pokemon_violet_logo`, `pokemon_sword_logo` and `pokemon_shield_logo` for supported Pokémon titles. Upload artwork you have permission to use under those exact names in your Discord application's **Rich Presence > Art Assets**. Game artwork is not included in this repository.
 
 ## Development
 

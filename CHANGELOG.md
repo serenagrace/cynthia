@@ -4,10 +4,12 @@
 
 ### Added
 - Ternary macro steps: `scene ? true_macro : false_macro`.
+- `/about` command with project version and startup details.
 - Custom status, a scene setup tool (`tools/scene_setup.html`) and scene files.
 - Quick settings guard during macros.
 - Hunt watchdog, improved statistics and an improved video feed page.
-- `tools/cyclient.py`, an optional Discord Rich Presence and bot status client.
+- `tools/cyclient.py`, an optional Discord Rich Presence client with configurable host and protocol.
+- Rich Presence game-title assets and OCR normalization for supported Pokémon games.
 - Test suite (offline and opt-in live Discord checks) and GitHub Actions CI.
 - isort and Black formatting.
 - Sample macros in `examples/macros/` and boot-time deployment samples in `deploy/`.
