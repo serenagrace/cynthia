@@ -40,10 +40,11 @@ class StatusCog(commands.Cog):
                     self.status_cycle = itertools.cycle(self.bot_activity)
                 else:
                     self.status_cycle = None
-        with self.bot.drive.open("user_status.json", "w") as f:
-            json.dump(self.user_activity, f, indent=4)
-        with self.bot.drive.open("activity_stats.json", "w") as f:
-            json.dump(self.get_activity_stats(), f, indent=4)
+        if self.bot.drive.enabled:
+            with self.bot.drive.open("user_status.json", "w") as f:
+                json.dump(self.user_activity, f, indent=4)
+            with self.bot.drive.open("activity_stats.json", "w") as f:
+                json.dump(self.get_activity_stats(), f, indent=4)
 
     def get_activity_stats(self):
         """Return raw timestamps (epoch ms) for the site to turn into durations.
@@ -52,7 +53,7 @@ class StatusCog(commands.Cog):
         where the correction is time spent not hunting in completed stop/start pauses.
         """
         stats = {"bot_started": self.bot.started_at_ms}
-        if self.bot.args.hunt:
+        if self.bot.args.hunt and self.bot.drive.enabled:
             with self.bot.drive.open(
                 encounter_log_name(self.bot.args.hunt), "r", touch=True
             ) as f:
@@ -127,10 +128,12 @@ class StatusCog(commands.Cog):
                     else:
                         hunting_str = "Hunting "
                     hunting_str += f"shiny {self.bot.args.hunt.title()}"
-                    with self.bot.drive.open(
-                        encounter_log_name(self.bot.args.hunt), "r", touch=True
-                    ) as f:
-                        log = parse_encounter_log(f.readlines())
+                    log = parse_encounter_log([])
+                    if self.bot.drive.enabled:
+                        with self.bot.drive.open(
+                            encounter_log_name(self.bot.args.hunt), "r", touch=True
+                        ) as f:
+                            log = parse_encounter_log(f.readlines())
                     count = len(log.encounters)
 
                     if count:

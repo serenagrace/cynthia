@@ -63,6 +63,18 @@ def test_status_hunt_uses_per_hunt_log_and_count(tmp_path):
     assert not (tmp_path / "encounter_times.log").exists()
 
 
+def test_status_with_disabled_drive_keeps_hunt_status_without_file_io(tmp_path):
+    cog, _ = make_status_cog(tmp_path, hunt="Uxie")
+    cog.bot.drive = Drive(None)
+    cog.bot.started_at_ms = 123
+
+    asyncio.run(cog.update_status.coro(cog))
+
+    assert cog.user_activity["details"] == "Hunting shiny Uxie"
+    assert cog.user_activity["state"] == "No encounters yet"
+    assert cog.get_activity_stats() == {"bot_started": 123}
+
+
 def test_status_self_encounter_uses_reset_count(tmp_path):
     cog, _ = make_status_cog(tmp_path, hunt="Uxie", self_encounter=True)
 
