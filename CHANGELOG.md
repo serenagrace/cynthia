@@ -28,6 +28,7 @@
 ### Fixed
 - Race condition in the NXBT daemon.
 - Race condition in the status cog when hunting state changes.
+- Stale rotating status and Rich Presence after activity ends; status API failures without drive storage.
 - Banning a user no longer requires a deleted state.
 - The UVC reconnect path now awaits `setup()`.
 - A missing-key error message in `Namespace` now includes the key.

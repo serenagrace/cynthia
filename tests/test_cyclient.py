@@ -36,3 +36,21 @@ def test_build_presence_uses_corrected_start_and_defaults():
 def test_build_presence_skips_empty_status():
     assert cyclient.build_presence({}) is None
     assert cyclient.build_presence({"name": ""}) is None
+
+
+def test_update_presence_clears_when_status_is_empty():
+    class FakeRPC:
+        def __init__(self):
+            self.cleared = False
+
+        def clear(self):
+            self.cleared = True
+
+        def update(self, **kwargs):
+            raise AssertionError("empty status must not publish activity")
+
+    rpc = FakeRPC()
+
+    cyclient.update_presence(rpc, {}, {})
+
+    assert rpc.cleared

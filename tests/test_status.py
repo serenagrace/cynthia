@@ -46,6 +46,7 @@ def make_status_cog(
         args=SimpleNamespace(hunt=hunt),
         vars=vars or make_vars(),
         drive=Drive(tmp_path),
+        change_presence=AsyncMock(),
         messenger=SimpleNamespace(msg_owner=AsyncMock()),
     )
     return StatusCog(bot), log_name
@@ -75,6 +76,20 @@ def test_status_with_disabled_drive_keeps_hunt_status_without_file_io(tmp_path):
     assert cog.user_activity["details"] == "Hunting shiny Uxie"
     assert cog.user_activity["state"] == "No encounters yet"
     assert cog.get_activity_stats() == {"bot_started": 123}
+
+
+def test_status_cycle_clears_when_activity_becomes_none(tmp_path):
+    cog, _ = make_status_cog(tmp_path, hunt="Uxie")
+    cog.bot.started_at_ms = 123
+    asyncio.run(cog.update_status.coro(cog))
+    assert cog.status_cycle is not None
+
+    cog.bot.dman.running_daemons["CVDaemon"].ns = None
+    asyncio.run(cog.update_status.coro(cog))
+    asyncio.run(cog.set_status.coro(cog))
+
+    assert cog.status_cycle is None
+    cog.bot.change_presence.assert_awaited_once_with(activity=None)
 
 
 def test_status_self_encounter_uses_reset_count(tmp_path):

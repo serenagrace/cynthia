@@ -87,6 +87,8 @@ def create_app(drive, ns, uns, fb):
     @app.get("/api/user_status")
     async def status():
         """Return the saved user status mapping."""
+        if not drive.enabled:
+            return {}
         try:
             with drive.open("user_status.json", "r", touch=True) as f:
                 status_data = json.load(f)
@@ -103,6 +105,8 @@ def create_app(drive, ns, uns, fb):
     @app.get("/api/activity_stats")
     async def activity_stats():
         """Return raw activity timestamps; the site computes durations."""
+        if not drive.enabled:
+            return {}
         try:
             with drive.open("activity_stats.json", "r", touch=True) as f:
                 stats = json.load(f)

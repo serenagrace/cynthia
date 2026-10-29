@@ -66,11 +66,10 @@ class StatusCog(commands.Cog):
         bot_activity, self.user_activity = await self.get_status()
         if bot_activity != self.bot_activity:
             self.bot_activity = bot_activity
-            if self.bot_activity is not None:
-                if isinstance(self.bot_activity, list):
-                    self.status_cycle = itertools.cycle(self.bot_activity)
-                else:
-                    self.status_cycle = None
+            if isinstance(self.bot_activity, list):
+                self.status_cycle = itertools.cycle(self.bot_activity)
+            else:
+                self.status_cycle = None
         if self.bot.drive.enabled:
             with self.bot.drive.open("user_status.json", "w") as f:
                 json.dump(self.user_activity, f, indent=4)

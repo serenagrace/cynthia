@@ -39,6 +39,16 @@ def build_presence(data):
     }
 
 
+def update_presence(rpc, data, activity_types):
+    """Set or clear the Discord Rich Presence activity."""
+    presence = build_presence(data)
+    if presence is None:
+        rpc.clear()
+        return
+    presence["activity_type"] = activity_types[presence["activity_type"]]
+    rpc.update(**presence)
+
+
 def main():
     import requests
     from pypresence import Presence
@@ -69,12 +79,7 @@ def main():
                     count = 0
                 if not count:
                     count = 4
-                    presence = build_presence(data)
-                    if presence is not None:
-                        presence["activity_type"] = activity_types[
-                            presence["activity_type"]
-                        ]
-                        RPC.update(**presence)
+                    update_presence(RPC, data, activity_types)
                 else:
                     count -= 1
         except:

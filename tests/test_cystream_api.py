@@ -73,3 +73,21 @@ def test_cystream_api_activity_stats(tmp_path):
         response = client.get("/api/activity_stats")
 
     assert response.json() == {"bot_started": 1}
+
+
+def test_cystream_status_apis_return_empty_data_when_drive_disabled():
+    app = create_app(
+        Drive(None),
+        SimpleNamespace(run=True, uvc_time=0),
+        SimpleNamespace(fbptr=None),
+        [None, None],
+    )
+
+    with TestClient(app) as client:
+        status_response = client.get("/api/user_status")
+        stats_response = client.get("/api/activity_stats")
+
+    assert status_response.status_code == 200
+    assert status_response.json() == {}
+    assert stats_response.status_code == 200
+    assert stats_response.json() == {}
