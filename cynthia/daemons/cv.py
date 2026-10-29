@@ -4,6 +4,7 @@ import asyncio
 import logging
 import re
 import time
+import unicodedata
 from contextlib import closing
 from datetime import datetime
 from multiprocessing import shared_memory
@@ -13,6 +14,7 @@ import cv2
 import discord
 import numpy
 from paddleocr import PaddleOCR
+from rapidfuzz import fuzz, process
 from skimage.metrics import structural_similarity as ssim
 
 from cynthia.utils.encounters import encounter_log_name
@@ -27,6 +29,38 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 ocr = PaddleOCR(use_angle_cls=True, lang="en")
 SCENES_DIR = Path(__file__).resolve().parent / "scenes"
+GAME_TITLES = {
+    "pokemon home": "Pokémon HOME",
+    "pokemon let s go pikachu": "Pokémon: Let's Go, Pikachu!",
+    "pokemon let s go eevee": "Pokémon: Let's Go, Eevee!",
+    "pokemon legends arceus": "Pokémon Legends: Arceus",
+    "pokemon legends z a": "Pokémon Legends: Z-A",
+    "pokemon scarlet": "Pokémon Scarlet",
+    "pokemon violet": "Pokémon Violet",
+    "pokemon sword": "Pokémon Sword",
+    "pokemon shield": "Pokémon Shield",
+    "pokemon brilliant diamond": "Pokémon Brilliant Diamond",
+    "pokemon shining pearl": "Pokémon Shining Pearl",
+}
+
+
+def normalize_game_title(game):
+    """Normalize accents and punctuation for matching OCR game titles."""
+    normalized = unicodedata.normalize("NFKD", game.casefold())
+    normalized = "".join(char for char in normalized if not unicodedata.combining(char))
+    return re.sub(r"[^a-z0-9]+", " ", normalized).strip()
+
+
+def canonical_game_title(game):
+    """Correct a recognized game title while preserving unknown OCR text."""
+    normalized = normalize_game_title(game)
+    match = process.extractOne(
+        normalized,
+        GAME_TITLES.keys(),
+        scorer=fuzz.ratio,
+        score_cutoff=85,
+    )
+    return GAME_TITLES[match[0]] if match else game
 
 
 class Scene:
@@ -161,6 +195,7 @@ class CVDaemon(Daemon):
                                     ):
                                         game = game[1:].strip()
                                     game = re.sub(r"^[a-zA-Z\-] ", "", game)
+                                    game = canonical_game_title(game)
                                     embed.add_field(name="Selected Game:", value=game)
                                     ns.game = game
                                     ns.home = True
