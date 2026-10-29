@@ -3,6 +3,8 @@
 import io
 import itertools
 import json
+import re
+import unicodedata
 
 import discord
 from discord.ext import commands, tasks
@@ -12,6 +14,33 @@ from cynthia.utils.encounters import (
     encounter_log_name,
     parse_encounter_log,
 )
+
+GAME_IMAGE_ASSETS = {
+    "pokemon home": "pokemon_home",
+    "pokemon legends arceus": "pokemon_legends_arceus",
+    "pokemon legends z a": "pokemon_legends_za",
+    "pokemon scarlet": "pokemon_scarlet_violet",
+    "pokemon violet": "pokemon_scarlet_violet",
+    "pokemon sword": "pokemon_sword_shield",
+    "pokemon shield": "pokemon_sword_shield",
+}
+
+
+def game_image_asset(game):
+    """Return the Rich Presence image asset key for a detected game title."""
+    normalized_game = unicodedata.normalize("NFKD", game.casefold())
+    normalized_game = "".join(
+        char for char in normalized_game if not unicodedata.combining(char)
+    )
+    normalized_game = re.sub(r"[^a-z0-9]+", " ", normalized_game).strip()
+    if "diamond" in normalized_game:
+        return "dialga_glow"
+    if "pearl" in normalized_game:
+        return "palkia_glow"
+    for title, asset in GAME_IMAGE_ASSETS.items():
+        if title in normalized_game:
+            return asset
+    return "nintendo_switch"
 
 
 class StatusCog(commands.Cog):
@@ -116,11 +145,7 @@ class StatusCog(commands.Cog):
         elif ns.playing:
             encounter_str = "No encounters yet"
             if game is not None:
-                large_image = "nintendo_switch"
-                if "diamond" in game.lower():
-                    large_image = "dialga_glow"
-                elif "pearl" in game.lower():
-                    large_image = "palkia_glow"
+                large_image = game_image_asset(game)
                 if self.bot.args.hunt:
                     if ns.self_encounter:
                         hunting_str = "Looking for "

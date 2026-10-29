@@ -1,6 +1,9 @@
 import time
 
-# Replace with the Client ID you copied earlier
+# Replace with your Discord application's Client ID.
+# Find it in Developer Portal > Your Application > General Information.
+# Upload matching asset keys under Developer Portal > Your Application >
+# Rich Presence > Art Assets.
 CLIENT_ID = "1370896076856496210"
 CYNTHIA_HOSTNAME = "serenegrace.io"
 CYNTHIA_PROTOCOL = "https://"

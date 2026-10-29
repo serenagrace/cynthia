@@ -4,8 +4,10 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import pytest
+
 from cynthia.bot.applications.status import clear_status, set_status
-from cynthia.bot.cogs.status import StatusCog
+from cynthia.bot.cogs.status import StatusCog, game_image_asset
 from cynthia.utils.drive import Drive
 from cynthia.utils.encounters import encounter_log_name
 from cynthia.utils.namespace import Namespace
@@ -93,6 +95,45 @@ def test_status_without_hunt_reports_game_only(tmp_path):
     assert bot_activity.name == "Pokemon Brilliant Diamond"
     assert user_activity["name"] == "Pokemon Brilliant Diamond"
     assert "details" not in user_activity
+
+
+@pytest.mark.parametrize(
+    "game,asset",
+    [
+        ("Pokémon HOME", "pokemon_home"),
+        ("Pokémon Legends: Arceus", "pokemon_legends_arceus"),
+        ("Pokémon Legends: Z-A", "pokemon_legends_za"),
+        ("Pokémon Scarlet", "pokemon_scarlet_violet"),
+        ("Pokémon Violet", "pokemon_scarlet_violet"),
+        ("Pokémon Sword", "pokemon_sword_shield"),
+        ("Pokémon Shield", "pokemon_sword_shield"),
+        ("Pokémon Brilliant Diamond", "dialga_glow"),
+        ("Pokémon Shining Pearl", "palkia_glow"),
+        ("Unknown Game", "nintendo_switch"),
+    ],
+)
+def test_game_image_asset(game, asset):
+    assert game_image_asset(game) == asset
+
+
+@pytest.mark.parametrize(
+    "game,asset",
+    [
+        ("Pokémon HOME", "pokemon_home"),
+        ("Pokémon Legends: Arceus", "pokemon_legends_arceus"),
+        ("Pokémon Legends: Z-A", "pokemon_legends_za"),
+        ("Pokémon Scarlet", "pokemon_scarlet_violet"),
+        ("Pokémon Shield", "pokemon_sword_shield"),
+    ],
+)
+def test_hunt_activity_includes_matching_game_asset(game, asset, tmp_path):
+    cog, _ = make_status_cog(tmp_path, hunt="Darkrai")
+    cog.bot.dman.running_daemons["CVDaemon"].ns.game = game
+
+    _, user_activity = asyncio.run(cog.get_status())
+
+    assert user_activity["details"] == "Hunting shiny Darkrai"
+    assert user_activity["assets"]["large_image"] == asset
 
 
 def test_status_custom_text_added_to_game_activity(tmp_path):
