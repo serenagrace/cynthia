@@ -100,13 +100,13 @@ def test_status_without_hunt_reports_game_only(tmp_path):
 @pytest.mark.parametrize(
     "game,asset",
     [
-        ("Pokémon HOME", "pokemon_home"),
-        ("Pokémon Legends: Arceus", "pokemon_legends_arceus"),
-        ("Pokémon Legends: Z-A", "pokemon_legends_za"),
-        ("Pokémon Scarlet", "pokemon_scarlet"),
-        ("Pokémon Violet", "pokemon_violet"),
-        ("Pokémon Sword", "pokemon_sword"),
-        ("Pokémon Shield", "pokemon_shield"),
+        ("Pokémon HOME", "pokemon_home_logo"),
+        ("Pokémon Legends: Arceus", "pokemon_legends_arceus_logo"),
+        ("Pokémon Legends: Z-A", "pokemon_legends_za_logo"),
+        ("Pokémon Scarlet", "pokemon_scarlet_logo"),
+        ("Pokémon Violet", "pokemon_violet_logo"),
+        ("Pokémon Sword", "pokemon_sword_logo"),
+        ("Pokémon Shield", "pokemon_shield_logo"),
         ("Pokémon Brilliant Diamond", "dialga_glow"),
         ("Pokémon Shining Pearl", "palkia_glow"),
         ("Unknown Game", "nintendo_switch"),
@@ -119,11 +119,11 @@ def test_game_image_asset(game, asset):
 @pytest.mark.parametrize(
     "game,asset",
     [
-        ("Pokémon HOME", "pokemon_home"),
-        ("Pokémon Legends: Arceus", "pokemon_legends_arceus"),
-        ("Pokémon Legends: Z-A", "pokemon_legends_za"),
-        ("Pokémon Scarlet", "pokemon_scarlet"),
-        ("Pokémon Shield", "pokemon_shield"),
+        ("Pokémon HOME", "pokemon_home_logo"),
+        ("Pokémon Legends: Arceus", "pokemon_legends_arceus_logo"),
+        ("Pokémon Legends: Z-A", "pokemon_legends_za_logo"),
+        ("Pokémon Scarlet", "pokemon_scarlet_logo"),
+        ("Pokémon Shield", "pokemon_shield_logo"),
     ],
 )
 def test_hunt_activity_includes_matching_game_asset(game, asset, tmp_path):

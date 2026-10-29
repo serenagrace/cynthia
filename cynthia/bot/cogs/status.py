@@ -16,13 +16,13 @@ from cynthia.utils.encounters import (
 )
 
 GAME_IMAGE_ASSETS = {
-    "pokemon home": "pokemon_home",
-    "pokemon legends arceus": "pokemon_legends_arceus",
-    "pokemon legends z a": "pokemon_legends_za",
-    "pokemon scarlet": "pokemon_scarlet",
-    "pokemon violet": "pokemon_violet",
-    "pokemon sword": "pokemon_sword",
-    "pokemon shield": "pokemon_shield",
+    "pokemon home": "pokemon_home_logo",
+    "pokemon legends arceus": "pokemon_legends_arceus_logo",
+    "pokemon legends z a": "pokemon_legends_za_logo",
+    "pokemon scarlet": "pokemon_scarlet_logo",
+    "pokemon violet": "pokemon_violet_logo",
+    "pokemon sword": "pokemon_sword_logo",
+    "pokemon shield": "pokemon_shield_logo",
 }
 
 
