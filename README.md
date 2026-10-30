@@ -55,7 +55,7 @@ Arch has no `python311` in its official repositories. Install the AUR package `p
 
 - Check the adapter with `bluetoothctl list` and `hciconfig`.
 - NXBT writes a runtime drop-in at `/run/systemd/system/bluetooth.service.d/nxbt.conf` that starts `bluetoothd` with `--compat --noplugin=*`, then restarts bluetooth. Other Bluetooth devices (headsets, mice) may disconnect while the bot runs. No permanent change is made to `/etc/bluetooth`; the stock files work.
-- Pairing a Switch is finicky. If it fails, restart `bluetooth.service`, make sure nothing else is using the adapter, and retry.
+- Pairing a Switch is finicky. To do so, open the Change Grip/Order Menu and run `/connect`. If this fails, first try again, then try restarting the bot. At worst, restart `bluetooth.service`, make sure nothing else is using the adapter, and retry. Refer to the [nxbt github](https://github.com/serenagrace/cynthia) for more information on pairing, etc.
 
 ### Capture card notes
 
@@ -171,28 +171,26 @@ Macros are line-based sequences of controller inputs. On Discord, send a message
 
 ```text
 $soft_reset
-hold =
+hold +
 wait
 tap A
 ```
 
-Each body line describes one step. Buttons on the same line are pressed together; separate lines run in order. Supported button tokens are `a`, `b`, `x`, `y`, `l`, `r`, `zl`, `zr`, `ls`, `rs`, `6` (up), `v` (down), `,` (left), `.` (right), `=` (plus), `-` (minus), `h` (home), `c` (capture), `lsl`, `lsr`, `rsl`, and `rsr`. Button names are case-insensitive.
+Each body line describes one step. Buttons on the same line are pressed together; separate lines run in order. Supported button tokens are `a`, `b`, `x`, `y`, `l`, `r`, `zl`, `zr`, `ls`, `rs`, `^` (up), `v` (down), `<` (left), `>` (right), `+` (plus), `-` (minus), `h` (home), and `c` (capture). For Joycon Shoulder buttons, use `lsl`, `lsr`, `rsl`, and `rsr`, respectively. Button names are case-insensitive, even symbols and numbers (`6` and `.` are the same as `^` and `>`).
 
-Use `tap`, `hold`, or `wait` before a step to set its timing: tap presses for 0.05 seconds, hold for 1 second, and wait sleeps for 1 second. Default presses use 0.15 seconds down and 0.15 seconds up. Custom timing uses `(down,up)` in seconds, such as `(0.3,0.2) A`. Add `noblock` to a step to make NXBT return without waiting for that press to finish.
+Use `tap`, `hold`, or `wait` before a step to set its timing: tap presses for 0.05 seconds, hold for 1 second, and wait sleeps for 1 second (doing nothing). Default presses use 0.15 seconds down and 0.15 seconds up. Custom timing can be set on the same line using uses `(DOWN,UP)` in seconds, such as `(1.33,0.25) Bv`. Add `noblock` to a step to make NXBT return without waiting for that press to finish.
 
-Call another saved macro by name in a body line. For example, a line containing `soft_reset` runs that macro. Use `/get_macro` to inspect a definition and `/queue_macro` to queue one for playback. The built-in `zoom` and `cleanup` macros are available. Start a definition with `$!name` to replace an existing macro with that name.
+Users also have the ability to call another saved macro by name in the body of another. For example, a line containing `soft_reset` runs the macro previously defined with the leading line `$soft_reset`. Use `/get_macro` to inspect a definition and `/queue_macro` to queue one for playback. The built-in `zoom` (double tap `Home` accessibility shortcut) and `cleanup` (return to the Change Grip/Order menu before disconnect) macros are available. Start a definition with `$!name` to replace an existing macro with that name.
 
-Macro definitions persist in `macros.json` under the configured `drive_path`; without an enabled drive, definitions are not saved across restarts. Conditional steps use `scene ? true_macro : false_macro`; they wait up to one second for a matching video scene, then run the selected macro. For example, `home ? cleanup : zoom` selects based on whether the Switch home screen was detected.
+Macro definitions persist in `macros.json` under the configured `drive_path`; without an enabled drive, definitions are NOT saved across restarts. Conditional steps use `scene ? true_macro : false_macro`; they wait up to one second for a matching video scene (see `cynthia/daemons/cv.py`), then run the selected macro. For example, `home ? cleanup : zoom` selects based on whether the Switch home screen was detected.
 
 ### Shifted tokens and name collisions
-
-Saved macros store directions in shifted form: `^` (up), `V` (down), `<` (left), `>` (right), `H` (home) and `+` (plus). Both forms parse, so `6`, `v`, `,`, `.`, `h` and `=` are equivalent.
 
 Macro names are matched as substrings of a line. A very short name such as `a` or `d` can collide with button tokens, so use descriptive names.
 
 ### Sample macros
 
-`examples/macros/` has shiny-hunting macros for BDSP: `mespirit` (Mesprit), `cresselia`, `shaymin`, `arceus` and `darkrai`, plus the helpers they call (`roamer_decide`, `encounter_roamer`, `roamer_reroll`, `screen_record`, `pause` and `run_up_down`). Each file starts with its `$name` line. Paste each file's contents into Discord and use **Define Macro**. Define the helper macros before the target macro; saved definitions persist in the configured drive.
+`examples/macros/` includes sample shiny-hunting macros for Pokémon Brilliant Diamond and Shining Pearl: `mespirit`, `cresselia`, `shaymin`, `arceus` and `darkrai`, plus the helpers they call (`roamer_decide`, `encounter_roamer`, `roamer_reroll`, `screen_record`, `pause` and `run_up_down`). Each file starts with its `$name` line. Paste each file's contents into Discord and use **Define Macro**. Define the helper macros before the target macro; saved definitions persist in the configured drive.
 
 These macros need a working Switch capture feed and the CV daemon. In BDSP settings, set **Text Box** to style 22 for reliable scene matching. Save in front of the target with the game open, then leave the Switch at the **Change Grip/Order** menu.
 
@@ -219,7 +217,7 @@ Install the optional client dependencies from the repository root:
 python -m pip install -e ".[cyclient]"
 ```
 
-In `tools/cyclient.py`, set `CLIENT_ID` to your Discord application's Client ID from **Developer Portal > Your Application > General Information**. Set `CYNTHIA_HOSTNAME` to the hostname or IP address serving the bot, and set `CYNTHIA_PROTOCOL` to `https://` or `http://`. The same host and protocol are used for the status API and video-feed links.
+Set `CYNTHIA_HOSTNAME` to the hostname or IP address serving the bot, and set `CYNTHIA_PROTOCOL` to `https://` or `http://`. The same host and protocol are used for the status API and video-feed links.
 
 Run `cyclient` on a desktop where the Discord client is open:
 
@@ -244,11 +242,11 @@ The script uses the project's public application ID and its art assets by defaul
 | Pokémon Shining Pearl | `palkia_glow` |
 | Other detected games or the Switch home screen | `nintendo_switch` |
 
-Use artwork you have permission to upload. This repository does not include game artwork. On the Switch home screen, CV reads the selected game title and corrects recognized OCR variations before publishing status; this is game-title matching, not game-specific encounter detection.
+On the Switch home screen, CV reads the selected game title and corrects recognized OCR variations before publishing status; this is game-title matching, not game-specific encounter detection.
 
 ## Tools
 
-- `tools/scene_setup.html`: open it in a browser to crop a capture frame and generate scene parameters for the CV daemon.
+- `tools/scene_setup.html`: open it in a browser to crop a capture frame and generate scene parameters to edit and add your own to the CV daemon.
 
 ## Development
 
