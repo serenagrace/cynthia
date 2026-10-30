@@ -20,7 +20,7 @@ dependencies = [
     "grapheme==0.6.0",
     "nxbt @ git+https://github.com/serenagrace/nxbt@cynthia-patches",
     "python-dotenv==1.2.4",
-    "pyyaml==6.0.2",
+    "pyyaml==6.0.3",
     "pyotp",
     "rapidfuzz",
     "requests-async",
