@@ -1,0 +1,20 @@
+# Copy to perms.yaml. Entries look like `+u:<id>` (allow) or `-u:<id>` (deny);
+# `u` = user, `r` = role, `g` = guild. The owner is added automatically.
+# `global` applies everywhere; `g:<guild id>` blocks add to it for one guild.
+global:
+  admins: []
+  allowed_commands: []
+  drive: []
+  nxbt: []
+  owners: []
+  privileged: []
+"g:[YOUR GUILD ID HERE]":
+  admins: []
+  allowed_commands:
+    - switch
+    - queue_macro
+  drive: []
+  nxbt:
+    - "+u:[YOUR USERID HERE]"
+  owners: []
+  privileged: []

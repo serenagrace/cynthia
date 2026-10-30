@@ -1,26 +1,32 @@
+"""Capture video frames from the configured USB video device."""
+
 import asyncio
-from contextlib import closing
-import cv2
-from multiprocessing import shared_memory
 import io
-import numpy
+import logging
 import subprocess
 import time
-import logging
+from contextlib import closing
+from multiprocessing import shared_memory
+
+import cv2
+import numpy
 import xxhash
+
 from .daemon import Daemon
 from .dman import FB0
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-# From `lsusb`
-ELGATO_USB_ID = "0fd9:009b"
-
 
 class UVCDaemon(Daemon):
+    """Read UVC frames into alternating shared-memory buffers."""
+
     def __init__(self, dman):
-        def loop(ns, uns, fba, fbb):
+        """Initialize shared frame metadata and start the capture process."""
+
+        def loop(ns, uns, fba, fbb, usb_id):
+            """Capture frames and publish them through shared memory."""
             with (
                 closing(shared_memory.SharedMemory(name=fba)) as shmA,
                 closing(shared_memory.SharedMemory(name=fbb)) as shmB,
@@ -32,12 +38,13 @@ class UVCDaemon(Daemon):
                 )
 
                 async def main_task():
-                    uvc = UVC()
+                    """Read frames and update the active shared buffer metadata."""
+                    uvc = UVC(usb_id)
                     await uvc.setup()
 
                     while ns.run:
                         if uvc.cap is None:
-                            uvc.setup()
+                            await uvc.setup()
                         frame = await uvc.read_frame()
                         _time = time.time_ns()
                         _hash = xxhash.xxh3_64_intdigest(frame.data)
@@ -53,7 +60,9 @@ class UVCDaemon(Daemon):
 
                 asyncio.run(main_task())
 
-        super().__init__(dman, fbs=(0,))
+        super().__init__(
+            dman, dman.context.env.get("ELGATO_USB_ID", None) or None, fbs=(0,)
+        )
         self.uns.uvc_hash0 = None
         self.uns.uvc_time0 = None
         self.uns.uvc_hash1 = None
@@ -63,13 +72,20 @@ class UVCDaemon(Daemon):
 
 
 class UVC:
-    def __init__(self):
+    """Open and read frames from a USB video capture device."""
+
+    def __init__(self, usb_id=None):
+        """Store the capture card's `vendor:product` USB ID, if one is configured."""
+        self.usb_id = usb_id
         self.cap = None
 
     async def setup(self):
-        subprocess.run(["usbreset", ELGATO_USB_ID])
-
-        await asyncio.sleep(2)  # Wait for the device to reset
+        """Reset the USB device (when its ID is configured) and open the capture."""
+        if self.usb_id:
+            subprocess.run(["usbreset", self.usb_id])
+            await asyncio.sleep(2)  # Wait for the device to reset
+        else:
+            logger.warning("ELGATO_USB_ID is not set; skipping the USB reset.")
 
         self.cap = cv2.VideoCapture(-1)
 
@@ -83,6 +99,7 @@ class UVC:
         await self.read_frame()
 
     async def read_frame(self):
+        """Read and vertically flip a frame, or return None on timeout."""
         if self.cap is None:
             await self.setup()
         ret = False
@@ -107,6 +124,7 @@ class UVC:
 
     @staticmethod
     def frame_to_buffer(frame):
+        """Encode a frame as PNG and return it in a rewound byte buffer."""
         success, buffer = cv2.imencode(".png", frame)
         if not success:
             logger.error("Failed to encode frame as PNG.")
@@ -116,5 +134,6 @@ class UVC:
         return io_buf
 
     def release(self):
+        """Release the active video capture, if one exists."""
         if self.cap is not None:
             self.cap.release()

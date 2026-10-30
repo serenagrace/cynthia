@@ -3,39 +3,76 @@ requires = ["setuptools >= 77.0.3"]
 build-backend = "setuptools.build_meta"
 [project]
 name="cynthia"
-version="1.4.0"
-requires-python="==3.14.11"
+version="1.6.0"
+description="Discord bot with Nintendo Switch (NXBT) automation and shiny-hunting video capture"
+readme="README.md"
+license="GPL-3.0-or-later"
+license-files=["LICENSE"]
+authors=[{name="serenagrace"}]
+classifiers=[
+    "Programming Language :: Python :: 3.11",
+    "Operating System :: POSIX :: Linux",
+]
+requires-python=">=3.11,<3.12"
 dependencies = [
-    "about-time==4.2.1",
-    "cynthia",
     "discord-py",
-    "grapheme==0.6.0",
-    "nxbt",
-    "python-dotenv==1.1.0",
+    "nxbt @ git+https://github.com/serenagrace/nxbt@cynthia-patches",
+    "python-dotenv==1.2.4",
     "pyyaml==6.0.2",
     "pyotp",
     "rapidfuzz",
     "requests-async",
-    "roku",
     "uvicorn",
     "scikit-image",
-    "paddleocr==2.7.3",
-    "paddlepaddle==2.6.2",
+    "paddleocr==3.7.0",
+    "paddlepaddle==3.2.2",
     "fastapi",
-    "xxhash==3.7.0",
+    "xxhash==4.0.2",
     "numpy<2.0.0",
     "opencv-python-headless<4.10"
 ]
+
+[project.optional-dependencies]
+dev = ["black", "isort", "pytest"]
+cyclient = ["pypresence", "requests"]
+
+[project.urls]
+Homepage="https://github.com/serenagrace/cynthia"
+Issues="https://github.com/serenagrace/cynthia/issues"
 
 [project.scripts]
 cynthia="cynthia.__main__:main"
 
 [tool.setuptools]
-py-modules=["cynthia"]
+include-package-data = false
 
-[tool.commitizen]
-name = "cz_conventional_commits"
-tag_format = "$version"
-version_scheme = "pep440"
-version_provider = "pep621"
-update_changelog_on_bump = true
+[tool.setuptools.package-data]
+"cynthia.daemons" = [
+    "scenes/bdsp_route_202.png",
+    "scenes/bdsp_run.png",
+    "scenes/bdsp_tbox.png",
+    "scenes/elgato_no_signal.png",
+    "scenes/quick_settings_sleep.png",
+    "scenes/roamer.png",
+    "scenes/switch_boot_screen.png",
+    "scenes/switch_home_screen.png",
+    "scenes/switch_home_screen_afk.png",
+]
+
+[tool.setuptools.packages.find]
+include = ["cynthia*"]
+
+[tool.isort]
+profile = "black"
+py_version = 311
+skip_gitignore = true
+skip = ["env", "build", "dist"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["discord_live: opt-in, read-only checks against the configured test bot"]
+filterwarnings = [
+    "ignore:'audioop' is deprecated and slated for removal in Python 3\\.13:DeprecationWarning:discord\\.player",
+    "ignore:pkg_resources is deprecated as an API:DeprecationWarning",
+    "ignore:'imghdr' is deprecated and slated for removal in Python 3\\.13:DeprecationWarning",
+]

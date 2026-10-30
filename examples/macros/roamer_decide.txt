@@ -1,0 +1,2 @@
+$roamer_decide
+roamer ? encounter_roamer : roamer_reroll
