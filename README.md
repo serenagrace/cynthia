@@ -8,9 +8,6 @@
 [![Imports: isort](https://img.shields.io/badge/imports-isort-1674b1.svg)](https://pycqa.github.io/isort/)
 [![Platform: Linux](https://img.shields.io/badge/platform-linux-FCC624?logo=linux&logoColor=black)](#requirements)
 [![Version](https://img.shields.io/badge/version-1.6.0-success.svg)](CHANGELOG.md)
-[![Latest release](https://img.shields.io/github/v/release/serenagrace/cynthia?include_prereleases)](https://github.com/serenagrace/cynthia/releases)
-[![Last commit](https://img.shields.io/github/last-commit/serenagrace/cynthia)](https://github.com/serenagrace/cynthia/commits)
-[![Issues](https://img.shields.io/github/issues/serenagrace/cynthia)](https://github.com/serenagrace/cynthia/issues)
 
 **Customizable Internal Network Task Handler + Interactive Assistant**
 
