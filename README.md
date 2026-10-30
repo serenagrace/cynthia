@@ -107,6 +107,7 @@ Values in the process environment win over `.env`.
 | `owner` | Discord user ID of the bot owner. |
 | `drive_path` | Drive directory, used when `DRIVE_PATH` is unset. Use `null` to disable drive-backed features. |
 | `silent` | Send bot messages as silent Discord messages (no notification) unless they are alerts. |
+| `encounter_reset` | Restart the looping macro from the start 5 seconds after each detected encounter, unless the shiny stop fired. Defaults to `true`; set `false` to disable. |
 | `status_services` | systemd units `/status` checks. Defaults to `cynthia.service`. |
 
 ### `perms.yaml`

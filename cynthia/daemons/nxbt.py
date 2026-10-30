@@ -36,6 +36,7 @@ class NXBTDaemon(Daemon):
     POLL_RATE = 0.5
     GRACE_PERIOD = 5.0
     WATCHDOG_DEFAULT_TIMEOUT = 900.0
+    ENCOUNTER_GRACE = 5.0
     WATCHDOG_AVERAGE_FACTOR = 2
     WATCHDOG_MIN_SAMPLES = 15
 
@@ -81,6 +82,8 @@ class NXBTDaemon(Daemon):
             disconnected_since = None
             watchdog_since = None
             watchdog_seen_encounter = None
+            reset_seen_encounter = None
+            reset_due = None
             watchdog_timeout = NXBTDaemon.WATCHDOG_DEFAULT_TIMEOUT
             hunting_log = None
 
@@ -121,6 +124,8 @@ class NXBTDaemon(Daemon):
                 nonlocal watchdog_since
                 nonlocal watchdog_seen_encounter
                 nonlocal watchdog_timeout
+                nonlocal reset_seen_encounter
+                nonlocal reset_due
                 Macro.bind_macro_tree(macro_tree)
                 load_macros(drive)
 
@@ -213,6 +218,31 @@ class NXBTDaemon(Daemon):
                     else:
                         watchdog_since = None
 
+                    # Loop the macro from the start a grace period after an encounter
+                    if (
+                        uns.encounter_reset
+                        and ns.loop
+                        and ns.connected
+                        and not ns.pause
+                        and not ns.stop
+                        and not uns.nxbt_daemon_stop
+                        and playing_gen is not None
+                    ):
+                        if last_encounter != reset_seen_encounter:
+                            reset_seen_encounter = last_encounter
+                            reset_due = (
+                                now + NXBTDaemon.ENCOUNTER_GRACE
+                                if last_encounter is not None
+                                else None
+                            )
+                        elif reset_due is not None and now >= reset_due:
+                            logger.info("Encounter grace elapsed, restarting macro.")
+                            playing_gen = playing.walk()
+                            reset_due = None
+                    else:
+                        reset_seen_encounter = last_encounter
+                        reset_due = None
+
                     if ns.stop:
                         # Abort the current macro; stale queued items are dropped by epoch
                         playing_gen = None
@@ -290,6 +320,9 @@ class NXBTDaemon(Daemon):
         self.ns.connected = False
         self.uns.nxbt_connection_lost = False
         self.uns.watchdog_triggered = False
+        self.uns.encounter_reset = bool(
+            dman.context.config.get("encounter_reset", True)
+        )
         self.uns.last_encounter_time = None
         self.uns.match_scene_id = None
         self.uns.scene_matched = False

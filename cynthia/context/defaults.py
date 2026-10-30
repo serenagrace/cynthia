@@ -16,6 +16,8 @@ class Defaults:
         "silent": False,
         "debug": False,
         "owner": None,
+        # restart the looping macro 5s after an encounter
+        "encounter_reset": True,
         # systemd units checked by the /status command
         "status_services": ["cynthia.service"],
     }
