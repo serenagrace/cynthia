@@ -1,0 +1,10 @@
+# Copy to config.yaml
+debug: false
+silent: false
+# Discord user ID of the bot owner
+owner: "[YOUR USERID HERE]"
+# Used when DRIVE_PATH is not set in .env
+drive_path: /path/to/cynthia_drive
+# systemd units checked by /status
+status_services:
+  - cynthia.service

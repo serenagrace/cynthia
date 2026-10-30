@@ -1,0 +1,13 @@
+# Let non-root users in the plugdev group open Elgato capture cards.
+# Find your device with `lsusb | grep -i elgato` and add a rule if it is missing.
+# Install to /etc/udev/rules.d/ then run:
+#   sudo udevadm control --reload && sudo udevadm trigger
+
+# Elgato 4K X (all speed modes)
+SUBSYSTEM=="usb", ATTR{idVendor}=="0fd9", ATTR{idProduct}=="009b", MODE="0666", GROUP="plugdev"
+SUBSYSTEM=="usb", ATTR{idVendor}=="0fd9", ATTR{idProduct}=="009c", MODE="0666", GROUP="plugdev"
+SUBSYSTEM=="usb", ATTR{idVendor}=="0fd9", ATTR{idProduct}=="009d", MODE="0666", GROUP="plugdev"
+
+# Elgato 4K S (all speed modes)
+SUBSYSTEM=="usb", ATTR{idVendor}=="0fd9", ATTR{idProduct}=="00af", MODE="0666", GROUP="plugdev"
+SUBSYSTEM=="usb", ATTR{idVendor}=="0fd9", ATTR{idProduct}=="00ae", MODE="0666", GROUP="plugdev"

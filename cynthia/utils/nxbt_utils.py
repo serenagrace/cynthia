@@ -1,8 +1,11 @@
-import nxbt
-import logging
-import re
+"""Parse, serialize, persist, and play Nintendo Switch controller macros."""
+
 import asyncio
 import json
+import logging
+import re
+
+import nxbt
 
 from cynthia.utils.strings import shift, unshift
 
@@ -45,7 +48,17 @@ DURATIONS = {
 }
 
 
+# A tap that gets stretched by Bluetooth lag opens the quick settings menu with
+# "Sleep Mode" selected, so taps of HOME are checked for it afterwards.
+QUICK_SETTINGS_WINDOW = 1.0
+QUICK_SETTINGS_POLL = 0.1
+QUICK_SETTINGS_RETRIES = 3
+HOME_TAP_MAX_DOWN = 0.5
+
+
 class Input:
+    """Represent one or more controller buttons with timing settings."""
+
     def __init__(
         self,
         input_list=None,
@@ -53,6 +66,7 @@ class Input:
         up_duration=DURATIONS["default"][1],
         block=True,
     ):
+        """Normalize controller inputs and store press timing options."""
         if input_list is None:
             self.input_list = list()
         elif not isinstance(input_list, list):
@@ -62,10 +76,11 @@ class Input:
         self.up_duration = up_duration
         self.block = block
 
-    async def play(self, nx, controller):
+    async def play(self, nx, controller, uns=None):
+        """Press the configured buttons on a controller."""
         if not self.input_list:
             await asyncio.sleep(self.down_duration + self.up_duration)
-            return
+            return None
         try:
             await asyncio.wait_for(
                 asyncio.to_thread(
@@ -80,8 +95,61 @@ class Input:
             )
         except TimeoutError:
             pass
+        if (
+            uns is not None
+            and nxbt.Buttons.HOME in self.input_list
+            and self.down_duration < HOME_TAP_MAX_DOWN
+        ):
+            await self._recover_from_quick_settings(nx, controller, uns)
+        return None
+
+    async def _quick_settings_open(self, uns):
+        """Watch CVDaemon frames briefly and report whether quick settings is open."""
+        uns.quick_settings_open = False
+        uns.quick_settings_watch = True
+        try:
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + QUICK_SETTINGS_WINDOW
+            while loop.time() < deadline:
+                if uns.quick_settings_open:
+                    return True
+                await asyncio.sleep(QUICK_SETTINGS_POLL)
+            return bool(uns.quick_settings_open)
+        finally:
+            uns.quick_settings_watch = False
+
+    async def _recover_from_quick_settings(self, nx, controller, uns):
+        """Close the quick settings menu with B and repeat the HOME tap."""
+        for _ in range(QUICK_SETTINGS_RETRIES):
+            if not await self._quick_settings_open(uns):
+                return
+            logger.warning("Quick settings menu opened, closing it and retrying HOME.")
+            uns.quick_settings_recovered = (
+                getattr(uns, "quick_settings_recovered", 0) or 0
+            ) + 1
+            for buttons in ([nxbt.Buttons.B], self.input_list):
+                await asyncio.to_thread(
+                    nx.press_buttons,
+                    controller,
+                    buttons,
+                    down=self.down_duration,
+                    up=0.5,
+                    block=True,
+                )
+        if await self._quick_settings_open(uns):
+            # Never let a later A press land on Sleep Mode
+            logger.error("Quick settings menu still open after retries.")
+            await asyncio.to_thread(
+                nx.press_buttons,
+                controller,
+                [nxbt.Buttons.B],
+                down=self.down_duration,
+                up=0.5,
+                block=True,
+            )
 
     def __str__(self):
+        """Serialize this input as macro text."""
         input_str, duration_str = self.input_str(), self.duration_str()
         if input_str is None:
             return duration_str
@@ -90,6 +158,7 @@ class Input:
         return duration_str + " " + input_str
 
     def input_str(self):
+        """Return the encoded button names, or None when no input is set."""
         if self.input_list is None:
             return None
         return shift(
@@ -98,6 +167,7 @@ class Input:
         )
 
     def duration_str(self):
+        """Return the timing and blocking options as macro text."""
         duration_str = f"({self.down_duration},{self.up_duration})"
         for key, durations in DURATIONS.items():
             if (self.down_duration, self.up_duration) == durations:
@@ -113,14 +183,23 @@ tap_home = Input(nxbt.Buttons.HOME, down_duration=0.1, up_duration=0.05)
 
 
 class Macro:
+    """Parse, store, serialize, and play a sequence of controller inputs."""
+
     _macro_tree = None
 
     @classmethod
     def get(cls, name):
-        return Macro(cls._macro_tree[name.lower()])
+        """Return a macro loaded from the bound macro tree."""
+        macro_text = cls._macro_tree.get(name.lower(), "")
+        if not macro_text:
+            logger.warning(
+                f"Macro '{name}' looked up but not found in macro tree-- falling back to empty macro."
+            )
+        return Macro(macro_text, name=name)
 
     @classmethod
     def bind_macro_tree(cls, macro_tree):
+        """Set the shared macro mapping and register built-in macros."""
         cls._macro_tree = macro_tree
 
         # Tree dependent setup
@@ -133,11 +212,13 @@ class Macro:
         cls._macro_tree["cleanup"] = str(cleanup)
 
     def __init__(self, inputs=None, *_, name: str = None, force=False):
+        """Initialize a named macro and optionally parse its input definition."""
         self.name = name
         if inputs is not None:
             self.parse_inputs(inputs, force)
 
     def parse_inputs(self, inputs, force=False):
+        """Replace the macro's inputs and optionally save its named definition."""
         self.clear()
         if isinstance(inputs, str):
             force = self.from_str(inputs) or force
@@ -154,6 +235,7 @@ class Macro:
                 Macro._macro_tree[self.name.lower()] = str(self)
 
     def from_str(self, inputs: str):
+        """Parse macro text into inputs and return whether it forces replacement."""
         force = False
         self.original_str = inputs
         if inputs.startswith("$"):
@@ -167,12 +249,21 @@ class Macro:
                 if self.name is None:
                     self.name = macro_name
 
-        content = unshift(inputs.strip(), exclude="$").split("\n")
+        content = unshift(inputs.strip(), exclude="$?:()").split("\n")
         for line in content:
 
+            # Ternary parsing: scene_id ? true_macro : false_macro
+            result = re.search(
+                r"\s*([a-z0-9-]+)\s*\?\s*([a-z-]+)\s*\:\s*([a-z-]+)", line
+            )
+            if result:
+                scene_id, true_macro, false_macro = result.groups()
+                self.input_list.append(Ternary(scene_id, true_macro, false_macro))
+                continue
             block = True
 
             def detect_and_remove(line: str, match: str):
+                """Remove a shifted token from a line when the token is present."""
                 if unshift(match) in unshift(line):
                     modified = line.replace(unshift(match), "")
                     return modified, True
@@ -224,37 +315,76 @@ class Macro:
             self.input_list.append(
                 Input(
                     _inputs,
-                    down_duration=down_duration,
-                    up_duration=up_duration,
+                    down_duration=float(down_duration),
+                    up_duration=float(up_duration),
                     block=block,
                 )
             )
         return force
 
     def redefine(self):
+        """Reparse the original definition and overwrite its stored macro."""
         if self.original_str is not None:
             self.parse_inputs(self.original_str, force=True)
 
     def clear(self):
+        """Remove every input from the macro."""
         self.input_list = list()
 
-    async def play(self, nx, controller):
+    async def play(self, nx, controller, *, uns=None):
+        """Play each input when the controller is connected."""
         if nx is None or controller is None:
             return
         if nx.state[controller]["state"] != "connected":
             return
         for _input in self.input_list:
-            await _input.play(nx, controller)
+            await _input.play(nx, controller, uns=uns)
 
     def walk(self):
+        """Yield macro inputs in playback order."""
         for _input in self.input_list:
             yield _input
 
     def __str__(self):
+        """Serialize the macro as one input per line."""
         return "\n".join(str(_input) for _input in self.input_list)
 
 
+class Ternary:
+    """A macro that performs one of two actions based on an SSIM match."""
+
+    def __init__(self, scene_id, true_macro, false_macro):
+        """Store the macros to play for each case."""
+        self.scene_id = scene_id.replace("-", "_")
+        self.true_macro = true_macro.replace("-", "_")
+        self.false_macro = false_macro.replace("-", "_")
+
+    async def play(self, nx, controller, uns=None):
+        """Play the true or false macro based on the SSIM match."""
+        if await self._evaluate(uns=uns):
+            return Macro.get(self.true_macro)
+        else:
+            return Macro.get(self.false_macro)
+
+    def __str__(self):
+        """Serialize the ternary as a macro definition."""
+        return f"{self.scene_id} ? {self.true_macro} : {self.false_macro}"
+
+    async def _evaluate(self, uns=None):
+        """Return whether ssim match succeeds on CVDaemon within one second."""
+        if uns is None:
+            return False
+        uns.match_scene_id = self.scene_id
+        uns.scene_matched = False
+        await asyncio.sleep(1)
+        uns.match_scene_id = None
+        if uns.scene_matched:
+            return True
+        return False
+
+
 def load_macros(drive):
+    """Load saved macros without replacing macros already in memory."""
     if drive.enabled and drive.exists(JSON_PATH, is_file=True):
         with drive.open(JSON_PATH, "r") as f:
             _macros = json.load(f)
@@ -264,6 +394,7 @@ def load_macros(drive):
 
 
 def save_macros(drive):
+    """Write all macros from the shared macro tree to drive storage."""
     if drive.enabled:
         with drive.open(JSON_PATH, "w") as f:
             dump = {key: str(val) for key, val in Macro._macro_tree.items()}
@@ -271,6 +402,7 @@ def save_macros(drive):
 
 
 async def nxbt_connect(nx, timeout=30):
+    """Create a controller, wait for connection, and run setup inputs."""
     controller = nx.create_controller(nxbt.PRO_CONTROLLER, colour_body=[215, 0, 255])
 
     try:
@@ -289,6 +421,7 @@ async def nxbt_connect(nx, timeout=30):
 
 
 async def nxbt_disconnect(nx, controller):
+    """Play cleanup inputs and remove a controller, if present."""
     if controller is not None:
         try:
             await asyncio.wait_for(

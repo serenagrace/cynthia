@@ -1,0 +1,16 @@
+[Unit]
+Description=Cynthia Discord bot (tmux session started at boot)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# cynthia.sh starts a detached tmux session and exits; the bot keeps running in it
+Type=forking
+# Change to the account that owns the checkout. It needs passwordless sudo,
+# because bin/run.sh runs the bot as root (NXBT requires it).
+User=youruser
+ExecStart=/usr/local/bin/cynthia.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

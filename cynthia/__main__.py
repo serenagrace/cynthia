@@ -1,12 +1,12 @@
-import argparse
-from .context import Context
-from .bot import Bot
-from .exceptions import *
-from .utils.auth import verify_factory
-import logging
+"""Command-line entry point for the Cynthia bot."""
 
-import sys
-from pathlib import Path
+import argparse
+import logging
+import subprocess
+
+from .bot import Bot
+from .context import Context
+from .utils.auth import verify_factory
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.DEBUG)
@@ -14,10 +14,13 @@ logging.getLogger("nxbt").setLevel(logging.INFO)
 
 
 def main():
-
+    """Load configuration, start the bot, and handle its shutdown action."""
     parser = argparse.ArgumentParser()
     # parser.add_argument("--uvcgui", action="store_true", help="Enable UVC GUI")
     parser.add_argument("--config", default="config.yaml", help="Override config file")
+    parser.add_argument(
+        "--perms", default="perms.yaml", help="Override permissions file"
+    )
     parser.add_argument("--hunt", type=str, default=None)
 
     args = parser.parse_args()
@@ -37,13 +40,16 @@ def main():
 
     bot.run(_context.env.DISCORD_BOT_TOKEN)
 
-    print(bot.kill_reason)
+    logger.info(bot.kill_reason)
 
-    _context.update_config(bot.config.dict())
+    _context.update_config(bot.config.dict(), bot.perms.dict())
 
     if len(bot.kill_reason[1].args) and bot.kill_reason[1].args[0] == "Restart":
         logger.info("Restarting...")
         exit(2)
+    if len(bot.kill_reason[1].args) and bot.kill_reason[1].args[0] == "Reboot":
+        logger.info("Rebooting host...")
+        subprocess.run(["sudo", "-n", "reboot"])
     exit(0)
 
 

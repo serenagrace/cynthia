@@ -1,6 +1,6 @@
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
 
 setup(
     name="cynthia",
-    version="1.4.0",
+    version="1.6.0",
 )

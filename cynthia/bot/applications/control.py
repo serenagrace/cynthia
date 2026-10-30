@@ -1,13 +1,20 @@
+"""Owner commands for bot lifecycle and message-log channel management."""
+
+import asyncio
+
 import discord
 from discord import app_commands
+
 from cynthia.exceptions import ExitCynthia
-from cynthia.utils.auth import privileged_only
+from cynthia.utils.auth import is_owner
 from cynthia.utils.onmessage import OnMessage
 
 
 @app_commands.command()
-@privileged_only()
+@is_owner()
+@app_commands.dm_only()
 async def shutdown(interaction: discord.Interaction):
+    """Shut down the bot cleanly."""
     await interaction.response.send_message("Shutting down...")
     try:
         raise ExitCynthia("Shutdown")
@@ -16,8 +23,10 @@ async def shutdown(interaction: discord.Interaction):
 
 
 @app_commands.command()
-@privileged_only()
+@is_owner()
+@app_commands.dm_only()
 async def restart(interaction: discord.Interaction):
+    """Shut down the bot and request a process restart."""
     await interaction.response.send_message("Restarting...")
     try:
         raise ExitCynthia("Restart")
@@ -26,21 +35,33 @@ async def restart(interaction: discord.Interaction):
 
 
 @app_commands.command()
-@privileged_only()
-async def reload(interaction: discord.Interaction):
-    await interaction.response.defer(thinking=True, ephemeral=True)
-    await interaction.client.reload_tree(interaction)
+@is_owner()
+@app_commands.dm_only()
+@app_commands.describe(
+    graceful="Shut Cynthia down cleanly, then reboot normally (default: force reboot)"
+)
+async def reboot(interaction: discord.Interaction, graceful: bool = False):
+    """Reboot the host immediately or after a graceful bot shutdown."""
+    if graceful:
+        await interaction.response.send_message(
+            "Shutting down cleanly, then rebooting the host..."
+        )
+        try:
+            raise ExitCynthia("Reboot")
+        except ExitCynthia as e:
+            await interaction.client.__aexit__(type(e), e, e.__traceback__)
+        return
+    await interaction.response.send_message("Rebooting the host now...")
+    # Let the reply go out before the system is killed
+    await asyncio.sleep(1)
+    await asyncio.create_subprocess_exec("sudo", "-n", "reboot", "-f", "now")
 
 
 @app_commands.command()
-@privileged_only()
-async def upgrade(interaction: discord.Interaction):
-    pass
-
-
-@app_commands.command()
-@privileged_only()
+@is_owner()
+@app_commands.default_permissions(administrator=True)
 async def log_channel(interaction: discord.Interaction):
+    """Enable message logging for the current server channel."""
     await interaction.response.defer(thinking=True, ephemeral=True)
     if interaction.channel_id is None or interaction.guild_id is None:
         await interaction.followup.send(
@@ -64,8 +85,10 @@ async def log_channel(interaction: discord.Interaction):
 
 
 @app_commands.command()
-@privileged_only()
+@is_owner()
+@app_commands.default_permissions(administrator=True)
 async def stop_log_channel(interaction: discord.Interaction):
+    """Disable message logging for the current channel."""
     await interaction.response.defer(thinking=True, ephemeral=True)
     key = f"log_{interaction.guild_id}_{interaction.channel_id}"
     if key in OnMessage.units:
@@ -78,8 +101,10 @@ async def stop_log_channel(interaction: discord.Interaction):
 
 
 @app_commands.command()
-@privileged_only()
+@is_owner()
+@app_commands.default_permissions(administrator=True)
 async def get_log_channels(interaction: discord.Interaction):
+    """List configured message-log channels that remain accessible."""
     await interaction.response.defer(thinking=True, ephemeral=True)
     log_channels = {}
     logged_guilds = 0
@@ -125,10 +150,9 @@ async def get_log_channels(interaction: discord.Interaction):
 
 
 __application__ = [
+    reboot,
     shutdown,
     restart,
-    upgrade,
-    reload,
     log_channel,
     stop_log_channel,
     get_log_channels,

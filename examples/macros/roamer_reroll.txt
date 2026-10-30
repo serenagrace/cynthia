@@ -1,0 +1,6 @@
+$roamer_reroll
+hold B V
+hold B V
+hold B ^
+hold B ^
+roamer ? encounter_roamer : roamer_reroll

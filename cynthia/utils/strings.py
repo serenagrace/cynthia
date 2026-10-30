@@ -1,3 +1,5 @@
+"""Transform shifted keyboard characters and apply ANSI text colors."""
+
 from cynthia.utils.namespace import Namespace
 
 SHIFT_PAIRS = [
@@ -39,6 +41,7 @@ ANSI_COLORS = Namespace(
 
 
 def unshift(string: str, exclude=None):
+    """Convert shifted characters to their unshifted forms."""
     string = string.lower()
     for shifted, unshifted in SHIFT_PAIRS:
         if exclude is not None:
@@ -53,6 +56,7 @@ def unshift(string: str, exclude=None):
 
 
 def shift(string: str, exclude=None):
+    """Convert unshifted characters to their shifted forms."""
     string = string.upper()
     for shifted, unshifted in SHIFT_PAIRS:
         if exclude is not None:
@@ -67,6 +71,7 @@ def shift(string: str, exclude=None):
 
 
 def color_str(string: str, color_code: str):
+    """Wrap a string in an ANSI color sequence when the color is supported."""
     if color_code.upper() not in ANSI_COLORS.keys():
         return string
     return f"{ANSI_COLORS[color_code.upper()]}{string}\033[0m"

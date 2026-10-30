@@ -1,0 +1,23 @@
+$encounter_roamer
+hold V
+hold X
+>
+hold A
+>
+>
+>
+>
+hold A
+hold A
+hold A
+hold B
+hold B
+hold B <
+hold B <
+hold B <
+hold B <
+hold B >
+hold B >
+hold B <
+hold B <
+bdsp_run ? pause : run_up_down
