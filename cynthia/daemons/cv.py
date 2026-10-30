@@ -46,6 +46,14 @@ GAME_TITLES = {
     "pokemon shield": "Pokémon Shield",
     "pokemon brilliant diamond": "Pokémon Brilliant Diamond",
     "pokemon shining pearl": "Pokémon Shining Pearl",
+    "pokemon firered version": "Pokémon FireRed Version",
+    "pokemon fire red version": "Pokémon FireRed Version",
+    "pokemon firered": "Pokémon FireRed Version",
+    "pokemon fire red": "Pokémon FireRed Version",
+    "pokemon leafgreen version": "Pokémon LeafGreen Version",
+    "pokemon leaf green version": "Pokémon LeafGreen Version",
+    "pokemon leafgreen": "Pokémon LeafGreen Version",
+    "pokemon leaf green": "Pokémon LeafGreen Version",
 }
 
 

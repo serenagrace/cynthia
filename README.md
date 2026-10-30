@@ -225,17 +225,19 @@ The script uses the project's public application ID and its art assets by defaul
 
 | Detected game | Asset key |
 | --- | --- |
-| Pokémon HOME | `pokemon_home_logo` |
-| Pokémon: Let's Go, Pikachu! | `pokemon_lets_go_pikachu_logo` |
-| Pokémon: Let's Go, Eevee! | `pokemon_lets_go_eevee_logo` |
-| Pokémon Legends: Arceus | `pokemon_legends_arceus_logo` |
-| Pokémon Legends: Z-A | `pokemon_legends_za_logo` |
-| Pokémon Scarlet | `pokemon_scarlet_logo` |
-| Pokémon Violet | `pokemon_violet_logo` |
-| Pokémon Sword | `pokemon_sword_logo` |
-| Pokémon Shield | `pokemon_shield_logo` |
-| Pokémon Brilliant Diamond | `dialga_glow` |
-| Pokémon Shining Pearl | `palkia_glow` |
+| Pokémon HOME | `pokemon_home_icon` |
+| Pokémon: Let's Go, Pikachu! | `pokemon_lets_go_pikachu_icon` |
+| Pokémon: Let's Go, Eevee! | `pokemon_lets_go_eevee_icon` |
+| Pokémon Legends: Arceus | `pokemon_legends_arceus_icon` |
+| Pokémon Legends: Z-A | `pokemon_legends_za_icon` |
+| Pokémon Scarlet | `pokemon_scarlet_icon` |
+| Pokémon Violet | `pokemon_violet_icon` |
+| Pokémon Sword | `pokemon_sword_icon` |
+| Pokémon Shield | `pokemon_shield_icon` |
+| Pokémon Brilliant Diamond | `pokemon_brilliant_diamond_icon` |
+| Pokémon Shining Pearl | `pokemon_shining_pearl_icon` |
+| Pokémon FireRed Version | `pokemon_firered_icon` |
+| Pokémon LeafGreen Version | `pokemon_leafgreen_icon` |
 | Other detected games or the Switch home screen | `nintendo_switch` |
 
 On the Switch home screen, CV reads the selected game title and corrects recognized OCR variations before publishing status; this is game-title matching, not game-specific encounter detection.

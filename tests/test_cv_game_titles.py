@@ -17,6 +17,14 @@ from cynthia.daemons.cv import canonical_game_title
         ("Pokemon Shield", "Pokémon Shield"),
         ("Pokemon Brilliant Diamond", "Pokémon Brilliant Diamond"),
         ("Pokemon Shining Pearl", "Pokémon Shining Pearl"),
+        ("Pokémon FireRed Version", "Pokémon FireRed Version"),
+        ("Pokemon Fire Red Version", "Pokémon FireRed Version"),
+        ("Pokemon FireRed", "Pokémon FireRed Version"),
+        ("Pokemon Fire Red", "Pokémon FireRed Version"),
+        ("Pokémon LeafGreen Version", "Pokémon LeafGreen Version"),
+        ("Pokemon Leaf Green Version", "Pokémon LeafGreen Version"),
+        ("Pokemon LeafGreen", "Pokémon LeafGreen Version"),
+        ("Pokemon Leaf Green", "Pokémon LeafGreen Version"),
     ],
 )
 def test_canonical_game_title_normalizes_ocr_punctuation_and_accents(ocr_text, title):
