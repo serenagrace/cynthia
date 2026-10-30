@@ -5,7 +5,6 @@
 [![Python 3.11](https://img.shields.io/badge/python-3.11-3776AB?logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![discord.py](https://img.shields.io/badge/discord.py-bot-5865F2?logo=discord&logoColor=white)](https://github.com/Rapptz/discord.py)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
-[![Imports: isort](https://img.shields.io/badge/imports-isort-1674b1.svg)](https://pycqa.github.io/isort/)
 [![Platform: Linux](https://img.shields.io/badge/platform-linux-FCC624?logo=linux&logoColor=black)](#requirements)
 [![Version](https://img.shields.io/badge/version-1.6.0-success.svg)](CHANGELOG.md)
 
