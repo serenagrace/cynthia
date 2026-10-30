@@ -26,7 +26,7 @@ dependencies = [
     "requests-async",
     "uvicorn",
     "scikit-image",
-    "paddleocr==2.7.3",
+    "paddleocr==3.7.0",
     "paddlepaddle==2.6.2",
     "fastapi",
     "xxhash==4.0.2",
