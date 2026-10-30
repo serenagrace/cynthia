@@ -41,7 +41,7 @@ class NXBTDaemon(Daemon):
 
     @staticmethod
     def watchdog_timeout(drive, log_name):
-        """Return twice the average encounter interval, or the default if too few samples."""
+        """Return twice the average encounter interval, never below the 10-minute default."""
         try:
             with drive.open(log_name, "r", touch=True) as f:
                 average_ms = average_interval_ms(
@@ -52,7 +52,10 @@ class NXBTDaemon(Daemon):
             average_ms = None
         if not average_ms:
             return NXBTDaemon.WATCHDOG_DEFAULT_TIMEOUT
-        return average_ms / 1000 * NXBTDaemon.WATCHDOG_AVERAGE_FACTOR
+        return max(
+            NXBTDaemon.WATCHDOG_DEFAULT_TIMEOUT,
+            average_ms / 1000 * NXBTDaemon.WATCHDOG_AVERAGE_FACTOR,
+        )
 
     @staticmethod
     def mark_hunting(drive, log_name, kind, reason=""):

@@ -12,6 +12,7 @@ import yaml
 from cynthia.bot.applications.tree import CommandTree
 from cynthia.context.perms import PermsLoader, guild_key
 from cynthia.daemons.cystream import GzipLogHandler
+from cynthia.daemons.nxbt import NXBTDaemon
 from cynthia.utils.drive import Drive
 from cynthia.utils.encounters import (
     DEFAULT_ENCOUNTER_LOG,
@@ -62,6 +63,14 @@ def test_average_interval_ms_drops_outliers():
     assert average_interval_ms(lines) == 1333.3333333333333
     assert average_interval_ms(lines[:1]) is None
     assert average_interval_ms([]) is None
+
+
+def test_watchdog_timeout_never_drops_below_default(tmp_path):
+    drive = Drive(tmp_path)
+    stamps = [f"00:00:{i:02d}" for i in range(20)]
+    with drive.open("fast.csv", "w") as f:
+        f.writelines(f"2026-01-01 {t}.0,Game,500\n" for t in stamps)
+    assert NXBTDaemon.watchdog_timeout(drive, "fast.csv") == 600.0
 
 
 def test_stop_start_markers_are_excluded_from_hunt_time():
