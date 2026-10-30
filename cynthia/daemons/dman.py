@@ -183,6 +183,25 @@ class DMan:
                 continue
             del self.__running_daemons[_daemon]
 
+    def reap_exited_daemons(self):
+        """Join exited daemon processes and report unexpected exits."""
+        for name, daemon_obj in list(self.__running_daemons.items()):
+            if daemon_obj.process.is_alive():
+                continue
+            daemon_obj.process.join()
+            if daemon_obj.ns.run:
+                daemon_obj.ns.run = False
+                logger.error(
+                    f"Daemon `{name}` exited unexpectedly with code "
+                    f"{daemon_obj.process.exitcode}."
+                )
+
+    async def monitor_daemons(self):
+        """Periodically reap daemon processes that exit while the bot runs."""
+        while True:
+            self.reap_exited_daemons()
+            await asyncio.sleep(1)
+
     async def reload_daemon(self, name):
         """Stop one daemon, reload its module from disk and start it again."""
         if name not in self.RELOADABLE:

@@ -16,15 +16,19 @@ from cynthia.utils.encounters import (
 )
 
 GAME_IMAGE_ASSETS = {
-    "pokemon home": "pokemon_home_logo",
-    "pokemon let s go pikachu": "pokemon_lets_go_pikachu_logo",
-    "pokemon let s go eevee": "pokemon_lets_go_eevee_logo",
-    "pokemon legends arceus": "pokemon_legends_arceus_logo",
-    "pokemon legends z a": "pokemon_legends_za_logo",
-    "pokemon scarlet": "pokemon_scarlet_logo",
-    "pokemon violet": "pokemon_violet_logo",
-    "pokemon sword": "pokemon_sword_logo",
-    "pokemon shield": "pokemon_shield_logo",
+    "pokemon home": "pokemon_home_icon",
+    "pokemon let s go pikachu": "pokemon_lets_go_pikachu_icon",
+    "pokemon let s go eevee": "pokemon_lets_go_eevee_icon",
+    "pokemon legends arceus": "pokemon_legends_arceus_icon",
+    "pokemon legends z a": "pokemon_legends_za_icon",
+    "pokemon scarlet": "pokemon_scarlet_icon",
+    "pokemon violet": "pokemon_violet_icon",
+    "pokemon sword": "pokemon_sword_icon",
+    "pokemon shield": "pokemon_shield_icon",
+    "pokemon brilliant diamond": "pokemon_brilliant_diamond_icon",
+    "pokemon shining pearl": "pokemon_shining_pearl_icon",
+    "pokemon firered version": "pokemon_firered_icon",
+    "pokemon leafgreen version": "pokemon_leafgreen_icon",
 }
 
 
@@ -35,10 +39,6 @@ def game_image_asset(game):
         char for char in normalized_game if not unicodedata.combining(char)
     )
     normalized_game = re.sub(r"[^a-z0-9]+", " ", normalized_game).strip()
-    if "diamond" in normalized_game:
-        return "dialga_glow"
-    if "pearl" in normalized_game:
-        return "palkia_glow"
     for title, asset in GAME_IMAGE_ASSETS.items():
         if title in normalized_game:
             return asset

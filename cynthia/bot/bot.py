@@ -51,6 +51,7 @@ class Bot(commands.Bot):
             self.dman = _DisabledDMan()
         else:
             self.dman = DMan(context)
+        self._dman_monitor_task = None
         self.onexit = {}
         if onexit is not None:
             self.onexit["user"] = onexit
@@ -90,6 +91,12 @@ class Bot(commands.Bot):
         self.discovered_cogs = list()
         self.loaded_command_count = 0
         self.loaded_cog_count = 0
+
+    async def setup_hook(self):
+        """Start daemon monitoring after the Discord event loop is ready."""
+        await super().setup_hook()
+        if not self.test_mode:
+            self._dman_monitor_task = asyncio.create_task(self.dman.monitor_daemons())
 
     async def reload_tree(self, interaction=None):
         """Load command modules, sync commands, and report reload results."""
@@ -280,6 +287,13 @@ class Bot(commands.Bot):
                     pass
         if not self.is_closed():
             await self.messenger.msg_owner("Cynthia will now exit.")
+        if self._dman_monitor_task is not None:
+            self._dman_monitor_task.cancel()
+            try:
+                await self._dman_monitor_task
+            except asyncio.CancelledError:
+                pass
+            self._dman_monitor_task = None
         await super().close()
 
     def raise_(self, ExceptionType, /, *args, **kwargs):
