@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>CyStream</title>
+        <link rel="icon" type="image/x-icon" href="/favicon.ico">
+        <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            background-color: #121214;
+            color: #e1e1e6;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        /* Layout: side panels left of the feed when wide, below it otherwise */
+        .layout {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
+            max-width: 100%;
+        }
+
+        .side {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            width: 100%;
+        }
+
+        .side:not(:has(> :not([hidden]))) {
+            display: none;
+        }
+
+        @media (min-width: 1100px) {
+            .layout {
+                flex-direction: row-reverse;
+                align-items: flex-start;
+            }
+            .side {
+                width: 300px;
+                flex: none;
+            }
+        }
+
+        /* Stream Container Card */
+        .stream-card {
+            background: #1d1d22;
+            border: 1px solid #2e2e38;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            max-width: 100%;
+            min-width: 0;
+        }
+
+        [hidden] {
+            display: none !important;
+        }
+
+        /* Video Display Box */
+        .video-wrapper {
+            background-color: #09090a;
+            border-radius: 8px;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        img {
+            display: block;
+            max-width: 100%;
+            height: auto;
+            object-fit: contain;
+            /* --reserve is set by script when the panels sit below the feed */
+            max-height: calc(100vh - 136px - var(--reserve, 0px));
+        }
+
+        .toggle {
+            position: fixed;
+            right: 12px;
+            bottom: 12px;
+            width: 28px;
+            height: 28px;
+            padding: 0;
+            background: transparent;
+            color: #8d8d99;
+            border: none;
+            border-radius: 50%;
+            cursor: pointer;
+            font: inherit;
+            font-size: 1.1rem;
+            line-height: 1;
+            opacity: 0.4;
+        }
+
+        .toggle:hover, .toggle[aria-pressed="true"] {
+            background: #232329;
+            opacity: 1;
+        }
+
+        .ssim-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 16px;
+            font-variant-numeric: tabular-nums;
+            font-size: 0.9rem;
+            padding: 3px 0;
+        }
+
+        .ssim-title {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #8d8d99;
+            margin-bottom: 6px;
+        }
+
+        /* Bot status pane */
+        .status-pane {
+            width: 100%;
+            padding: 14px 16px;
+            background: #16161a;
+            border: 1px solid #2e2e38;
+            border-radius: 8px;
+        }
+
+        .status-game {
+            font-size: 1.05rem;
+            font-weight: 600;
+            color: #ffffff;
+        }
+
+        .status-details {
+            margin-top: 2px;
+            font-size: 0.9rem;
+            color: #a8a8b3;
+        }
+
+        .stats {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px 32px;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid #2e2e38;
+        }
+
+        .stat {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .stat-label {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #8d8d99;
+        }
+
+        .stat-value {
+            font-size: 1.1rem;
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+            color: #e1e1e6;
+        }
+        </style>
+    </head>
+    <body>
+
+        <div class="layout">
+            <div class="stream-card">
+                <div class="video-wrapper">
+                    <!-- Video Stream Feed -->
+                    <img id="feed" src="/api/stream_endpoint" width="640" height="480" alt="Live Video Feed">
+                </div>
+                </div>
+            <button class="toggle" id="ssim-toggle" type="button" title="Show SSIM scores" aria-label="Show SSIM scores" aria-pressed="false">&#8943;</button>
+
+            <div class="side" id="side">
+                <!-- Hidden unless the bot reports an activity -->
+                <div class="status-pane" id="status-pane" hidden>
+                    <div class="status-game" id="st-game"></div>
+                    <div class="status-details" id="st-details" hidden></div>
+                    <div class="stats">
+                        <div class="stat" id="stat-count" hidden>
+                            <span class="stat-label" id="st-count-label">Resets</span>
+                            <span class="stat-value" id="st-count"></span>
+                        </div>
+                        <div class="stat" id="stat-hunt" hidden>
+                            <span class="stat-label">Hunting for</span>
+                            <span class="stat-value" id="st-hunt"></span>
+                        </div>
+                        <div class="stat" id="stat-uptime" hidden>
+                            <span class="stat-label">Bot uptime</span>
+                            <span class="stat-value" id="st-uptime"></span>
+                        </div>
+                        <div class="stat" id="stat-avg" hidden>
+                            <span class="stat-label">Avg time per encounter</span>
+                            <span class="stat-value" id="st-avg"></span>
+                        </div>
+                        <div class="stat" id="stat-last" hidden>
+                            <span class="stat-label">Since last encounter</span>
+                            <span class="stat-value" id="st-last"></span>
+                        </div>
+                        <div class="stat">
+                            <span class="stat-label">Viewers</span>
+                            <span class="stat-value" id="viewer-count">–</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="status-pane" id="ssim-pane" hidden>
+                    <div class="ssim-title">Top SSIM matches</div>
+                    <div id="ssim-rows"></div>
+                </div>
+            </div>
+        </div>
+
+        <script>
+        const $ = (id) => document.getElementById(id);
+        let activityStats = {};
+
+        // Two largest units: "1d 16h", "1h 28m", "5:15", "45s"
+        function formatDuration(ms) {
+            const total = Math.max(0, Math.floor(ms / 1000));
+            const d = Math.floor(total / 86400);
+            const h = Math.floor((total % 86400) / 3600);
+            const m = Math.floor((total % 3600) / 60);
+            const s = total % 60;
+            if (d > 0) return `${d}d ${h}h`;
+            if (h > 0) return `${h}h ${m}m`;
+            if (m > 0) return `${m}:${String(s).padStart(2, "0")}`;
+            return `${s}s`;
+        }
+
+        function tickStats() {
+            const now = Date.now();
+            // Stats exclude time not hunting: the correction is added to the start,
+            // and the clock freezes at the stop time while the hunt is stopped.
+            const huntEnd = activityStats.hunt_stopped_at ?? now;
+            const huntStart = typeof activityStats.hunt_started === "number"
+                ? activityStats.hunt_started + (activityStats.hunt_correction_ms || 0)
+                : undefined;
+            const rows = [
+                ["stat-hunt", "st-hunt", huntStart, (v) => formatDuration(huntEnd - v)],
+                ["stat-uptime", "st-uptime", activityStats.bot_started, (v) => formatDuration(now - v)],
+                ["stat-avg", "st-avg", activityStats.average_interval_ms, formatDuration],
+                ["stat-last", "st-last", activityStats.last_encounter, (v) => formatDuration(now - v)],
+            ];
+            for (const [box, out, value, fmt] of rows) {
+                const ok = typeof value === "number";
+                $(box).hidden = !ok;
+                if (ok) $(out).textContent = fmt(value);
+            }
+        }
+
+        function renderStatus(status) {
+            const pane = $("status-pane");
+            if (!status || !status.name) {
+                pane.hidden = true;
+                return;
+            }
+
+            $("st-game").textContent = status.name;
+            $("st-details").textContent = status.details || "";
+            $("st-details").hidden = !status.details;
+
+            // "123 resets" / "123 encounters" -> labelled number; anything else is shown as-is
+            const match = /^(\d+)\s+(\w+)$/.exec(status.state || "");
+            $("stat-count").hidden = !status.state;
+            if (match) {
+                $("st-count-label").textContent = match[2].charAt(0).toUpperCase() + match[2].slice(1);
+                $("st-count").textContent = Number(match[1]).toLocaleString();
+            } else if (status.state) {
+                $("st-count-label").textContent = "Status";
+                $("st-count").textContent = status.state;
+            }
+
+            pane.hidden = false;
+        }
+
+        async function updateStatus() {
+            try {
+                const res = await fetch("/api/user_status", { cache: "no-store" });
+                if (!res.ok) throw new Error(res.status);
+                renderStatus(await res.json());
+            } catch (e) {
+                // Keep the last known status on transient failures
+            }
+        }
+
+        async function updateActivityStats() {
+            try {
+                const res = await fetch("/api/activity_stats", { cache: "no-store" });
+                if (!res.ok) throw new Error(res.status);
+                activityStats = await res.json();
+                tickStats();
+            } catch (e) {
+                // Keep the last known stats on transient failures
+            }
+        }
+
+        async function updateViewers() {
+            try {
+                const res = await fetch("/api/viewers", { cache: "no-store" });
+                const data = await res.json();
+                $("viewer-count").textContent = data.viewers;
+            } catch (e) {
+                $("viewer-count").textContent = "–";
+            }
+        }
+
+        function refresh() {
+            updateStatus();
+            updateActivityStats();
+            updateViewers();
+        }
+
+        // Reload the feed once the server comes back after being unreachable
+        const feed = $("feed");
+        let serverUp = true;
+
+        function reloadFeed() {
+            feed.src = "/api/stream_endpoint?t=" + Date.now();
+        }
+
+        async function checkServer() {
+            let up = false;
+            try {
+                up = (await fetch("/api/viewers", { cache: "no-store" })).ok;
+            } catch (e) {}
+            if (up && !serverUp) reloadFeed();
+            serverUp = up;
+        }
+
+        feed.addEventListener("error", () => { serverUp = false; });
+
+        // Panels below the feed: reserve their height so both fit on screen
+        const wide = window.matchMedia("(min-width: 1100px)");
+        function updateReserve() {
+            const side = $("side");
+            const reserve = wide.matches ? 0 : side.getBoundingClientRect().height + (side.offsetParent && side.offsetHeight ? 16 : 0);
+            document.documentElement.style.setProperty("--reserve", reserve + "px");
+        }
+        new ResizeObserver(updateReserve).observe($("side"));
+        wide.addEventListener("change", updateReserve);
+
+        // SSIM panel
+        let ssimTimer = null;
+        async function updateSsim() {
+            try {
+                const res = await fetch("/api/ssim_data", { cache: "no-store" });
+                if (!res.ok) throw new Error(res.status);
+                const data = await res.json();
+                const rows = $("ssim-rows");
+                rows.replaceChildren(...data.scores.map((s) => {
+                    const row = document.createElement("div");
+                    row.className = "ssim-row";
+                    const name = document.createElement("span");
+                    name.textContent = s.scene;
+                    const val = document.createElement("span");
+                    val.textContent = s.score.toFixed(4);
+                    row.append(name, val);
+                    return row;
+                }));
+                if (!data.scores.length) rows.textContent = "No data";
+            } catch (e) {
+                // Keep previous values on transient failures
+            }
+        }
+
+        $("ssim-toggle").addEventListener("click", () => {
+            const pane = $("ssim-pane");
+            pane.hidden = !pane.hidden;
+            const label = pane.hidden ? "Show SSIM scores" : "Hide SSIM scores";
+            $("ssim-toggle").title = label;
+            $("ssim-toggle").setAttribute("aria-label", label);
+            $("ssim-toggle").setAttribute("aria-pressed", String(!pane.hidden));
+            clearInterval(ssimTimer);
+            if (!pane.hidden) {
+                updateSsim();
+                ssimTimer = setInterval(updateSsim, 1000);
+            }
+        });
+
+        refresh();
+        setInterval(refresh, 3000);
+        setInterval(checkServer, 2000);
+        setInterval(tickStats, 1000);
+        </script>
+
+    </body>
+</html>

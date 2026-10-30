@@ -1,9 +1,25 @@
+"""Commands and helpers for checking service and host status."""
+
+import asyncio
+
 import discord
 from discord import app_commands
-import asyncio
+
+from cynthia.utils.about import build_about_embed
+from cynthia.utils.auth import is_owner, nonglobal_command
+
+# Pinged when STATUS_HOSTS is not set in .env
+DEFAULT_HOSTS = ["discord.com", "github.com", "google.com"]
+
+
+@app_commands.command()
+async def about(interaction: discord.Interaction):
+    """Show the bot's version and startup information."""
+    await interaction.response.send_message(embed=build_about_embed(interaction.client))
 
 
 async def ping_status(host: str) -> list:
+    """Ping a host and return a status record for the result."""
     # Adding a timeout here is the best way to prevent 'hanging'
     proc = await asyncio.create_subprocess_exec(
         "ping",
@@ -26,6 +42,7 @@ async def ping_status(host: str) -> list:
 
 
 async def systemctl_status(service: str) -> list:
+    """Check whether a systemd service is active and return its status."""
     proc = await asyncio.create_subprocess_exec(
         "systemctl",
         "is-active",
@@ -45,6 +62,7 @@ async def systemctl_status(service: str) -> list:
 
 
 async def bool_status(name: str, value: bool):
+    """Convert a boolean value into a standard status record."""
     return {
         "service": name,
         "color": "green" if value else "red",
@@ -54,13 +72,10 @@ async def bool_status(name: str, value: bool):
 
 
 async def gather_results(client):
+    """Collect configured service, host, and drive status records."""
     tasks = [
-        systemctl_status("pihole-FTL.service"),
-        ping_status("discord.com"),
-        ping_status("github.com"),
-        ping_status("google.com"),
-        ping_status("ALVIS"),
-        ping_status("rokutv"),
+        *(systemctl_status(service) for service in client.config.status_services),
+        *(ping_status(host) for host in client.status_hosts or DEFAULT_HOSTS),
         bool_status("Drive Available", client.logging_enabled),
     ]
 
@@ -74,20 +89,28 @@ async def gather_results(client):
 
 
 @app_commands.command()
+@is_owner()
+@app_commands.dm_only()
 async def status(interaction: discord.Interaction):
+    """Show service health results to the bot owner."""
     await interaction.response.defer()
     final_statuses = await gather_results(interaction.client)
-    message = "\n".join(
-        [
-            f" - :{status['color']}_circle: {status['service']}"
-            for status in final_statuses
-        ]
+    description = "\n".join(
+        [f":{status['color']}_circle: {status['service']}" for status in final_statuses]
     )
-    await interaction.followup.send(message)
+    embed = discord.Embed(
+        title="Service Status",
+        description=description,
+        color=0xD700FF,
+    )
+    await interaction.followup.send(embed=embed)
 
 
 @app_commands.command()
+@nonglobal_command()
+@app_commands.default_permissions(administrator=True)
 async def loaded_modules(interaction: discord.Interaction):
+    """List application modules loaded by the command tree."""
     await interaction.client.messenger.send_list(
         interaction,
         f"Loaded ({len(interaction.client.tree.loaded_modules)}/{len(interaction.client.tree.modules)}) Modules:",
@@ -96,7 +119,10 @@ async def loaded_modules(interaction: discord.Interaction):
 
 
 @app_commands.command()
+@nonglobal_command()
+@app_commands.default_permissions(administrator=True)
 async def loaded_commands(interaction: discord.Interaction):
+    """List application commands loaded by the command tree."""
     await interaction.client.messenger.send_list(
         interaction,
         f"Loaded {len(interaction.client.tree.loaded_commands)} Commands:",
@@ -104,4 +130,33 @@ async def loaded_commands(interaction: discord.Interaction):
     )
 
 
-__application__ = [status, loaded_modules, loaded_commands]
+@app_commands.command()
+@app_commands.dm_only()
+@is_owner()
+async def set_status(
+    interaction: discord.Interaction, description: str, time: bool = True
+):
+    """Set the bot's Discord status."""
+    interaction.client.vars.status.text = description
+    interaction.client.vars.status.start = discord.utils.utcnow() if time else None
+    await interaction.response.send_message("Bot status updated.", ephemeral=True)
+
+
+@app_commands.command()
+@app_commands.dm_only()
+@is_owner()
+async def clear_status(interaction: discord.Interaction):
+    """Clear the bot's Discord status."""
+    interaction.client.vars.status.text = None
+    interaction.client.vars.status.start = None
+    await interaction.response.send_message("Bot status cleared.", ephemeral=True)
+
+
+__application__ = [
+    about,
+    status,
+    loaded_modules,
+    loaded_commands,
+    set_status,
+    clear_status,
+]

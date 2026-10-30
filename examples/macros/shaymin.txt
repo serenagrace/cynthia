@@ -1,0 +1,30 @@
+$shaymin
+hold A
+wait
+hold A
+wait
+wait
+wait
+wait
+wait
+wait
+wait
+wait
+wait
+wait
+V
+V
+V
+hold A
+hold A
+wait
+hold A
+hold B V
+hold B V
+hold B V
+hold B V
+hold B ^
+hold B ^
+hold B ^
+hold B ^
+hold B ^

@@ -1,38 +1,51 @@
+"""Discover, start, stop, and reload daemon processes."""
+
 import asyncio
-from discord import app_commands
-import numpy
-import logging
-from pathlib import Path
 import importlib
-from multiprocessing import shared_memory
+import logging
+import sys
+from multiprocessing import Manager, shared_memory
+from pathlib import Path
+
+import numpy
+from discord import app_commands
+
+from cynthia.utils.drive import Drive
+from cynthia.utils.namespace import Namespace
 
 from .daemon import Daemon
-from cynthia.utils.namespace import Namespace
-from multiprocessing import Manager
-from cynthia.utils.drive import Drive
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 
 class FB0:
+    """Dimensions and buffer helpers for captured video frames."""
+
     WIDTH = 1920
     HEIGHT = 1080
     CHANNELS = 3
 
     @staticmethod
     def nbytes():
+        """Return the byte size of one RGB frame buffer."""
         return FB0.WIDTH * FB0.HEIGHT * FB0.CHANNELS * numpy.dtype(numpy.uint8).itemsize
 
     @staticmethod
     def shape():
+        """Return the array shape for one RGB frame buffer."""
         return (FB0.HEIGHT, FB0.WIDTH, FB0.CHANNELS)
 
 
 class DMan:
+    """Manage daemon discovery, shared frame buffers, and process lifecycle."""
+
+    RELOADABLE = ("CYStream", "UVCDaemon")
+
     def __init__(self, context):
+        """Create shared state, discover daemons, and start loaded daemons."""
         self.context = context
-        self.drive = Drive(self.context.config.drive_path)
+        self.drive = Drive(self.context.drive_path)
         self.__modules = list()
         self.__loaded_modules = list()
         self.__loaded_daemons = Namespace()
@@ -50,6 +63,7 @@ class DMan:
         self.run_daemons()
 
     def load_daemons(self):
+        """Import daemon modules and register their daemon subclasses."""
         importlib.invalidate_caches()
         self.clear_daemons()
 
@@ -68,8 +82,8 @@ class DMan:
             daemons_module = None
             try:
                 if module in self.__previously_loaded_modules:
-                    daemons_module = importlib.reload_module(
-                        "." + module, "cynthia.daemons"
+                    daemons_module = importlib.reload(
+                        sys.modules[f"cynthia.daemons.{module}"]
                     )
                 else:
                     daemons_module = importlib.import_module(
@@ -103,6 +117,7 @@ class DMan:
         return len(self.loaded_daemons), errors
 
     def run_daemons(self, *, daemons=None):
+        """Start all loaded daemons or only the named daemons."""
         if daemons is not None:
             for _daemon in daemons:
                 if _daemon not in self.__loaded_daemons:
@@ -121,13 +136,18 @@ class DMan:
                 self.__running_daemons[name] = daemon(self)
 
     def clear_daemons(self):
+        """Reset discovered daemon classes while retaining modules for reload."""
         self.__previously_loaded_modules = getattr(self, "__loaded_modules", list())
         self.__loaded_modules = list()
         self.__loaded_daemons = Namespace()
 
     async def stop_daemons(self, *, daemons=None):
+        """Signal selected daemons to stop and clean up their processes."""
         if daemons is None:
-            daemons = self.__running_daemons.keys()
+            daemons = list(self.__running_daemons.keys())
+        daemons = [
+            d for d in daemons if self.__running_daemons.get(d, None) is not None
+        ]
         for _daemon in daemons:
             self.__running_daemons[_daemon].ns.run = False
         try:
@@ -153,37 +173,70 @@ class DMan:
                     logger.info(f"Terminating non-daemon process `{_daemon}`.")
                     daemon_obj.process.terminate()
                     daemon_obj.process.join()
+                    del self.__running_daemons[_daemon]
                     continue
                 logger.error(f"Daemon `{_daemon}` failed to stop.")
                 if daemon_obj.process.daemon:
                     daemon_obj.process.terminate()
                     daemon_obj.process.join()
+                    del self.__running_daemons[_daemon]
                 continue
-            self.__running_daemons[_daemon] = None
+            del self.__running_daemons[_daemon]
+
+    async def reload_daemon(self, name):
+        """Stop one daemon, reload its module from disk and start it again."""
+        if name not in self.RELOADABLE:
+            raise ValueError(f"Daemon `{name}` is not reloadable.")
+        daemon_cls = self.__loaded_daemons.get(name, None)
+        if daemon_cls is None:
+            raise ValueError(f"Daemon `{name}` is not loaded.")
+
+        # Import the new code first so a syntax error leaves the old daemon running
+        old_module = sys.modules[daemon_cls.__module__]
+        try:
+            module = importlib.reload(old_module)
+            new_cls = getattr(module, name)
+        except Exception:
+            logger.exception(f"Failed to reload module for daemon `{name}`.")
+            raise
+
+        await self.stop_daemons(daemons=[name])
+        if name in self.__running_daemons:
+            raise RuntimeError(f"Daemon `{name}` failed to stop.")
+        self.__loaded_daemons[name] = new_cls
+        self.run_daemons(daemons=[name])
 
     @property
     def modules(self):
+        """Return discovered daemon module names."""
         return self.__modules
 
     @property
     def loaded_modules(self):
+        """Return daemon module names imported successfully."""
         return self.__loaded_modules
 
     @property
     def daemon_directory(self):
+        """Return the directory used to discover daemon modules."""
         return self.__directory
 
     @property
     def loaded_daemons(self):
+        """Return the mapping of registered daemon classes."""
         return self.__loaded_daemons
 
     @property
     def running_daemons(self):
+        """Return the mapping of active daemon instances."""
         return self.__running_daemons
 
 
 def daemon_running(daemon: str):
+    """Create a command check that requires a named daemon to be running."""
+
     async def predicate(interaction):
+        """Check whether the interaction's client has the named daemon."""
         if hasattr(interaction.client, "dman"):
             return daemon in interaction.client.dman.running_daemons
         return False

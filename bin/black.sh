@@ -1,2 +1,4 @@
 #!/bin/bash
-black $(git rev-parse --show-toplevel) --target-version py311
+root=$(git rev-parse --show-toplevel)
+isort "$root"
+black "$root" --target-version py311

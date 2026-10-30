@@ -1,16 +1,22 @@
+"""Commands for uploading and downloading files through the configured drive."""
+
+from typing import Optional
+
 import discord
 from discord import app_commands
-from typing import Optional
+
 from cynthia.utils.auth import drive_permission
 
 
 @app_commands.command()
 @drive_permission()
+@app_commands.default_permissions(administrator=True)
 async def upload(
     interaction: discord.Interaction,
     filename: Optional[str],
     attachment: discord.Attachment,
 ) -> None:
+    """Save an attachment to the configured drive."""
     await interaction.response.defer(ephemeral=True)
     if not interaction.client.drive.enabled:
         await interaction.followup.send("Drive path not configured.")
@@ -28,9 +34,11 @@ async def upload(
 
 @app_commands.context_menu(name="Upload to Drive")
 @drive_permission()
+@app_commands.default_permissions(administrator=True)
 async def upload_context_menu(
     interaction: discord.Interaction, message: discord.Message
 ):
+    """Save a message's first attachment or text content to the drive."""
     await interaction.response.defer(ephemeral=True)
     if not interaction.client.drive.enabled:
         await interaction.followup.send("Drive path not configured.")
@@ -55,7 +63,9 @@ async def upload_context_menu(
 
 @app_commands.command()
 @drive_permission()
+@app_commands.default_permissions(administrator=True)
 async def download(interaction: discord.Interaction, filename: str):
+    """Send a file from the configured drive to the interaction."""
     await interaction.response.defer()
     if not interaction.client.drive.enabled:
         await interaction.followup.send("Drive path not configured.")

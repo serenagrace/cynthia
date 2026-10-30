@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cynthia Scene Setup</title>
+<style>
+  body { font-family: sans-serif; background: #1e1f22; color: #ddd; margin: 1rem; }
+  #layout { display: flex; gap: 1rem; flex-wrap: wrap; }
+  #controls { width: 340px; }
+  .row { display: grid; grid-template-columns: 1.5rem 1fr 5rem; gap: .5rem; margin: .4rem 0; align-items: center; }
+  input[type=number] { width: 100%; box-sizing: border-box; }
+  #stage { position: relative; display: inline-block; line-height: 0; background: #000; }
+  canvas { max-width: 100%; }
+  textarea { width: 100%; height: 9rem; font-family: monospace; }
+  button { margin: .3rem .3rem .3rem 0; padding: .4rem .8rem; cursor: pointer; }
+  #out { background: repeating-conic-gradient(#444 0 25%, #333 0 50%) 0 0 / 16px 16px; }
+  .muted { color: #999; font-size: .85rem; }
+</style>
+</head>
+<body>
+<h2>Cynthia Scene Setup</h2>
+<div id="layout">
+  <div id="controls">
+    <input type="file" id="file" accept="image/png">
+    <p class="muted" id="info">Pick a PNG (full frame, e.g. 1920x1080).</p>
+    <div class="row"><b>x</b><input type="range" id="x_r"><input type="number" id="x_n"></div>
+    <div class="row"><b>y</b><input type="range" id="y_r"><input type="number" id="y_n"></div>
+    <div class="row"><b>w</b><input type="range" id="w_r"><input type="number" id="w_n"></div>
+    <div class="row"><b>h</b><input type="range" id="h_r"><input type="number" id="h_n"></div>
+    <label><input type="checkbox" id="gray"> grayscale</label><br>
+    <label>Scene name <input id="name" value="my"></label><br>
+    <label>Drive file <input id="drivefile" value="my_scene.png"></label>
+    <h3>Cropped output</h3>
+    <canvas id="out" width="1" height="1"></canvas><br>
+    <button id="dl">Download cropped PNG</button>
+    <h3>cv.py parameters</h3>
+    <textarea id="code" readonly></textarea><br>
+    <button id="copy">Copy</button>
+  </div>
+  <div>
+    <div id="stage"><canvas id="prev"></canvas></div>
+    <p class="muted">Highlighted rectangle is the crop. Drag on the preview to select a region.</p>
+  </div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const prev = $("prev"), out = $("out");
+const keys = ["x", "y", "w", "h"];
+const defaults = { x: 0, y: 0, w: 1920, h: 1080 };
+let img = null;
+const v = { x: 0, y: 0, w: 0, h: 0 };
+
+function clampAll() {
+  v.x = Math.min(Math.max(0, v.x | 0), img.width - 1);
+  v.y = Math.min(Math.max(0, v.y | 0), img.height - 1);
+  v.w = Math.min(Math.max(1, v.w | 0), img.width - v.x);
+  v.h = Math.min(Math.max(1, v.h | 0), img.height - v.y);
+}
+
+function sync(skip) {
+  if (!img) return;
+  clampAll();
+  const max = { x: img.width - 1, y: img.height - 1, w: img.width - v.x, h: img.height - v.y };
+  const min = { x: 0, y: 0, w: 1, h: 1 };
+  for (const k of keys) {
+    const r = $(k + "_r"), n = $(k + "_n");
+    r.min = n.min = min[k];
+    r.max = n.max = max[k];
+    if (skip !== r) r.value = v[k];
+    if (skip !== n) n.value = v[k];
+  }
+  render();
+}
+
+function render() {
+  prev.width = img.width; prev.height = img.height;
+  const c = prev.getContext("2d");
+  c.drawImage(img, 0, 0);
+  c.fillStyle = "rgba(0,0,0,.6)";
+  c.fillRect(0, 0, img.width, img.height);
+  c.drawImage(img, v.x, v.y, v.w, v.h, v.x, v.y, v.w, v.h);
+  c.lineWidth = Math.max(2, img.width / 640);
+  c.strokeStyle = "#ff3b6b";
+  c.strokeRect(v.x, v.y, v.w, v.h);
+
+  out.width = v.w; out.height = v.h;
+  const o = out.getContext("2d");
+  o.clearRect(0, 0, v.w, v.h);
+  o.drawImage(img, v.x, v.y, v.w, v.h, 0, 0, v.w, v.h);
+  // Preview only: the saved PNG stays color, Scene converts when grayscale=True.
+  out.style.filter = $("gray").checked ? "grayscale(1)" : "";
+  $("code").value = snippet();
+}
+
+function snippet() {
+  const ind = "        ";
+  const file = $("drivefile").value || "scene.png";
+  const args = keys.filter(k => v[k] !== defaults[k]).map(k => `${k}=${v[k]}`);
+  if ($("gray").checked) args.push("grayscale=True");
+  return [
+    `    ${$("name").value}_scene = Scene(`,
+    `${ind}cv2.imread(str(SCENES_DIR / "${file}")),`,
+    ...args.map(a => `${ind}${a},`),
+    "    )",
+  ].join("\n");
+}
+
+for (const k of keys) {
+  for (const t of ["r", "n"]) {
+    const el = $(k + "_" + t);
+    el.addEventListener("input", () => {
+      v[k] = Number(el.value) || 0;
+      sync(el);
+    });
+  }
+}
+["gray", "name", "drivefile"].forEach(id => $(id).addEventListener("input", () => img && render()));
+
+$("file").addEventListener("change", e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  $("drivefile").value = f.name;
+  const i = new Image();
+  i.onload = () => {
+    img = i;
+    Object.assign(v, { x: 0, y: 0, w: i.width, h: i.height });
+    $("info").textContent = `${f.name}: ${i.width}x${i.height}`;
+    sync();
+  };
+  i.src = URL.createObjectURL(f);
+});
+
+let drag = null;
+function pos(e) {
+  const r = prev.getBoundingClientRect();
+  return [Math.round((e.clientX - r.left) * img.width / r.width),
+          Math.round((e.clientY - r.top) * img.height / r.height)];
+}
+prev.addEventListener("pointerdown", e => {
+  if (!img) return;
+  prev.setPointerCapture(e.pointerId);
+  drag = pos(e);
+});
+prev.addEventListener("pointermove", e => {
+  if (!drag) return;
+  const p = pos(e);
+  v.x = Math.min(drag[0], p[0]); v.y = Math.min(drag[1], p[1]);
+  v.w = Math.abs(p[0] - drag[0]) || 1; v.h = Math.abs(p[1] - drag[1]) || 1;
+  sync();
+});
+prev.addEventListener("pointerup", () => { drag = null; });
+
+$("dl").addEventListener("click", () => {
+  if (!img) return;
+  out.toBlob(b => {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(b);
+    a.download = $("drivefile").value || "scene.png";
+    a.click();
+  }, "image/png");
+});
+$("copy").addEventListener("click", () => navigator.clipboard.writeText($("code").value));
+</script>
+</body>
+</html>

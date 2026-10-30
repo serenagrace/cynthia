@@ -1,10 +1,25 @@
+"""Command for listing application commands available to the caller."""
+
+import asyncio
+import logging
+
 import discord
 from discord import app_commands
-import asyncio
+
+logger = logging.getLogger(__name__)
+
+
+async def run_check(check: callable, interaction: discord.Interaction) -> bool:
+    """Run a command check, awaiting it when it is asynchronous."""
+    if asyncio.iscoroutinefunction(check):
+        return await check(interaction)
+    else:
+        return check(interaction)
 
 
 @app_commands.command()
 async def help(interaction: discord.Interaction):
+    """List commands whose permission checks pass for this interaction."""
     await interaction.response.defer()
     commands = await interaction.client.tree.fetch_commands()
     available_commands = []
@@ -14,11 +29,15 @@ async def help(interaction: discord.Interaction):
             continue
         checks = command.checks
         if command.checks:
-            if all(await asyncio.gather(*[check(interaction) for check in checks])):
-                print("Command passed checks: ", cmd.name)
+            if all(
+                await asyncio.gather(
+                    *[run_check(check, interaction) for check in checks]
+                )
+            ):
+                logger.debug("Command passed checks: %s", cmd.name)
                 available_commands.append(f"- /{cmd.name}")
         else:
-            print("Command has no checks: ", cmd.name)
+            logger.debug("Command has no checks: %s", cmd.name)
             available_commands.append(f"- /{cmd.name}")
     if available_commands:
         help_message = "Available commands:\n" + "\n".join(available_commands)
