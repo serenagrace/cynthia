@@ -293,6 +293,10 @@ class CV:
     @staticmethod
     def _recognize(gray):
         """Run OCR on a grayscale image and return the recognized lines."""
+        if not hasattr(ocr, "predict"):
+            # PaddleOCR 2.x is still installed; `pip install -e .` upgrades it
+            result = ocr.ocr(gray, cls=True)
+            return "\n".join(line[1][0] for page in result for line in page or [])
         result = ocr.predict(cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR))
         return "\n".join(text for page in result for text in page["rec_texts"])
 

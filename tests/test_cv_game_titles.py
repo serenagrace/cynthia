@@ -29,3 +29,17 @@ def test_canonical_game_title_corrects_ocr_typo():
 
 def test_canonical_game_title_preserves_unknown_text():
     assert canonical_game_title("Unknown Game") == "Unknown Game"
+
+
+def test_scrape_text_falls_back_to_paddleocr_2x(monkeypatch):
+    import numpy
+
+    from cynthia.daemons import cv
+
+    class Legacy:
+        def ocr(self, image, cls=True):
+            return [[[None, ("Pokemon Sword", 0.9)]]]
+
+    monkeypatch.setattr(cv, "ocr", Legacy())
+    frame = numpy.zeros((10, 10, 3), dtype=numpy.uint8)
+    assert cv.CV.scrape_text(frame, w=10, h=10) == "Pokemon Sword"
