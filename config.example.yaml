@@ -8,3 +8,5 @@ drive_path: /path/to/cynthia_drive
 # systemd units checked by /status
 status_services:
   - cynthia.service
+# Restart the looping macro 5 seconds after each encounter
+encounter_reset: true

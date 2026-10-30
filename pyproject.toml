@@ -3,7 +3,7 @@ requires = ["setuptools >= 77.0.3"]
 build-backend = "setuptools.build_meta"
 [project]
 name="cynthia"
-version="1.6.0"
+version="1.6.1"
 description="Discord bot with Nintendo Switch (NXBT) automation and shiny-hunting video capture"
 readme="README.md"
 license="GPL-3.0-or-later"
