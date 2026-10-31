@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import re
+import time
 
 import nxbt
 
@@ -387,17 +388,38 @@ class Ternary:
         """Serialize the ternary as a macro definition."""
         return f"{self.scene_id} ? {self.true_macro} : {self.false_macro}"
 
+    CV_MAX_AGE = 2
+    CV_WAIT_TIMEOUT = 120
+
+    @staticmethod
+    def _cv_stale(uns):
+        """Return whether CVDaemon has not published a frame recently."""
+        frame_time = getattr(uns, "cv_frame_time", None)
+        return frame_time is not None and time.time() - frame_time > Ternary.CV_MAX_AGE
+
     async def _evaluate(self, uns=None):
-        """Return whether ssim match succeeds on CVDaemon within one second."""
+        """Return whether ssim match succeeds on CVDaemon within one second.
+
+        Never answers from stale CV data: waits for the daemon to recover and
+        raises TimeoutError instead of falling through to the false branch.
+        """
         if uns is None:
             return False
-        uns.match_scene_id = self.scene_id
-        uns.scene_matched = False
-        await asyncio.sleep(1)
-        uns.match_scene_id = None
-        if uns.scene_matched:
-            return True
-        return False
+        deadline = time.monotonic() + Ternary.CV_WAIT_TIMEOUT
+        while True:
+            while self._cv_stale(uns):
+                if time.monotonic() > deadline:
+                    raise TimeoutError("CV data stale; ternary not evaluated.")
+                logger.warning("CV data is stale; waiting to evaluate ternary.")
+                await asyncio.sleep(1)
+            uns.match_scene_id = self.scene_id
+            uns.scene_matched = False
+            await asyncio.sleep(1)
+            uns.match_scene_id = None
+            if uns.scene_matched:
+                return True
+            if not self._cv_stale(uns):
+                return False
 
 
 def load_macros(drive):

@@ -2,5 +2,5 @@ from setuptools import find_packages, setup
 
 setup(
     name="cynthia",
-    version="1.6.2",
+    version="1.6.3",
 )

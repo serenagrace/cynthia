@@ -66,7 +66,10 @@ def test_daemon_reload_replaces_class_and_restarts_one_daemon(monkeypatch):
 
     manager = object.__new__(DMan)
     manager._DMan__loaded_daemons = Namespace({"CYStream": OldDaemon})
-    manager._DMan__running_daemons = Namespace({"CYStream": object()})
+    manager._DMan__running_daemons = Namespace(
+        {"CYStream": Mock(snapshot_state=Mock(return_value={}))}
+    )
+    manager.pending_state = {}
     manager.stop_daemons = AsyncMock()
 
     async def stop_one(*, daemons):
@@ -108,7 +111,9 @@ def test_daemon_reload_import_failure_keeps_current_daemon_running(monkeypatch):
     )
     manager = object.__new__(DMan)
     manager._DMan__loaded_daemons = Namespace({"CYStream": CurrentDaemon})
-    manager._DMan__running_daemons = Namespace({"CYStream": object()})
+    manager._DMan__running_daemons = Namespace(
+        {"CYStream": Mock(snapshot_state=Mock(return_value={}))}
+    )
     manager.stop_daemons = AsyncMock()
     manager.run_daemons = Mock()
 

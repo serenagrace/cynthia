@@ -4,6 +4,7 @@ import asyncio
 import importlib
 import logging
 import sys
+import time
 from multiprocessing import Manager, shared_memory
 from pathlib import Path
 
@@ -41,6 +42,9 @@ class DMan:
     """Manage daemon discovery, shared frame buffers, and process lifecycle."""
 
     RELOADABLE = ("CYStream", "UVCDaemon")
+    RESTARTABLE = ("UVCDaemon", "CVDaemon")
+    STALL_TIMEOUT = 30
+    RESTART_BACKOFF = 10
 
     def __init__(self, context):
         """Create shared state, discover daemons, and start loaded daemons."""
@@ -56,6 +60,9 @@ class DMan:
             shared_memory.SharedMemory(create=True, size=FB0.nbytes()),
         )
         self.fbptr = None
+        self.pending_state = {}
+        self._last_restart = {}
+        self._needs_restart = set()
         self.manager = Manager()
         self.uns = self.manager.Namespace()
         self.uns.fbptr = None
@@ -173,33 +180,105 @@ class DMan:
                     logger.info(f"Terminating non-daemon process `{_daemon}`.")
                     daemon_obj.process.terminate()
                     daemon_obj.process.join()
-                    del self.__running_daemons[_daemon]
+                    self._forget(_daemon)
                     continue
                 logger.error(f"Daemon `{_daemon}` failed to stop.")
                 if daemon_obj.process.daemon:
                     daemon_obj.process.terminate()
                     daemon_obj.process.join()
-                    del self.__running_daemons[_daemon]
+                    self._forget(_daemon)
                 continue
-            del self.__running_daemons[_daemon]
+            self._forget(_daemon)
+
+    def _forget(self, name):
+        """Drop a stopped daemon and shut down its namespace manager."""
+        daemon_obj = self.__running_daemons.pop(name, None)
+        close = getattr(daemon_obj, "close", None)
+        if close is not None:
+            try:
+                close()
+            except Exception:
+                logger.exception(f"Failed to close manager for daemon `{name}`.")
 
     def reap_exited_daemons(self):
-        """Join exited daemon processes and report unexpected exits."""
+        """Join exited daemon processes and return names that exited unexpectedly."""
+        unexpected = []
         for name, daemon_obj in list(self.__running_daemons.items()):
             if daemon_obj.process.is_alive():
                 continue
             daemon_obj.process.join()
             if daemon_obj.ns.run:
                 daemon_obj.ns.run = False
+                unexpected.append(name)
                 logger.error(
                     f"Daemon `{name}` exited unexpectedly with code "
                     f"{daemon_obj.process.exitcode}."
                 )
+        return unexpected
+
+    def stalled_daemons(self, now=None):
+        """Return names of live capture/CV daemons that stopped producing data."""
+        now = time.time() if now is None else now
+        stalled = []
+        uvc = self.__running_daemons.get("UVCDaemon", None)
+        if uvc is not None and uvc.process.is_alive() and uvc.ns.run:
+            last = getattr(uvc, "started_at", now)
+            for key in ("uvc_time0", "uvc_time1"):
+                frame_time = getattr(self.uns, key, None)
+                if frame_time is not None:
+                    last = max(last, frame_time / 1e9)
+            if now - last > self.STALL_TIMEOUT:
+                stalled.append("UVCDaemon")
+        cv = self.__running_daemons.get("CVDaemon", None)
+        if cv is not None and cv.process.is_alive() and cv.ns.run:
+            beat = getattr(cv.ns, "heartbeat", None)
+            if beat is not None:
+                beat = max(beat, getattr(cv, "started_at", beat))
+                if now - beat > self.STALL_TIMEOUT:
+                    stalled.append("CVDaemon")
+        return stalled
+
+    async def restart_daemon(self, name):
+        """Kill one daemon process and start a fresh one with its saved state."""
+        daemon_obj = self.__running_daemons.get(name, None)
+        if daemon_obj is None:
+            return False
+        state = daemon_obj.snapshot_state()
+        daemon_obj.ns.run = False
+        process = daemon_obj.process
+        if process.is_alive():
+            process.terminate()
+            await asyncio.to_thread(process.join, 5)
+        if process.is_alive():
+            process.kill()
+            await asyncio.to_thread(process.join, 5)
+        if process.is_alive():
+            logger.error(f"Daemon `{name}` will not die; cannot restart it.")
+            return False
+        self._forget(name)
+        self.pending_state[name] = state
+        self.run_daemons(daemons=[name])
+        return True
 
     async def monitor_daemons(self):
-        """Periodically reap daemon processes that exit while the bot runs."""
+        """Restart capture/CV daemons that exit or stall while the bot runs."""
         while True:
-            self.reap_exited_daemons()
+            try:
+                self._needs_restart.update(self.reap_exited_daemons())
+                self._needs_restart.update(self.stalled_daemons())
+                for name in sorted(self._needs_restart):
+                    if name not in self.RESTARTABLE:
+                        self._needs_restart.discard(name)
+                        continue
+                    now = time.monotonic()
+                    if now - self._last_restart.get(name, -1e9) < self.RESTART_BACKOFF:
+                        continue
+                    self._last_restart[name] = now
+                    logger.error(f"Daemon `{name}` dead or stalled; restarting.")
+                    if await self.restart_daemon(name):
+                        self._needs_restart.discard(name)
+            except Exception:
+                logger.exception("Daemon monitor error.")
             await asyncio.sleep(1)
 
     async def reload_daemon(self, name):
@@ -219,6 +298,9 @@ class DMan:
             logger.exception(f"Failed to reload module for daemon `{name}`.")
             raise
 
+        running = self.__running_daemons.get(name, None)
+        if running is not None:
+            self.pending_state[name] = running.snapshot_state()
         await self.stop_daemons(daemons=[name])
         if name in self.__running_daemons:
             raise RuntimeError(f"Daemon `{name}` failed to stop.")
