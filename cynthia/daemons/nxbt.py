@@ -317,6 +317,7 @@ class NXBTDaemon(Daemon):
         self.ns.connect = False
         self.ns.disconnect = False
         self.uns.nxbt_daemon_stop = False
+        self.uns.pressed_buttons = []
         self.ns.connected = False
         self.uns.nxbt_connection_lost = False
         self.uns.watchdog_triggered = False

@@ -59,6 +59,8 @@ HOME_TAP_MAX_DOWN = 0.5
 class Input:
     """Represent one or more controller buttons with timing settings."""
 
+    _press_token = 0
+
     def __init__(
         self,
         input_list=None,
@@ -81,6 +83,7 @@ class Input:
         if not self.input_list:
             await asyncio.sleep(self.down_duration + self.up_duration)
             return None
+        self._publish_pressed(uns)
         try:
             await asyncio.wait_for(
                 asyncio.to_thread(
@@ -102,6 +105,20 @@ class Input:
         ):
             await self._recover_from_quick_settings(nx, controller, uns)
         return None
+
+    def _publish_pressed(self, uns):
+        """Expose the held buttons to the web API until the press releases."""
+        if uns is None:
+            return
+        Input._press_token += 1
+        token = Input._press_token
+        uns.pressed_buttons = [str(button) for button in self.input_list]
+
+        def release():
+            if Input._press_token == token:
+                uns.pressed_buttons = []
+
+        asyncio.get_running_loop().call_later(self.down_duration, release)
 
     async def _quick_settings_open(self, uns):
         """Watch CVDaemon frames briefly and report whether quick settings is open."""

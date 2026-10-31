@@ -248,11 +248,19 @@ def test_every_application_module_and_command_is_registered():
         assert set(tree.loaded_modules) == set(tree.modules)
         assert count == len(commands)
         assert len(names) == len(set(names))
-        assert all(callable(command.callback) for command in commands)
-        assert all(
-            callable(check)
+        leaves = [
+            leaf
             for command in commands
-            for check in getattr(command, "checks", [])
+            for leaf in (
+                command.walk_commands()
+                if isinstance(command, discord.app_commands.Group)
+                else [command]
+            )
+            if not isinstance(leaf, discord.app_commands.Group)
+        ]
+        assert all(callable(leaf.callback) for leaf in leaves)
+        assert all(
+            callable(check) for leaf in leaves for check in getattr(leaf, "checks", [])
         )
         await client.close()
 

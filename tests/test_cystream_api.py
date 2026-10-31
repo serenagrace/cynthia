@@ -22,6 +22,8 @@ def test_cystream_api_status_viewers_and_video_page(tmp_path):
     assert viewer_response.json() == {"viewers": 0}
     assert page_response.status_code == 200
     assert 'id="feed"' in page_response.text
+    assert 'class="controller-pad"' in page_response.text
+    assert 'id="DPAD_UP"' in page_response.text
 
 
 def test_cystream_api_returns_empty_status_for_invalid_json(tmp_path):
@@ -91,3 +93,56 @@ def test_cystream_status_apis_return_empty_data_when_drive_disabled():
     assert status_response.json() == {}
     assert stats_response.status_code == 200
     assert stats_response.json() == {}
+
+
+def test_cystream_api_inputs(tmp_path):
+    app = create_app(
+        Drive(tmp_path),
+        SimpleNamespace(run=True, uvc_time=0),
+        SimpleNamespace(fbptr=None, pressed_buttons=["A", "DPAD_UP"]),
+        [None, None],
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/api/inputs")
+
+    assert response.json() == {"pressed": ["A", "DPAD_UP"]}
+
+
+def test_cystream_audio_stream_unavailable_without_device(tmp_path):
+    app = create_app(
+        Drive(tmp_path),
+        SimpleNamespace(run=True, uvc_time=0),
+        SimpleNamespace(fbptr=None),
+        [None, None],
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/api/audio_stream")
+
+    assert response.status_code == 503
+
+
+def test_cystream_audio_stream_proxies_ffmpeg_output(tmp_path, monkeypatch):
+    import asyncio
+
+    real_exec = asyncio.create_subprocess_exec
+
+    async def fake_exec(*args, **kwargs):
+        assert args[0] == "ffmpeg" and "test_dev" in args
+        return await real_exec("printf", "ID3audio", **kwargs)
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+    app = create_app(
+        Drive(tmp_path),
+        SimpleNamespace(run=True, uvc_time=0),
+        SimpleNamespace(fbptr=None),
+        [None, None],
+        "test_dev",
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/api/audio_stream")
+
+    assert response.headers["content-type"] == "audio/mpeg"
+    assert response.content == b"ID3audio"

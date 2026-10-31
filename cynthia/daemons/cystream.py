@@ -12,16 +12,32 @@ from pathlib import Path
 import cv2
 import numpy
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
 
 from .daemon import Daemon
 from .dman import FB0
 
 SITE_DIR = Path(__file__).resolve().parent.parent / "site"
+ASOUND_CARDS = Path("/proc/asound/cards")
 
 
-def create_app(drive, ns, uns, fb):
+def find_audio_device(env=None):
+    """Return the ALSA capture device: `AUDIO_DEVICE`, else the Elgato card."""
+    configured = env.get("AUDIO_DEVICE", None) if env is not None else None
+    if configured:
+        return configured
+    try:
+        for line in ASOUND_CARDS.read_text().splitlines():
+            if "elgato" in line.lower() and "[" in line:
+                card_id = line.split("[", 1)[1].split("]", 1)[0].strip()
+                return f"plughw:CARD={card_id}"
+    except OSError:
+        pass
+    return None
+
+
+def create_app(drive, ns, uns, fb, audio_device=None):
     """Build the FastAPI app that streams frames and serves status endpoints."""
     viewers = {"count": 0}
     latest = {"seq": 0, "chunk": None}
@@ -122,10 +138,60 @@ def create_app(drive, ns, uns, fb):
         scores = getattr(uns, "ssim_scores", None) or []
         return {"scores": [{"scene": k, "score": float(v)} for k, v in scores[:5]]}
 
+    @app.get("/api/inputs")
+    async def inputs():
+        """Return the controller buttons macros are currently pressing."""
+        return {"pressed": list(getattr(uns, "pressed_buttons", None) or [])}
+
     @app.get("/api/viewers")
     async def viewer_count():
         """Return the current number of video stream viewers."""
         return {"viewers": viewers["count"]}
+
+    async def audio_generator():
+        """Yield MP3 chunks from an ffmpeg capture that lives with the listener."""
+        proc = await asyncio.create_subprocess_exec(
+            "ffmpeg",
+            "-nostdin",
+            "-loglevel",
+            "error",
+            "-f",
+            "alsa",
+            "-i",
+            audio_device,
+            "-c:a",
+            "libmp3lame",
+            "-b:a",
+            "128k",
+            "-flush_packets",
+            "1",
+            "-f",
+            "mp3",
+            "-",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        try:
+            while ns.run:
+                chunk = await proc.stdout.read(4096)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            if proc.returncode is None:
+                proc.kill()
+            await proc.wait()
+
+    @app.get("/api/audio_stream")
+    async def audio_stream():
+        """Stream captured game audio as MP3 while a listener is connected."""
+        if not audio_device:
+            raise HTTPException(status_code=503, detail="No audio device")
+        return StreamingResponse(
+            audio_generator(),
+            media_type="audio/mpeg",
+            headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+        )
 
     @app.get("/video_feed", response_class=HTMLResponse)
     async def video_feed_page():
@@ -170,7 +236,7 @@ class CYStream(Daemon):
     def __init__(self, dman):
         """Create the web worker and attach compressed access logging."""
 
-        def loop(ns, uns, fba, fbb, drive):
+        def loop(ns, uns, fba, fbb, drive, audio_device):
             """Serve the FastAPI app over the local HTTP interface."""
             with (
                 closing(shared_memory.SharedMemory(name=fba)) as shmA,
@@ -181,7 +247,7 @@ class CYStream(Daemon):
                     numpy.ndarray(FB0.shape(), dtype=numpy.uint8, buffer=shms[idx].buf)
                     for idx in (0, 1)
                 )
-                app = create_app(drive, ns, uns, fb)
+                app = create_app(drive, ns, uns, fb, audio_device)
                 ns.done = True
                 config = uvicorn.Config(
                     app,
@@ -200,7 +266,12 @@ class CYStream(Daemon):
                     access.addHandler(GzipLogHandler(access_path))
                 uvicorn.Server(config).run()
 
-        super().__init__(dman, dman.drive, fbs=(0,))
+        super().__init__(
+            dman,
+            dman.drive,
+            find_audio_device(dman.context.env),
+            fbs=(0,),
+        )
         self.ns.uvc_time = -1
         self.ns.done = False
         self.loop = loop
