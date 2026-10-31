@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Block commits on development when origin/master has commits not in HEAD.
+# Bypass once with: SKIP_SYNC_CHECK=1 git commit ...  (or --no-verify)
+
+[ -n "$SKIP_SYNC_CHECK" ] && exit 0
+[ "$(git symbolic-ref --short -q HEAD)" = "development" ] || exit 0
+
+if ! git fetch --quiet origin master 2>/dev/null; then
+    echo "pre-commit: could not fetch origin/master; skipping sync check." >&2
+    exit 0
+fi
+
+behind=$(git rev-list --count HEAD..origin/master)
+if [ "$behind" -gt 0 ]; then
+    echo "pre-commit: development is $behind commit(s) behind origin/master." >&2
+    echo "Sync first: git merge origin/master  (or git rebase origin/master)" >&2
+    exit 1
+fi
