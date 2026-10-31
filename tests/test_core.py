@@ -265,3 +265,23 @@ def test_every_application_module_and_command_is_registered():
         await client.close()
 
     asyncio.run(run())
+
+
+def test_ternary_waits_out_stale_cv_data(monkeypatch):
+    import asyncio
+    import time
+    from types import SimpleNamespace
+
+    from cynthia.utils.nxbt_utils import Ternary
+
+    monkeypatch.setattr(Ternary, "CV_WAIT_TIMEOUT", 0.5)
+    uns = SimpleNamespace(cv_frame_time=time.time() - 60, scene_matched=False)
+    try:
+        asyncio.run(Ternary("a", "b", "c")._evaluate(uns=uns))
+    except TimeoutError:
+        pass
+    else:
+        raise AssertionError("stale CV data must not yield a false result")
+
+    uns.cv_frame_time = time.time() + 100
+    assert asyncio.run(Ternary("a", "b", "c")._evaluate(uns=uns)) is False

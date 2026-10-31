@@ -112,6 +112,8 @@ class Scene:
 class CVDaemon(Daemon):
     """Analyze captured frames and publish game and encounter state."""
 
+    PERSISTED_STATE = ("encounter_log", "self_encounter", "game", "home", "playing")
+
     def __init__(self, dman):
         """Create shared state and start the computer-vision worker."""
 
@@ -147,127 +149,155 @@ class CVDaemon(Daemon):
                     timer = -1
                     timing_encounter = False
                     while ns.run:
+                        ns.heartbeat = time.time()
                         while uns.fbptr is None:
                             await asyncio.sleep(0.05)
+                            ns.heartbeat = time.time()
                         fbptr = uns.fbptr
                         uns_time = uns.uvc_time1 if fbptr else uns.uvc_time0
                         if ns.uvc_time != uns_time:
                             ns.uvc_time = uns_time
-                            frame[:] = fb[fbptr][:]
-                            perf_time = time.perf_counter()
-                            # Only compared while a HOME tap is being checked
-                            if uns.quick_settings_watch:
-                                uns.quick_settings_open = (
-                                    CV.quick_settings_scene.ssim_match(frame)
-                                    > CV.QUICK_SETTINGS_THRESHOLD
-                                )
-                            scores = {}
-                            scores["home"] = CV.home_screen_scene.ssim_match(frame)
-                            scores["afk_home"] = CV.afk_home_screen_scene.ssim_match(
-                                frame
-                            )
-                            scores["boot"] = CV.boot_screen_scene.ssim_match(frame)
-                            scores["elgato_no_signal"] = (
-                                CV.elgato_no_signal_scene.ssim_match(frame)
-                            )
-                            scores["bdsp_tbox"] = CV.bdsp_tbox_scene.ssim_match(frame)
-                            scores["bdsp_run"] = CV.bdsp_run_scene.ssim_match(frame)
-                            scores["route_202"] = CV.route_202_scene.ssim_match(frame)
-                            scores["roamer"] = CV.bdsp_roamer_scene.ssim_match(frame)
-                            buffer = UVC.frame_to_buffer(frame)
-                            filename = "frame.png"
-
-                            embed = discord.Embed(title="UVC Data:")
-                            embed.set_image(url=f"attachment://{filename}")
-                            sorted_scores = list(
-                                sorted(
-                                    scores.items(),
-                                    key=lambda item: item[1],
-                                    reverse=True,
-                                )
-                            )
-                            uns.ssim_scores = sorted_scores[:5]
-                            score_text = [
-                                f"{key}: {value}" for key, value in sorted_scores
-                            ]
-                            if sorted_scores[0][1] > 0.9:
-                                score_text[0] = f"**{score_text[0]}**"
-                            embed.add_field(name="Scenes:", value="\n".join(score_text))
-
-                            if uns.match_scene_id is not None:
-                                if uns.match_scene_id in scores:
-                                    if scores[uns.match_scene_id] > 0.98:
-                                        uns.scene_matched = True
-
-                            if sorted_scores[0][1] > 0.9:
-                                if sorted_scores[0][0] in ("home", "afk_home"):
-                                    game = CV.scrape_text(frame, y=200, h=100).strip()
-                                    no_start_chars = ("-", ".", "_", ":", ";")
-                                    while any(
-                                        game.startswith(char) for char in no_start_chars
-                                    ):
-                                        game = game[1:].strip()
-                                    game = re.sub(r"^[a-zA-Z\-] ", "", game)
-                                    game = canonical_game_title(game)
-                                    embed.add_field(name="Selected Game:", value=game)
-                                    ns.game = game
-                                    ns.home = True
-                                    ns.playing = False
-                                if sorted_scores[0][0] in ("elgato_no_signal"):
-                                    ns.home = False
-                                    ns.playing = False
-                                if sorted_scores[0][0] in ("boot", "boot2"):
-                                    ns.home = False
-                                    ns.playing = True
-                                if sorted_scores[0][0] in ("bdsp_tbox"):
-                                    raw_text = CV.scrape_text(
-                                        frame, y=870, h=260, w=860
+                            try:
+                                frame[:] = fb[fbptr][:]
+                                perf_time = time.perf_counter()
+                                # Only compared while a HOME tap is being checked
+                                if uns.quick_settings_watch:
+                                    uns.quick_settings_open = (
+                                        CV.quick_settings_scene.ssim_match(frame)
+                                        > CV.QUICK_SETTINGS_THRESHOLD
                                     )
-                                    if ns.self_encounter:
-                                        if "Go" in raw_text:
+                                scores = {}
+                                scores["home"] = CV.home_screen_scene.ssim_match(frame)
+                                scores["afk_home"] = (
+                                    CV.afk_home_screen_scene.ssim_match(frame)
+                                )
+                                scores["boot"] = CV.boot_screen_scene.ssim_match(frame)
+                                scores["elgato_no_signal"] = (
+                                    CV.elgato_no_signal_scene.ssim_match(frame)
+                                )
+                                scores["bdsp_tbox"] = CV.bdsp_tbox_scene.ssim_match(
+                                    frame
+                                )
+                                scores["bdsp_run"] = CV.bdsp_run_scene.ssim_match(frame)
+                                scores["route_202"] = CV.route_202_scene.ssim_match(
+                                    frame
+                                )
+                                scores["roamer"] = CV.bdsp_roamer_scene.ssim_match(
+                                    frame
+                                )
+                                buffer = UVC.frame_to_buffer(frame)
+                                filename = "frame.png"
+
+                                embed = discord.Embed(title="UVC Data:")
+                                embed.set_image(url=f"attachment://{filename}")
+                                sorted_scores = list(
+                                    sorted(
+                                        scores.items(),
+                                        key=lambda item: item[1],
+                                        reverse=True,
+                                    )
+                                )
+                                uns.ssim_scores = sorted_scores[:5]
+                                score_text = [
+                                    f"{key}: {value}" for key, value in sorted_scores
+                                ]
+                                if sorted_scores[0][1] > 0.9:
+                                    score_text[0] = f"**{score_text[0]}**"
+                                embed.add_field(
+                                    name="Scenes:", value="\n".join(score_text)
+                                )
+
+                                if uns.match_scene_id is not None:
+                                    if uns.match_scene_id in scores:
+                                        if scores[uns.match_scene_id] > 0.98:
+                                            uns.scene_matched = True
+
+                                if sorted_scores[0][1] > 0.9:
+                                    if sorted_scores[0][0] in ("home", "afk_home"):
+                                        game = CV.scrape_text(
+                                            frame, y=200, h=100
+                                        ).strip()
+                                        no_start_chars = ("-", ".", "_", ":", ";")
+                                        while any(
+                                            game.startswith(char)
+                                            for char in no_start_chars
+                                        ):
+                                            game = game[1:].strip()
+                                        game = re.sub(r"^[a-zA-Z\-] ", "", game)
+                                        game = canonical_game_title(game)
+                                        embed.add_field(
+                                            name="Selected Game:", value=game
+                                        )
+                                        ns.game = game
+                                        ns.home = True
+                                        ns.playing = False
+                                    if sorted_scores[0][0] in ("elgato_no_signal"):
+                                        ns.home = False
+                                        ns.playing = False
+                                    if sorted_scores[0][0] in ("boot", "boot2"):
+                                        ns.home = False
+                                        ns.playing = True
+                                    if sorted_scores[0][0] in ("bdsp_tbox"):
+                                        raw_text = CV.scrape_text(
+                                            frame, y=870, h=260, w=860
+                                        )
+                                        if ns.self_encounter:
+                                            if "Go" in raw_text:
+                                                timer = uns_time
+                                                timing_encounter = True
+                                            else:
+                                                if timing_encounter:
+                                                    self.uns.nxbt_daemon_stop = (
+                                                        encounter_timer(
+                                                            uns_time, timer, ns.game
+                                                        )
+                                                    )
+                                                    timing_encounter = False
+                                        elif any(
+                                            word in raw_text
+                                            for word in ("appeared", "encountered")
+                                        ):
                                             timer = uns_time
                                             timing_encounter = True
-                                        else:
-                                            if timing_encounter:
+                                        else:  # not currently starting the timer
+                                            if (
+                                                timing_encounter
+                                                and not ns.self_encounter
+                                            ):
                                                 self.uns.nxbt_daemon_stop = (
                                                     encounter_timer(
                                                         uns_time, timer, ns.game
                                                     )
                                                 )
                                                 timing_encounter = False
-                                    elif any(
-                                        word in raw_text
-                                        for word in ("appeared", "encountered")
-                                    ):
-                                        timer = uns_time
-                                        timing_encounter = True
-                                    else:  # not currently starting the timer
-                                        if timing_encounter and not ns.self_encounter:
+
+                                    if sorted_scores[0][0] in ("bdsp_run"):
+                                        if (
+                                            timing_encounter
+                                        ):  # if this is a non-self it's too late anyways
                                             self.uns.nxbt_daemon_stop = encounter_timer(
                                                 uns_time, timer, ns.game
                                             )
                                             timing_encounter = False
-
-                                if sorted_scores[0][0] in ("bdsp_run"):
-                                    if (
-                                        timing_encounter
-                                    ):  # if this is a non-self it's too late anyways
-                                        self.uns.nxbt_daemon_stop = encounter_timer(
-                                            uns_time, timer, ns.game
-                                        )
-                                        timing_encounter = False
-                            else:
-                                ns.home = False
-                                ns.playing = True
-                            embed.set_footer(
-                                text=f"Scene: {(time.perf_counter() - perf_time)*1000:.0f}ms"
-                            )
-                            ns.embed, ns.png = embed, buffer.getvalue()
+                                else:
+                                    ns.home = False
+                                    ns.playing = True
+                                embed.set_footer(
+                                    text=f"Scene: {(time.perf_counter() - perf_time)*1000:.0f}ms"
+                                )
+                                ns.embed, ns.png = embed, buffer.getvalue()
+                                uns.cv_frame_time = time.time()
+                            except Exception:
+                                logger.exception(
+                                    "CV frame processing failed; skipping frame."
+                                )
 
                 asyncio.run(main_task())
 
         super().__init__(dman, dman.drive, fbs=(0,))
         self.ns.uvc_time = -1
+        self.ns.heartbeat = time.time()
+        self.uns.cv_frame_time = time.time()
         self.uns.nxbt_daemon_stop = False
         self.uns.quick_settings_watch = False
         self.uns.quick_settings_open = False
@@ -284,6 +314,12 @@ class CVDaemon(Daemon):
         self.uns.encounter_log = self.ns.encounter_log
         self.loop = loop
         self.start()
+
+    def restore_state(self, state):
+        """Apply carried-over state, including the log path shared with NXBT."""
+        super().restore_state(state)
+        if "encounter_log" in state:
+            self.uns.encounter_log = state["encounter_log"]
 
     def set_hunt(self, hunt):
         """Update the encounter log path for the active hunt."""

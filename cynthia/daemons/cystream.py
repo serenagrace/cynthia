@@ -45,10 +45,18 @@ def create_app(drive, ns, uns, fb, audio_device=None):
     last_stats = {}
 
     def encode(frame):
-        """Resize a frame and encode it as JPEG bytes."""
+        """Downscale a frame to 720p and encode it as high-quality JPEG bytes."""
         success, buffer = cv2.imencode(
             ".jpg",
-            cv2.resize(frame, None, fx=0.5, fy=0.5, interpolation=cv2.INTER_AREA),
+            cv2.resize(frame, (1280, 720), interpolation=cv2.INTER_AREA),
+            (
+                cv2.IMWRITE_JPEG_QUALITY,
+                90,
+                cv2.IMWRITE_JPEG_OPTIMIZE,
+                1,
+                cv2.IMWRITE_JPEG_SAMPLING_FACTOR,
+                cv2.IMWRITE_JPEG_SAMPLING_FACTOR_444,
+            ),
         )
         return buffer.tobytes() if success else None
 
@@ -155,14 +163,30 @@ def create_app(drive, ns, uns, fb, audio_device=None):
             "-nostdin",
             "-loglevel",
             "error",
+            "-fflags",
+            "nobuffer",
+            "-flags",
+            "low_delay",
+            "-probesize",
+            "32",
+            "-analyzeduration",
+            "0",
+            "-thread_queue_size",
+            "1024",
             "-f",
             "alsa",
             "-i",
             audio_device,
+            "-af",
+            "highpass=f=20,aresample=async=1000",
+            "-ar",
+            "48000",
+            "-ac",
+            "2",
             "-c:a",
             "libmp3lame",
             "-b:a",
-            "128k",
+            "192k",
             "-flush_packets",
             "1",
             "-f",

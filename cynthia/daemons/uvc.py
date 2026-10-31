@@ -46,6 +46,12 @@ class UVCDaemon(Daemon):
                         if uvc.cap is None:
                             await uvc.setup()
                         frame = await uvc.read_frame()
+                        if frame is None:
+                            # Capture dropped out; reopen (and USB reset) it
+                            uvc.release()
+                            uvc.cap = None
+                            await asyncio.sleep(1)
+                            continue
                         _time = time.time_ns()
                         _hash = xxhash.xxh3_64_intdigest(frame.data)
                         fbptr = 1 if uns.fbptr == 0 else 0
