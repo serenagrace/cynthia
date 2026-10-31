@@ -3,7 +3,7 @@ requires = ["setuptools >= 77.0.3"]
 build-backend = "setuptools.build_meta"
 [project]
 name="cynthia"
-version="1.6.1"
+version="1.6.2"
 description="Discord bot with Nintendo Switch (NXBT) automation and shiny-hunting video capture"
 readme="README.md"
 license="GPL-3.0-or-later"
@@ -15,12 +15,13 @@ classifiers=[
 ]
 requires-python=">=3.11,<3.12"
 dependencies = [
-    "discord-py",
+    "discord-py[voice]",
     "nxbt @ git+https://github.com/serenagrace/nxbt@cynthia-patches",
     "python-dotenv==1.2.4",
     "pyyaml==6.0.2",
     "pyotp",
     "rapidfuzz",
+    "yt-dlp",
     "requests-async",
     "uvicorn",
     "scikit-image",

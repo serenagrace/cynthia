@@ -30,13 +30,13 @@ Shiny hunting needs a Bluetooth adapter and a UVC capture card (tested with an E
 Debian or Ubuntu:
 
 ```bash
-sudo apt install bluez v4l-utils usbutils tmux
+sudo apt install bluez v4l-utils usbutils tmux ffmpeg libopus0
 ```
 
 Arch Linux:
 
 ```bash
-sudo pacman -S bluez bluez-utils bluez-deprecated-tools v4l-utils usbutils tmux
+sudo pacman -S bluez bluez-utils bluez-deprecated-tools v4l-utils usbutils tmux ffmpeg opus
 sudo systemctl enable --now bluetooth.service
 ```
 
@@ -44,6 +44,7 @@ sudo systemctl enable --now bluetooth.service
 - `bluez-deprecated-tools` provides `hciconfig`, `hcitool` and `sdptool`, which NXBT requires. On Arch they are not in `bluez-utils`.
 - `v4l-utils` provides `v4l2-ctl`; `usbutils` provides `lsusb` and `usbreset`.
 - `tmux` is only needed for the boot-time service in `deploy/`.
+- `ffmpeg` and `opus` are needed for `/music` voice playback.
 
 Arch has no `python311` in its official repositories. Install the AUR package `python311` with your AUR helper, review its build files first, and use `python3.11` for the virtual environment below.
 
@@ -203,6 +204,29 @@ Connect and start a hunt with the target name and matching macro name:
 Replace `Darkrai` and `darkrai` with your target and its macro name. The Mesprit macro is named `mespirit`. `cyclient` is optional; run it on your desktop to sync your Discord Rich Presence with the bot's detected game status.
 
 The conditional steps use scenes such as `route_202`, `roamer` and `bdsp_run`, provided by the CV daemon.
+
+## Music
+
+`/music` plays YouTube audio in voice calls. The group is not global: it works in a server only after `music` is added to that server's `allowed_commands` (or the `global` block).
+
+| Command | Does |
+| --- | --- |
+| `/music play <query>` | Queue a YouTube or YouTube Music link, a whole playlist or album link (up to 50 songs), or the closest YouTube match for the words given, and play it in your voice channel. With no query, resumes a paused song. |
+| `/music search <query>` | Same lookup and queueing as `play`, for keyword searches. |
+| `/music pause` | Pause the current song. |
+| `/music skip` | Skip the current song. |
+| `/music stop` | Stop playback and clear the queue; the bot stays in the channel. |
+| `/music queue` | Show the current song and the next ten. |
+| `/music clear` | Clear the queue; the current song keeps playing. |
+| `/music pin <link> [query]` | Pin a link: searches resembling `query` (default: the song's title) play it before any search result. Pins are saved per server on the drive. |
+| `/music pins` / `/music unpin <number>` | List the server's pins / remove one. |
+| `/music join` / `/music leave` | Join your voice channel / stop and leave. |
+
+Searches rank YouTube results by title match, YouTube Music membership, artist signals (`Artist - Title`, artist or Topic channels), views and song-like length, and avoid covers, remixes, live versions and long mixes unless the query asks for them.
+
+Public videos and playlists need no login. For age-restricted or members-only videos and private playlists, export a Premium session's `cookies.txt` (Netscape format, e.g. with a browser extension) and set `YTDL_COOKIES_FILE` in `.env`; passwords are not supported or needed. Keep that file out of git.
+
+Playback runs inside the bot process, because Discord voice connections cannot be shared with a daemon process. Control commands require you to be in the bot's voice channel. Direct links are loaded as single videos, and live streams cannot be queued. The queue holds up to 100 songs per server.
 
 ## Discord Rich Presence
 

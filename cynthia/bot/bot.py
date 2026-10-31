@@ -45,6 +45,7 @@ class Bot(commands.Bot):
         self.drive = Drive(context.drive_path)
         self.sync_guild_id = context.env.get("SYNC_GUILD_ID", None) or None
         hosts = context.env.get("STATUS_HOSTS", None) or ""
+        self.ytdl_cookies = context.env.get("YTDL_COOKIES_FILE", None) or None
         self.status_hosts = [h.strip() for h in hosts.split(",") if h.strip()]
         self.database = Database(self.drive)
         if test_mode:

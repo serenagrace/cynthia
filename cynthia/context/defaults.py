@@ -11,6 +11,7 @@ class Defaults:
         "ELGATO_USB_ID": None,
         "SYNC_GUILD_ID": None,
         "STATUS_HOSTS": None,
+        "YTDL_COOKIES_FILE": None,
     }
     config = {
         "silent": False,

@@ -180,6 +180,69 @@
             font-variant-numeric: tabular-nums;
             color: #e1e1e6;
         }
+
+        /* Controller input display */
+        .controller-pad {
+            display: block;
+            width: 100%;
+            height: auto;
+        }
+
+        .pad-key {
+            color: #a0a0ad;
+            transition: color 0.05s;
+        }
+
+        .pad-key .button {
+            fill: #34343e;
+            stroke: #555560;
+            stroke-width: 2;
+            transition: fill 0.05s, stroke 0.05s;
+        }
+
+        .pad-key .label {
+            fill: currentColor;
+            font: 600 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            text-anchor: middle;
+            dominant-baseline: central;
+            pointer-events: none;
+        }
+
+        .pad-key.on {
+            color: #ffffff;
+        }
+
+        .pad-key.on .button,
+        .pad-key.on .stick-cap {
+            fill: #3a6ff0;
+            stroke: #9db7ff;
+        }
+
+        .controller-body {
+            fill: #23232a;
+            stroke: #41414d;
+            stroke-width: 3;
+        }
+
+        .controller-detail {
+            fill: #1b1b20;
+            stroke: #383842;
+            stroke-width: 2;
+        }
+
+        .stick-cap {
+            fill: #292931;
+            stroke: #62626f;
+            stroke-width: 2;
+        }
+
+        .toggle.second {
+            right: 48px;
+        }
+
+        .toggle.third {
+            right: 84px;
+        }
         </style>
     </head>
     <body>
@@ -192,6 +255,11 @@
                 </div>
                 </div>
             <button class="toggle" id="ssim-toggle" type="button" title="Show SSIM scores" aria-label="Show SSIM scores" aria-pressed="false">&#8943;</button>
+
+            <button class="toggle second" id="input-toggle" type="button" title="Show inputs" aria-label="Show inputs" aria-pressed="false">&#127918;</button>
+
+            <button class="toggle third" id="mute-toggle" type="button" title="Unmute audio" aria-label="Unmute audio" aria-pressed="false">&#128263;</button>
+            <audio id="audio" preload="none"></audio>
 
             <div class="side" id="side">
                 <!-- Hidden unless the bot reports an activity -->
@@ -224,6 +292,86 @@
                             <span class="stat-value" id="viewer-count">–</span>
                         </div>
                     </div>
+                </div>
+
+                <div class="status-pane" id="input-pane" hidden>
+                    <div class="ssim-title">Inputs</div>
+                    <svg class="controller-pad" id="pad" viewBox="0 0 500 300" role="img" aria-label="Controller input display">
+                        <path class="controller-body" d="M91 42h318c27 0 45 18 53 50l31 128c7 31-11 55-39 55-19 0-34-12-48-33l-30-45c-10-15-26-23-44-23H168c-18 0-34 8-44 23l-30 45c-14 21-29 33-48 33-28 0-46-24-39-55L38 92c8-32 26-50 53-50z"/>
+                        <path class="controller-detail" d="M205 78h90a8 8 0 0 1 8 8v29h-106V86a8 8 0 0 1 8-8z"/>
+
+                        <g class="pad-key" id="ZL" aria-label="ZL">
+                            <title>ZL</title><rect class="button" x="83" y="52" width="72" height="23" rx="8"/><text class="label" x="119" y="64">ZL</text>
+                        </g>
+                        <g class="pad-key" id="L" aria-label="L">
+                            <title>L</title><rect class="button" x="163" y="52" width="68" height="23" rx="8"/><text class="label" x="197" y="64">L</text>
+                        </g>
+                        <g class="pad-key" id="R" aria-label="R">
+                            <title>R</title><rect class="button" x="269" y="52" width="68" height="23" rx="8"/><text class="label" x="303" y="64">R</text>
+                        </g>
+                        <g class="pad-key" id="ZR" aria-label="ZR">
+                            <title>ZR</title><rect class="button" x="345" y="52" width="72" height="23" rx="8"/><text class="label" x="381" y="64">ZR</text>
+                        </g>
+
+                        <g class="pad-key" id="DPAD_UP" aria-label="D-pad up">
+                            <title>D-pad up</title><rect class="button" x="119" y="109" width="32" height="32" rx="5"/><text class="label" x="135" y="125">↑</text>
+                        </g>
+                        <g class="pad-key" id="DPAD_LEFT" aria-label="D-pad left">
+                            <title>D-pad left</title><rect class="button" x="85" y="143" width="32" height="32" rx="5"/><text class="label" x="101" y="159">←</text>
+                        </g>
+                        <g class="pad-key" id="DPAD_DOWN" aria-label="D-pad down">
+                            <title>D-pad down</title><rect class="button" x="119" y="177" width="32" height="32" rx="5"/><text class="label" x="135" y="193">↓</text>
+                        </g>
+                        <g class="pad-key" id="DPAD_RIGHT" aria-label="D-pad right">
+                            <title>D-pad right</title><rect class="button" x="153" y="143" width="32" height="32" rx="5"/><text class="label" x="169" y="159">→</text>
+                        </g>
+
+                        <g class="pad-key" id="L_STICK_PRESS" aria-label="Left stick press">
+                            <title>Left stick press</title><circle class="button" cx="217" cy="174" r="31"/><circle class="stick-cap" cx="217" cy="174" r="21"/><text class="label" x="217" y="174">LS</text>
+                        </g>
+                        <g class="pad-key" id="R_STICK_PRESS" aria-label="Right stick press">
+                            <title>Right stick press</title><circle class="button" cx="301" cy="211" r="31"/><circle class="stick-cap" cx="301" cy="211" r="21"/><text class="label" x="301" y="211">RS</text>
+                        </g>
+
+                        <g class="pad-key" id="Y" aria-label="Y">
+                            <title>Y</title><circle class="button" cx="373" cy="142" r="17"/><text class="label" x="373" y="142">Y</text>
+                        </g>
+                        <g class="pad-key" id="X" aria-label="X">
+                            <title>X</title><circle class="button" cx="405" cy="110" r="17"/><text class="label" x="405" y="110">X</text>
+                        </g>
+                        <g class="pad-key" id="B" aria-label="B">
+                            <title>B</title><circle class="button" cx="405" cy="174" r="17"/><text class="label" x="405" y="174">B</text>
+                        </g>
+                        <g class="pad-key" id="A" aria-label="A">
+                            <title>A</title><circle class="button" cx="437" cy="142" r="17"/><text class="label" x="437" y="142">A</text>
+                        </g>
+
+                        <g class="pad-key" id="MINUS" aria-label="Minus">
+                            <title>Minus</title><rect class="button" x="237" y="124" width="25" height="16" rx="8"/><text class="label" x="249" y="132">−</text>
+                        </g>
+                        <g class="pad-key" id="PLUS" aria-label="Plus">
+                            <title>Plus</title><rect class="button" x="281" y="124" width="25" height="16" rx="8"/><text class="label" x="293" y="132">+</text>
+                        </g>
+                        <g class="pad-key" id="CAPTURE" aria-label="Capture">
+                            <title>Capture</title><circle class="button" cx="250" cy="211" r="10"/><text class="label" x="250" y="211">□</text>
+                        </g>
+                        <g class="pad-key" id="HOME" aria-label="Home">
+                            <title>Home</title><circle class="button" cx="349" cy="211" r="13"/><text class="label" x="349" y="211">⌂</text>
+                        </g>
+
+                        <g class="pad-key" id="JCL_SL" aria-label="Left Joy-Con SL">
+                            <title>Left Joy-Con SL</title><rect class="button" x="45" y="143" width="19" height="28" rx="6"/><text class="label" x="54" y="157">SL</text>
+                        </g>
+                        <g class="pad-key" id="JCL_SR" aria-label="Left Joy-Con SR">
+                            <title>Left Joy-Con SR</title><rect class="button" x="66" y="177" width="19" height="28" rx="6"/><text class="label" x="75" y="191">SR</text>
+                        </g>
+                        <g class="pad-key" id="JCR_SL" aria-label="Right Joy-Con SL">
+                            <title>Right Joy-Con SL</title><rect class="button" x="436" y="177" width="19" height="28" rx="6"/><text class="label" x="445" y="191">SL</text>
+                        </g>
+                        <g class="pad-key" id="JCR_SR" aria-label="Right Joy-Con SR">
+                            <title>Right Joy-Con SR</title><rect class="button" x="457" y="143" width="19" height="28" rx="6"/><text class="label" x="466" y="157">SR</text>
+                        </g>
+                    </svg>
                 </div>
 
                 <div class="status-pane" id="ssim-pane" hidden>
@@ -399,6 +547,66 @@
                 ssimTimer = setInterval(updateSsim, 1000);
             }
         });
+
+        // Audio: the stream only connects while unmuted, so the server captures on demand
+        let muted = true;
+        function setMuted(value) {
+            muted = value;
+            const audio = $("audio");
+            const btn = $("mute-toggle");
+            const label = muted ? "Unmute audio" : "Mute audio";
+            btn.innerHTML = muted ? "&#128263;" : "&#128266;";
+            btn.title = label;
+            btn.setAttribute("aria-label", label);
+            btn.setAttribute("aria-pressed", String(!muted));
+            if (muted) {
+                audio.pause();
+                audio.removeAttribute("src");
+                audio.load();
+            } else {
+                audio.src = "/api/audio_stream?t=" + Date.now();
+                audio.play().catch(() => setMuted(true));
+            }
+        }
+        $("audio").addEventListener("error", () => {
+            if (!muted) setTimeout(() => { if (!muted) setMuted(false); }, 3000);
+        });
+        $("mute-toggle").addEventListener("click", () => setMuted(!muted));
+
+        // Input display
+        const padEls = {};
+        for (const el of $("pad").querySelectorAll(".pad-key[id]")) {
+            padEls[el.id] = el;
+        }
+        let inputTimer = null;
+        async function updateInputs() {
+            try {
+                const res = await fetch("/api/inputs", { cache: "no-store" });
+                if (!res.ok) throw new Error(res.status);
+                const pressed = new Set((await res.json()).pressed);
+                for (const [name, el] of Object.entries(padEls)) {
+                    el.classList.toggle("on", pressed.has(name));
+                }
+            } catch (e) {
+                // Keep previous state on transient failures
+            }
+        }
+
+        function setInputsVisible(visible) {
+            $("input-pane").hidden = !visible;
+            const label = visible ? "Hide inputs" : "Show inputs";
+            $("input-toggle").title = label;
+            $("input-toggle").setAttribute("aria-label", label);
+            $("input-toggle").setAttribute("aria-pressed", String(visible));
+            clearInterval(inputTimer);
+            if (visible) {
+                updateInputs();
+                inputTimer = setInterval(updateInputs, 100);
+            }
+            try { localStorage.setItem("showInputs", visible ? "1" : "0"); } catch (e) {}
+        }
+        $("input-toggle").addEventListener("click", () => setInputsVisible($("input-pane").hidden));
+        try { if (localStorage.getItem("showInputs") === "1") setInputsVisible(true); } catch (e) {}
 
         refresh();
         setInterval(refresh, 3000);

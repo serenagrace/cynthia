@@ -83,19 +83,24 @@ def drive_permission():
     return app_commands.check(predicate)
 
 
+def require_command_allowed(interaction: discord.Interaction, command: str) -> bool:
+    """Allow DMs, or require the command to be allowed in the interaction's server."""
+    if interaction.guild is None:
+        return True
+    return _require(
+        interaction.client.perms_check(
+            interaction, perm="allowed_commands", command=command
+        ),
+        f"`/{command}` is not allowed in this server.",
+    )
+
+
 def nonglobal_command():
     """Restrict a command to servers where it is allowed."""
 
     async def predicate(interaction: discord.Interaction) -> bool:
         """Allow DMs or check the command's server-specific allowance."""
-        if interaction.guild is None:
-            return True
-        return _require(
-            interaction.client.perms_check(
-                interaction, perm="allowed_commands", command=interaction.command.name
-            ),
-            f"`/{interaction.command.name}` is not allowed in this server.",
-        )
+        return require_command_allowed(interaction, interaction.command.name)
 
     return app_commands.check(predicate)
 
