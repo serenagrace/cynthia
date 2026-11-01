@@ -1,7 +1,18 @@
 """Base process wrapper used by bot daemons."""
 
+import signal
 import time
 from multiprocessing import Manager, Process
+
+
+def _run_loop(loop, args):
+    """Run a daemon loop with Ctrl-C ignored; the parent stops it via ``ns.run``.
+
+    Ctrl-C reaches the whole process group. Without this, children die with a
+    KeyboardInterrupt and the monitor treats that as a crash and restarts them.
+    """
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    loop(*args)
 
 
 class Daemon:
@@ -10,7 +21,9 @@ class Daemon:
     # Namespace attributes carried over when the manager restarts the daemon
     PERSISTED_STATE = ()
 
-    def __init__(self, dman, *args, fbs=None, tqueue=False):
+    def __init__(
+        self, dman, *args, ring=False, audio_ring=False, native_ring=False, tqueue=False
+    ):
         """Create shared namespace state and resolve shared-frame references."""
         self.process = None
         self._manager = Manager()
@@ -20,18 +33,20 @@ class Daemon:
         self._pending_state = getattr(dman, "pending_state", {}).pop(
             type(self).__name__, {}
         )
-        self.fbs = tuple()
-        if fbs is not None:
-            for idx in fbs:
-                self.fbs += (dman.fb[idx * 2].name,)
-                self.fbs += (dman.fb[1 + idx * 2].name,)
+        # The shared frame ring is inherited by the child process, not pickled
+        self.ring = (dman.ring,) if ring else tuple()
+        if audio_ring:
+            self.ring += (dman.audio_ring,)
+        if native_ring:
+            self.ring += (dman.native_ring,)
         self._args = args
 
     def start(self, *, daemon=True):
         """Start the daemon loop in a child process."""
         self.restore_state(self._pending_state)
         self.process = Process(
-            target=self.loop, args=(self.ns, self.uns) + self.fbs + self._args
+            target=_run_loop,
+            args=(self.loop, (self.ns, self.uns) + self.ring + self._args),
         )
         self.process.daemon = daemon
         self.process.start()

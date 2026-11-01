@@ -4,6 +4,7 @@ import io
 import itertools
 import json
 import re
+import time
 import unicodedata
 
 import discord
@@ -45,6 +46,9 @@ def game_image_asset(game):
     return "nintendo_switch"
 
 
+HOME_HOLD_SECONDS = 5
+
+
 class StatusCog(commands.Cog):
     """Derive bot and rich-presence status from daemon state."""
 
@@ -54,6 +58,7 @@ class StatusCog(commands.Cog):
         self.status_cycle = None
         self.bot_activity = None
         self.user_activity = None
+        self.home_since = None
 
     async def cog_load(self):
         """Start the periodic presence and user-status update tasks."""
@@ -134,7 +139,18 @@ class StatusCog(commands.Cog):
             ns.game if ns.game is not None else getattr(self, "remembered_game", None)
         )
 
-        if ns.home:
+        # A passing HOME screen (menu transitions, quick checks) keeps the game
+        # as the activity; it only shows once HOME has been up for a while
+        if not ns.home:
+            self.home_since = None
+        elif self.home_since is None:
+            self.home_since = time.monotonic()
+        home_shown = (
+            self.home_since is not None
+            and time.monotonic() - self.home_since > HOME_HOLD_SECONDS
+        )
+
+        if home_shown:
             bot_activity = discord.Game(name="on the Home Screen")
             user_activity = {
                 "type": "playing",
@@ -143,7 +159,7 @@ class StatusCog(commands.Cog):
                 "assets": {"large_image": "nintendo_switch"},
             }
 
-        elif ns.playing:
+        elif ns.playing or ns.home:
             encounter_str = "No encounters yet"
             if game is not None:
                 large_image = game_image_asset(game)

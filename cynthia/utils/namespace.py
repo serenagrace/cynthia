@@ -8,24 +8,29 @@ logger = logging.getLogger(__name__)
 
 UNSPECIFIED = object()
 
+"""Infra Items should not be treated as keys in the namespace. They are reserved for internal use."""
 INFRA_MEMBERS = (
-    "_nspace_dict",
-    "__dict__",
-    "__repr__",
-    "keys",
-    "items",
-    "values",
-    "get",
-    "set",
-    "dict",
-    "len",
-    "append",
-    "__setitem__",
-    "__getitem__",
-    "__delitem__",
     "__contains__",
+    "__delitem__",
+    "__dict__",
+    "__getitem__",
     "__iter__",
+    "_nspace_dict",
     "__len__",
+    "__repr__",
+    "__setitem__",
+    "append",
+    "clear",
+    "copy",
+    "dict",
+    "get",
+    "items",
+    "keys",
+    "pop",
+    "popitem",
+    "set",
+    "update",
+    "values",
 )
 
 
@@ -42,6 +47,40 @@ class Namespace:
             if isinstance(k, str):
                 k = k.replace(" ", "_")
             self._nspace_dict[k] = v
+
+    def __contains__(self, key):
+        """Return whether a key exists in the namespace."""
+        return key in self._nspace_dict
+
+    def __delitem__(self, key):
+        """Delete a mapping item."""
+        del self._nspace_dict[key]
+
+    def __getattribute__(self, attr):
+        """Resolve infrastructure attributes or look up a namespace key."""
+        if attr in INFRA_MEMBERS:
+            return super().__getattribute__(attr)
+        elif attr in self.__dict__:
+            return super().__getattribute__(attr)
+        if attr not in self._nspace_dict.keys():
+            logger.debug(f"Namespace key `{attr}` not found.")
+            raise KeyError(f"Specified key `{attr}` not found in namespace.")
+        return self._nspace_dict[attr]
+
+    def __getitem__(self, key):
+        """Return a mapping item or raise KeyError when the key is absent."""
+        if key not in self._nspace_dict:
+            logger.debug(f"Namespace key `{key}` not found.")
+            raise KeyError(f"Specified key `{key}` not found in namespace.")
+        return self._nspace_dict[key]
+
+    def __iter__(self):
+        """Return an iterator over the namespace's keys."""
+        return iter(self._nspace_dict)
+
+    def __len__(self):
+        """Return the number of keys in the namespace."""
+        return len(self._nspace_dict.keys())
 
     def __repr__(self):
         """Return a constructor-like representation of the namespace."""
@@ -62,65 +101,55 @@ class Namespace:
         else:
             self._nspace_dict[attr] = val
 
-    def __getattribute__(self, attr):
-        """Resolve infrastructure attributes or look up a namespace key."""
-        if attr in INFRA_MEMBERS:
-            return super().__getattribute__(attr)
-        elif attr in self.__dict__:
-            return super().__getattribute__(attr)
-        if attr not in self._nspace_dict.keys():
-            logger.debug(f"Namespace key `{attr}` not found.")
-            raise KeyError(f"Specified key `{attr}` not found in namespace.")
-        return self._nspace_dict[attr]
+    def __setitem__(self, key, value):
+        """Set a mapping item."""
+        self._nspace_dict[key] = value
+
+    def clear(self):
+        """Clear the namespace."""
+        self._nspace_dict.clear()
+
+    def copy(self):
+        """Return a shallow copy of the namespace."""
+        return Namespace(self._nspace_dict.copy())
+
+    def dict(self):
+        """Return the backing mapping."""
+        return self._nspace_dict
 
     def get(self, attr, default):
         """Return a key's value or the supplied default."""
         return self._nspace_dict.get(attr, default)
 
-    def set(self, attr, val):
-        """Set a key's value."""
-        self._nspace_dict[attr] = val
+    def items(self):
+        """Return the namespace's key-value pairs."""
+        return self._nspace_dict.items()
 
     def append(self, attr, val):
         """Append a value to a key's list, creating that list when needed."""
         self._nspace_dict[attr] = force_obj_is_list(self._nspace_dict.get(attr, None))
         self._nspace_dict[attr].append(val)
 
-    def items(self):
-        """Return the namespace's key-value pairs."""
-        return self._nspace_dict.items()
-
-    def values(self):
-        """Return the namespace's values."""
-        return self._nspace_dict.values()
-
     def keys(self):
         """Return the namespace's keys."""
         return self._nspace_dict.keys()
 
-    def dict(self):
-        """Return the backing mapping."""
-        return self._nspace_dict
+    def pop(self, key, default):
+        """Remove a key from the namespace and return its value."""
+        return self._nspace_dict.pop(key, default)
 
-    def __setitem__(self, key, value):
-        """Set a mapping item."""
-        self._nspace_dict[key] = value
+    def popitem(self):
+        """Remove and return a key-value pair from the namespace."""
+        return self._nspace_dict.popitem()
 
-    def __getitem__(self, key):
-        """Return a mapping item or raise KeyError when the key is absent."""
-        if key not in self._nspace_dict:
-            logger.debug(f"Namespace key `{key}` not found.")
-            raise KeyError(f"Specified key `{key}` not found in namespace.")
-        return self._nspace_dict[key]
+    def set(self, attr, val):
+        """Set a key's value."""
+        self._nspace_dict[attr] = val
 
-    def __contains__(self, key):
-        """Return whether a key exists in the namespace."""
-        return key in self._nspace_dict
+    def update(self, _dict):
+        """Update the namespace with a mapping."""
+        self._nspace_dict.update(_dict)
 
-    def __len__(self):
-        """Return the number of keys in the namespace."""
-        return len(self._nspace_dict.keys())
-
-    def __delitem__(self, key):
-        """Delete a mapping item."""
-        del self._nspace_dict[key]
+    def values(self):
+        """Return the namespace's values."""
+        return self._nspace_dict.values()

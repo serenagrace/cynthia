@@ -242,3 +242,20 @@ def test_clear_status_command_resets_vars():
     assert vars.status.text is None
     assert vars.status.start is None
     interaction.response.send_message.assert_awaited_once()
+
+
+def test_brief_home_screen_keeps_game_activity(tmp_path, monkeypatch):
+    cog, _ = make_status_cog(tmp_path, hunt=None, playing=False, home=True)
+    clock = [100.0]
+    monkeypatch.setattr("cynthia.bot.cogs.status.time.monotonic", lambda: clock[0])
+
+    bot_activity, user_activity = asyncio.run(cog.get_status())
+    assert user_activity["name"] == "Pokemon Brilliant Diamond"
+
+    clock[0] += 4
+    _, user_activity = asyncio.run(cog.get_status())
+    assert user_activity["name"] == "Pokemon Brilliant Diamond"
+
+    clock[0] += 2
+    bot_activity, user_activity = asyncio.run(cog.get_status())
+    assert user_activity["details"] == "on the Home Screen"

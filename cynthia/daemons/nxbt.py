@@ -16,6 +16,7 @@ from cynthia.utils.encounters import (
     average_interval_ms,
     marker_line,
 )
+from cynthia.utils.log import setup_logging
 from cynthia.utils.nxbt_utils import (
     Macro,
     load_macros,
@@ -73,8 +74,7 @@ class NXBTDaemon(Daemon):
         def loop(ns, uns, tqueue, macro_tree, drive):
             """Run the NXBT worker process until its shared run flag clears."""
             logger = logging.getLogger(__name__)
-            logging.basicConfig(level=logging.DEBUG)
-            logging.getLogger("nxbt").setLevel(logging.INFO)
+            setup_logging()
             nx = nxbt.Nxbt()
             controller = None
             playing_gen = None
@@ -155,10 +155,12 @@ class NXBTDaemon(Daemon):
                         if success:
                             ns.connected = True
                             uns.nxbt_connection_lost = False
+                            uns.nxbt_connect_failed = False
                             continue
                         else:
-                            uns.nxbt_connection_lost = True
-                            logger.error("Connection lost, disconnecting controller.")
+                            # Never connected, so this isn't a lost connection
+                            uns.nxbt_connect_failed = True
+                            logger.error("Couldn't connect the controller.")
                             await nxbt_disconnect(nx, controller)
                             controller = None
                             ns.connected = False
@@ -303,6 +305,12 @@ class NXBTDaemon(Daemon):
                 except Exception:
                     logger.exception("NXBT shutdown cleanup failed")
                 finally:
+                    # NXBT only cleans up from atexit, which a terminated daemon
+                    # skips, leaving its controller and manager processes behind
+                    try:
+                        nx._on_exit()
+                    except Exception:
+                        logger.exception("NXBT process cleanup failed")
                     # Mark process safe to boom
                     self.ns.done = True
 
@@ -320,6 +328,7 @@ class NXBTDaemon(Daemon):
         self.uns.pressed_buttons = []
         self.ns.connected = False
         self.uns.nxbt_connection_lost = False
+        self.uns.nxbt_connect_failed = False
         self.uns.watchdog_triggered = False
         self.uns.encounter_reset = bool(
             dman.context.config.get("encounter_reset", True)
@@ -364,10 +373,15 @@ class NXBTDaemon(Daemon):
     async def connect(self):
         """Request a controller connection and wait for its result."""
         self.ns.connect = True
+        self.uns.nxbt_connect_failed = False
 
         try:
             async with asyncio.timeout(30):
-                while not (self.ns.connected or self.uns.nxbt_connection_lost):
+                while not (
+                    self.ns.connected
+                    or self.uns.nxbt_connect_failed
+                    or self.uns.nxbt_connection_lost
+                ):
                     await asyncio.sleep(5)
         except TimeoutError:
             return False

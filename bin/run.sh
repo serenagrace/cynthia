@@ -12,6 +12,10 @@ while true; do
         1)
             break
             ;;
+        # 130/143: killed by Ctrl-C / SIGTERM, also deliberate
+        130|143)
+            break
+            ;;
         # Anything else is a crash or a requested restart
         *)
             ;;

@@ -28,7 +28,7 @@ class BouncerCog(commands.Cog):
         if not discord.utils.get(guild.me.roles, name="Bouncer"):
             _logger.debug(f"Bot does not have 'Bouncer' role in {guild.name}.")
             return
-        _logger.info(f"Member {member} joined {guild.name}.")
+        _logger.notice(f"Member `{member}` joined `{guild.name}`.")
         channel = discord.utils.get(guild.text_channels, name="user-insights")
         userid = str(member.id)
 
@@ -87,7 +87,7 @@ class BouncerCog(commands.Cog):
     async def on_member_remove(self, member):
         """Record a member departure and remove any saved greeting."""
         guild = member.guild
-        _logger.info(f"Member {member} left {guild.name}.")
+        _logger.notice(f"Member `{member}` left `{guild.name}`.")
         await InsightView.user_left(guild.id, member.id)
         greeting = BouncerCog.GREETINGS.get(str(guild.id), {}).pop(str(member.id), None)
         if greeting:

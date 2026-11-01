@@ -3,7 +3,7 @@ requires = ["setuptools >= 77.0.3"]
 build-backend = "setuptools.build_meta"
 [project]
 name="cynthia"
-version="1.6.3"
+version="1.7.0"
 description="Discord bot with Nintendo Switch (NXBT) automation and shiny-hunting video capture"
 readme="README.md"
 license="GPL-3.0-or-later"
@@ -26,14 +26,18 @@ dependencies = [
     "uvicorn",
     "scikit-image",
     "paddleocr==3.7.0",
-    "paddlepaddle==3.2.2",
     "fastapi",
+    "obsws-python>=1.8.1",
     "xxhash==4.0.2",
     "numpy<2.0.0",
     "opencv-python-headless<4.10"
 ]
 
 [project.optional-dependencies]
+# Pick exactly one paddle build: `pip install -e ".[cpu]"` or `-e ".[gpu]"`.
+# The GPU wheel is hosted on Paddle's own index; see README for the extra index URL.
+cpu = ["paddlepaddle==3.2.2"]
+gpu = ["paddlepaddle-gpu==3.2.2"]
 dev = ["black", "isort", "pytest"]
 cyclient = ["pypresence", "requests"]
 
@@ -58,6 +62,11 @@ include-package-data = false
     "scenes/switch_boot_screen.png",
     "scenes/switch_home_screen.png",
     "scenes/switch_home_screen_afk.png",
+]
+
+"cynthia.site" = [
+    "html/*.html",
+    "static/*",
 ]
 
 [tool.setuptools.packages.find]

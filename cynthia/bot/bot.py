@@ -18,7 +18,6 @@ from cynthia.utils.drive import Drive
 from cynthia.utils.logger import Logger
 from cynthia.utils.nxbt_utils import load_macros, save_macros
 from cynthia.utils.onmessage import OnMessage, load_onmessage, save_onmessage
-from cynthia.utils.strings import color_str
 
 from .applications import CommandTree, TreeLoadError
 from .messenger import Messenger
@@ -38,6 +37,7 @@ class Bot(commands.Bot):
         self.test_mode = test_mode
         self.command_guild_id = test_guild_id
         self.config = context.config
+        self.env = context.env
         self.app_meta = context.app_meta
         self.args = context.args
         self.vars = context.vars
@@ -101,20 +101,15 @@ class Bot(commands.Bot):
 
     async def reload_tree(self, interaction=None):
         """Load command modules, sync commands, and report reload results."""
-        _logger.info("Fetching command modules...")
         n = 0
         n, errors = await self.tree.load_commands()
         if n:
             self.loaded_command_count = n
-            _logger.info(f"Loading {n} commands...")
-            for error in errors:
-                _logger.error(error)
             await self._sync_command_tree()
-            _logger.info("Done.")
         if not self.test_mode:
             await self.wake_message(interaction, errors)
 
-        _logger.info("Loaded commands.")
+        _logger.notice(f"Loaded {self.loaded_command_count} commands.")
         fetched_commands = (
             await self.tree.fetch_commands(
                 guild=discord.Object(id=self.command_guild_id)
@@ -122,9 +117,7 @@ class Bot(commands.Bot):
             if self.test_mode
             else await self.tree.fetch_commands()
         )
-        _logger.debug(
-            "\n" + "\n".join(f" - {command.name}" for command in fetched_commands)
-        )
+        _logger.debug(f"Fetched {len(fetched_commands)} commands.")
 
     async def reload_application(self, module):
         """Reload one command module and sync the updated command tree."""
@@ -182,23 +175,21 @@ class Bot(commands.Bot):
 
     async def load_cogs(self):
         """Discover and load cog extensions, logging individual failures."""
-        _logger.info("Loading cogs...")
         cogs_pkg_path = "cynthia.bot.cogs"
         cogs_pkg = importlib.resources.files(cogs_pkg_path)
 
         count = 0
         self.discovered_cogs = self._discover_cogs(cogs_pkg, cogs_pkg_path)
+        _logger.notice(f"Loading {len(self.discovered_cogs)} cogs:")
         for cog in self.discovered_cogs:
             try:
                 await self.load_extension(cog)
-                _logger.info(f"Loaded cog: {cog}")
+                _logger.info(f"  `{cog.removeprefix(cogs_pkg_path + '.')}`")
                 count += 1
             except Exception as e:
-                _logger.error(f"Failed to load cog {cog}: {e}")
+                _logger.error(f"  `{cog}`: failed: {e}")
 
-        if count > 0:
-            _logger.info(f" {count} cog{'s' if count != 1 else ''} loaded.")
-        else:
+        if count == 0:
             _logger.warning("No cogs loaded.")
         self.loaded_cog_count = count
 
@@ -215,7 +206,7 @@ class Bot(commands.Bot):
             else:
                 await self.load_extension(extension)
         except Exception as e:
-            _logger.error(f"Failed to reload cog {extension}: {e!r}")
+            _logger.error(f"Failed to reload cog `{extension}`: {e!r}")
             return repr(e)
         self.loaded_cog_count = len(self.extensions)
         await self._sync_command_tree()
@@ -224,7 +215,7 @@ class Bot(commands.Bot):
     async def setup_hook(self):
         """Load permissions, cogs, and application commands during startup."""
         guilds = [] if self.test_mode else await self.get_all_guilds()
-        _logger.info(f"Currently member in {len(guilds)} guilds.")
+        _logger.notice(f"Member of {len(guilds)} guilds.")
         self.perms = Namespace(self.permsloader(self))
         self.perms_check = self.permsloader.check
         await self.load_cogs()
@@ -233,7 +224,7 @@ class Bot(commands.Bot):
     async def on_ready(self):
         """Load message handlers and mark the bot as online."""
         await load_onmessage(self)
-        _logger.info(color_str("Ready.", "yellow"))
+        _logger.notice("Ready.")
         await self.change_presence(status=discord.Status.online)
 
     async def on_message(self, message):
@@ -243,7 +234,7 @@ class Bot(commands.Bot):
 
         for key, unit in OnMessage.units.items():
             if await unit.call(self, message):
-                _logger.debug(f"Ran onmessage unit: {key}")
+                _logger.debug(f"Ran onmessage unit: `{key}`")
 
         try:
             if not self.perms_check(
@@ -271,6 +262,14 @@ class Bot(commands.Bot):
 
     async def close(self):
         """Run registered cleanup tasks before closing the Discord client."""
+        # Stop the monitor first so it cannot restart daemons that exit on purpose
+        if self._dman_monitor_task is not None:
+            self._dman_monitor_task.cancel()
+            try:
+                await self._dman_monitor_task
+            except asyncio.CancelledError:
+                pass
+            self._dman_monitor_task = None
         if self.onexit is not None:
             exit_tasks = self.onexit.values()
             self.onexit = None
@@ -280,7 +279,7 @@ class Bot(commands.Bot):
                 try:
                     await asyncio.wait_for(func(self), timeout=60)
                 except TimeoutError:
-                    _logger.warn("Warning: cleanup task timed out.")
+                    _logger.warning("Cleanup task timed out.")
             if not self.is_closed():
                 try:
                     await self.messenger.msg_owner("Cleanup complete.")
@@ -288,13 +287,6 @@ class Bot(commands.Bot):
                     pass
         if not self.is_closed():
             await self.messenger.msg_owner("Cynthia will now exit.")
-        if self._dman_monitor_task is not None:
-            self._dman_monitor_task.cancel()
-            try:
-                await self._dman_monitor_task
-            except asyncio.CancelledError:
-                pass
-            self._dman_monitor_task = None
         await super().close()
 
     def raise_(self, ExceptionType, /, *args, **kwargs):

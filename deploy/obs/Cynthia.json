@@ -1,0 +1,42 @@
+{
+    "name": "Cynthia",
+    "current_scene": "Cynthia",
+    "current_program_scene": "Cynthia",
+    "scene_order": [{"name": "Cynthia"}],
+    "sources": [
+        {
+            "id": "ffmpeg_source",
+            "name": "Cynthia Feed",
+            "versioned_id": "ffmpeg_source",
+            "settings": {
+                "input": "udp://127.0.0.1:5000?overrun_nonfatal=1&fifo_size=5000000&buffer_size=4194304",
+                "input_format": "mpegts",
+                "is_local_file": false,
+                "buffering_mb": 2,
+                "clear_on_media_end": false,
+                "close_when_inactive": false,
+                "restart_on_activate": false,
+                "hw_decode": true
+            }
+        },
+        {
+            "id": "scene",
+            "name": "Cynthia",
+            "versioned_id": "scene",
+            "settings": {
+                "id_counter": 1,
+                "items": [
+                    {
+                        "name": "Cynthia Feed",
+                        "id": 1,
+                        "visible": true,
+                        "bounds_type": 2,
+                        "bounds": {"x": 1920.0, "y": 1080.0},
+                        "pos": {"x": 0.0, "y": 0.0}
+                    }
+                ]
+            }
+        }
+    ],
+    "modules": {}
+}

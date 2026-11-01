@@ -51,7 +51,7 @@ class CommandTree(discord.app_commands.CommandTree):
             if module.stem != "__init__" and module.stem != "tree"
         ]
         logger.debug(
-            f"{len(self.modules)} command modules found in {self.application_directory}."
+            f"Loading {len(self.modules)} application modules from {self.application_directory}:"
         )
         errors = list()
         for module in self.modules:
@@ -62,7 +62,6 @@ class CommandTree(discord.app_commands.CommandTree):
 
     async def _load_module(self, module):
         """Import (or reload) one application module and register its commands."""
-        logger.debug(f"Loading applications from module: {module} ...")
         name = f"cynthia.bot.applications.{module}"
         try:
             if name in sys.modules:
@@ -75,7 +74,7 @@ class CommandTree(discord.app_commands.CommandTree):
                 f" ERR.\n\tFailed to load application from module: {module}\n"
                 + f"\tError: {e!r}"
             )
-            logger.error(error)
+            logger.error(f"Failed to load application module `{module}`: {e!r}")
             return error
 
         commands = []
@@ -99,7 +98,7 @@ class CommandTree(discord.app_commands.CommandTree):
             self.__loaded_commands.append(f"{module}.{command.name}")
         self.__module_commands[module] = [command.name for command in commands]
         self.__loaded_modules.append(module)
-        logger.debug("Done")
+        logger.debug(f"  `{module}`")
         return None
 
     async def reload_module(self, module):
@@ -115,6 +114,7 @@ class CommandTree(discord.app_commands.CommandTree):
         ]
         if module in self.__loaded_modules:
             self.__loaded_modules.remove(module)
+        logger.debug(f"Reloading application module: `{module}`")
         error = await self._load_module(module)
         if error:
             # Broken new code: keep the previously working commands

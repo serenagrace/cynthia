@@ -10,3 +10,7 @@ status_services:
   - cynthia.service
 # Restart the looping macro 5 seconds after each encounter
 encounter_reset: true
+# Optional: public hostnames or IPs offered to WebRTC viewers outside the LAN
+# (also forward UDP/TCP 8189 to this machine)
+# webrtc_hosts:
+#   - example.com

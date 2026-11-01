@@ -45,7 +45,7 @@ def test_stalled_daemons_detects_stale_frames_and_heartbeat():
     alive = Mock()
     alive.is_alive.return_value = True
     now = 1000.0
-    dman.uns = SimpleNamespace(uvc_time0=int(900e9), uvc_time1=None)
+    dman.ring = SimpleNamespace(last_time_ns=int(900e9))
     dman._DMan__running_daemons = {
         "UVCDaemon": SimpleNamespace(
             process=alive, ns=SimpleNamespace(run=True), started_at=0.0
@@ -56,7 +56,7 @@ def test_stalled_daemons_detects_stale_frames_and_heartbeat():
     }
     assert dman.stalled_daemons(now) == ["UVCDaemon"]
 
-    dman.uns.uvc_time1 = int(999e9)
+    dman.ring.last_time_ns = int(999e9)
     dman._DMan__running_daemons["CVDaemon"].ns.heartbeat = 900.0
     assert dman.stalled_daemons(now) == ["CVDaemon"]
 

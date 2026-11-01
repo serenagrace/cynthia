@@ -16,6 +16,21 @@ Cynthia is a Python Discord bot with slash commands, permission-aware controls, 
 
 [View Cynthia’s video feed](https://serenegrace.io/video_feed).
 
+### Sending the feed to OBS
+
+While OBS Studio is open, the bot encodes the capture with NVENC (H.264, BT.709, MPEG-TS) and sends it to `udp://127.0.0.1:5000`; it stops when OBS closes. This needs an NVIDIA GPU and an `ffmpeg` with `h264_nvenc`. In OBS, use *Scene Collection → Import* and pick `deploy/obs/Cynthia.json`, or add a Media Source with the URL `udp://127.0.0.1:5000?overrun_nonfatal=1&fifo_size=5000000&buffer_size=4194304` and the input format `mpegts`. The `buffer_size` matters: with the default socket buffer a busy receiver drops UDP packets, which shows up as stutters and audio gaps. The feed carries AAC audio from the capture card. Set `obs_feed: always` to send it even when OBS is closed. From there OBS can stream to Twitch or YouTube.
+
+#### Controlling OBS from Discord
+
+The bot drives OBS through obs-websocket (Tools → WebSocket Server Settings, or `"server_enabled": true` in `~/.config/obs-studio/plugin_config/obs-websocket/config.json`); put the password in `OBS_WS_PASSWORD`. The web viewer uses WebRTC when the `mediamtx` binary is on `PATH` (download from github.com/bluenviron/mediamtx) and falls back to MJPEG otherwise; see the `webrtc*` config keys. The OBS browser plugin (`obs-studio-plugin-browser` on Arch) is needed for the overlay panes. `bin/obs.sh` runs OBS headless and restarts it. It starts a virtual-monitor NVIDIA Xorg server (`deploy/xorg-headless.conf`, display `:98`, needs `sudo -n` unless run as root) so OBS composites on the GPU, and falls back to `xvfb-run` with software OpenGL, which can use several CPU cores; `deploy/cynthia.sh` starts it in window 2 of the tmux session.
+
+All of these are owner-only and DM-only:
+
+- `/twitch start | stop | test | url | uptime | status`: stream to Twitch with `TWITCH_STREAM_KEY` (or `OBS_STREAM_KEY`). `test` uses Twitch's bandwidth-test mode, so nothing goes live.
+- `/obs framerate | resolution | record | stop | layout | show`, `/webstream framerate | resolution`: web and OBS frame rate and resolution are set independently and apply live. CV is always limited to 30 fps. The capture card runs at the cheapest mode that covers every running endpoint (OBS counts only while streaming or recording, the web stream only while someone watches), never below 720p for CV.
+
+The OBS scene is built from `obs_layout.yaml` (copy `obs_layout.example.yaml`): panes for the video, input visualizer, SSIM scores, hunt statistics (titled by the current activity) and Twitch chat (`TWITCH_CHANNEL`). The reverse proxy in front of the web viewer must allow `/api/sync`, `/api/stream_stats` and `/api/activity_stats`.
+
 ## Requirements
 
 - Python 3.11
@@ -31,12 +46,16 @@ Debian or Ubuntu:
 
 ```bash
 sudo apt install bluez v4l-utils usbutils tmux ffmpeg libopus0
+# Optional, for the headless OBS setup:
+sudo apt install obs-studio xvfb
 ```
 
 Arch Linux:
 
 ```bash
 sudo pacman -S bluez bluez-utils bluez-deprecated-tools v4l-utils usbutils tmux ffmpeg opus
+# Optional, for the headless OBS setup (the browser plugin draws the overlay panes):
+sudo pacman -S obs-studio obs-studio-plugin-browser xorg-server-xvfb
 sudo systemctl enable --now bluetooth.service
 ```
 
@@ -73,8 +92,16 @@ sudo udevadm control --reload && sudo udevadm trigger
 python3.11 -m venv env
 source env/bin/activate
 python -m pip install --upgrade pip
-python -m pip install -e ".[dev]"
+python -m pip install -e ".[dev,cpu]"
 ```
+
+Choose one PaddlePaddle build with an extra. Use `cpu` (above) on any machine. On an NVIDIA GPU, use `gpu` instead, which makes OCR roughly 7x faster; it needs a CUDA 12.6-compatible driver and Paddle's package index:
+
+```bash
+python -m pip install -e ".[dev,gpu]" --extra-index-url https://www.paddlepaddle.org.cn/packages/stable/cu126/
+```
+
+Do not install both extras. To switch an existing environment, uninstall the other build first (`pip uninstall paddlepaddle` or `paddlepaddle-gpu`). The bot uses the GPU when Paddle was built with CUDA and falls back to the CPU otherwise.
 
 Use `env` as the virtualenv name: `bin/run.sh` and the `deploy/` scripts expect `env/bin/cynthia`.
 
@@ -97,6 +124,9 @@ cp perms.example.yaml perms.yaml
 | `DRIVE_PATH` | no | Directory for macros, database, logs and datasets. Overrides `drive_path` in `config.yaml`. |
 | `ELGATO_USB_ID` | no | Capture card `vendor:product` from `lsusb`. Reset with `usbreset` at startup; skipped when empty. |
 | `SYNC_GUILD_ID` | no | Guild that receives slash commands immediately after each sync. Global sync still happens. |
+| `OBS_WS_HOST` / `OBS_WS_PORT` / `OBS_WS_PASSWORD` | no | obs-websocket address (default `127.0.0.1:4455`) and password. |
+| `TWITCH_STREAM_KEY` / `OBS_STREAM_KEY` | no | Stream key for `/twitch`. The Twitch one wins. |
+| `TWITCH_CHANNEL` | no | Channel for the chat overlay and `/twitch url`. |
 | `STATUS_HOSTS` | no | Comma-separated hostnames or IPs the owner's `/status` command pings. Defaults to `discord.com,github.com,google.com`. |
 
 Values in the process environment win over `.env`.
@@ -110,6 +140,15 @@ Values in the process environment win over `.env`.
 | `silent` | Send bot messages as silent Discord messages (no notification) unless they are alerts. |
 | `encounter_reset` | Restart the looping macro from the start 5 seconds after each detected encounter, unless the shiny stop fired. Defaults to `true`; set `false` to disable. |
 | `status_services` | systemd units `/status` checks. Defaults to `cynthia.service`. |
+| `obs_feed` | Send the video to OBS while OBS is running. Defaults to `true`. |
+| `obs_feed_port` | UDP port on `127.0.0.1` for the OBS feed. Defaults to `5000`. |
+| `obs_fps` / `obs_height` | OBS frame rate (15, 24, 30, 60) and resolution (480, 720, 1080). Defaults to `60` and `1080`. |
+| `web_fps` / `web_height` | The same for the web viewer. Defaults to `30` and `720`. |
+| `obs_scene` | OBS scene the bot manages. Defaults to `Cynthia`. |
+| `obs_layout_file` | OBS pane layout. Defaults to `obs_layout.yaml`. |
+| `twitch_bitrate_kbps` | Video bitrate for Twitch streams (OBS Simple output mode). Defaults to `6000`. |
+| `obs_feed_bitrate` | H.264 (NVENC) bitrate of the OBS feed. Defaults to `50M`. |
+| `obs_feed_delay_ms` | Hold the OBS feed back this long (a safety buffer that smooths bursts and audio stalls). Defaults to `1000`; `0` disables it. |
 
 ### `perms.yaml`
 
@@ -141,7 +180,7 @@ The bot also serves a local FastAPI app on `127.0.0.1:8000` (the video feed page
 | File | Install to | Purpose |
 | --- | --- | --- |
 | `cynthia.service` | `/etc/systemd/system/` | systemd unit. Set `User=` to the account that owns the checkout. |
-| `cynthia.sh` | `/usr/local/bin/` | Creates a `cynthia` tmux session: window 0 runs `bin/run.sh`, window 1 is a spare shell. Set `CYNTHIA_DIR` at the top. |
+| `cynthia.sh` | `/usr/local/bin/` | Creates a `cynthia` tmux session: window 0 runs `bin/run.sh`, window 1 is a spare shell, window 2 runs headless OBS (`bin/obs.sh`). Set `CYNTHIA_DIR` at the top. |
 | `99-elgato-capture.rules` | `/etc/udev/rules.d/` | Capture card permissions (see above). |
 
 ```bash

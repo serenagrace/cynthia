@@ -22,5 +22,10 @@ tmux new-window -t "$SESSION:1" -n dev
 tmux send-keys -t "$SESSION:1" "cd $CYNTHIA_DIR" Enter
 tmux send-keys -t "$SESSION:1" 'source env/bin/activate' Enter
 
+# Window 2: headless OBS (GPU-rendered when possible), restarted automatically by bin/obs.sh
+tmux new-window -t "$SESSION:2" -n obs
+tmux send-keys -t "$SESSION:2" "cd $CYNTHIA_DIR" Enter
+tmux send-keys -t "$SESSION:2" 'bin/obs.sh' Enter
+
 # Leave the bot window selected
 tmux select-window -t "$SESSION:0"

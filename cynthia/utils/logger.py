@@ -17,7 +17,7 @@ class Logger:
         self.drive = drive
         self.database = None
         if database_obj.database_connected:
-            logger.info("Database connected. Database message logging enabled.")
+            logger.notice("Database connected; message logging enabled.")
             self.database = database_obj
         self.logging_enabled = False
         self.msg_log_path = None
