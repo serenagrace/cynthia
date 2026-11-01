@@ -1,17 +1,22 @@
 import logging
 
+import pytest
+
 from cynthia.utils.log import NOISY_LOGGERS, QUIET_OCR_LOGGERS, setup_logging
 
 
-def test_discord_gateway_logs_start_at_warning(monkeypatch):
+@pytest.mark.parametrize(
+    "name",
+    ["discord", "discord.client", "discord.gateway", "discord.http", "discord.state"],
+)
+def test_discord_logs_start_at_info(monkeypatch, name):
     root = logging.getLogger()
-    gateway = logging.getLogger("discord.gateway")
+    logger = logging.getLogger(name)
     root_level = root.level
     root_handlers = root.handlers[:]
-    logger_names = set(NOISY_LOGGERS) | set(QUIET_OCR_LOGGERS)
-    logger_levels = {name: logging.getLogger(name).level for name in logger_names}
-    logger_filters = {name: logging.getLogger(name).filters[:] for name in logger_names}
-    gateway_level = gateway.level
+    logger_names = set(NOISY_LOGGERS) | set(QUIET_OCR_LOGGERS) | {name}
+    logger_levels = {n: logging.getLogger(n).level for n in logger_names}
+    logger_filters = {n: logging.getLogger(n).filters[:] for n in logger_names}
 
     for key in (
         "FLAGS_call_stack_level",
@@ -23,14 +28,15 @@ def test_discord_gateway_logs_start_at_warning(monkeypatch):
         monkeypatch.setenv(key, "")
 
     try:
-        gateway.setLevel(logging.NOTSET)
+        logger.setLevel(logging.NOTSET)
+        logging.getLogger("discord").setLevel(logging.NOTSET)
         setup_logging()
-        assert gateway.level == logging.WARNING
+        assert not logger.isEnabledFor(logging.DEBUG)
+        assert logger.isEnabledFor(logging.INFO)
     finally:
         root.handlers[:] = root_handlers
         root.setLevel(root_level)
-        gateway.setLevel(gateway_level)
-        for name, level in logger_levels.items():
-            logger = logging.getLogger(name)
-            logger.setLevel(level)
-            logger.filters[:] = logger_filters[name]
+        for n, level in logger_levels.items():
+            other = logging.getLogger(n)
+            other.setLevel(level)
+            other.filters[:] = logger_filters[n]

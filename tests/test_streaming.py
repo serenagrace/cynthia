@@ -232,3 +232,54 @@ def test_audio_stretch_lengthens_chunks_only_when_behind():
 
     assert len(stretched) % 4 == 0
     assert len(chunk) < len(stretched) <= len(chunk) * 1.02
+
+
+def test_obs_cog_unload_tolerates_stopped_daemon_manager():
+    import asyncio
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    from cynthia.bot.cogs.obs import OBSCog
+
+    class DeadNamespace:
+        def __setattr__(self, key, value):
+            raise BrokenPipeError(32, "Broken pipe")
+
+    cog = OBSCog.__new__(OBSCog)
+    cog.bot = SimpleNamespace(dman=SimpleNamespace(uns=DeadNamespace()))
+    cog.obs = Mock()
+    cog.poll = Mock()
+
+    asyncio.run(cog.cog_unload())
+
+    cog.poll.cancel.assert_called_once()
+    cog.obs.close.assert_called_once()
+
+
+def test_obs_cog_poll_stops_when_daemon_manager_is_gone():
+    import asyncio
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    from cynthia.bot.cogs.obs import OBSCog
+
+    class DeadNamespace:
+        def __setattr__(self, key, value):
+            raise BrokenPipeError(32, "Broken pipe")
+
+    cog = OBSCog.__new__(OBSCog)
+    cog.bot = SimpleNamespace(dman=SimpleNamespace(uns=DeadNamespace()))
+    cog.obs = Mock()
+    cog.obs.status.return_value = {"streaming": False, "recording": False}
+    cog.was_connected = False
+    cog.last_status = None
+    cancel = Mock()
+
+    async def run():
+        cog.poll.cancel = cancel
+        await cog.poll.coro(cog)
+
+    asyncio.run(run())
+
+    cancel.assert_called_once()
+    assert not cog.was_connected

@@ -34,12 +34,20 @@ class OBSCog(commands.Cog):
         """Stop polling and disconnect from OBS."""
         self.poll.cancel()
         await asyncio.to_thread(self.obs.close)
-        self.bot.dman.uns.obs_active = False
+        self.set_active(False)
+
+    def set_active(self, active):
+        """Share whether OBS is live; False if the daemon manager has shut down."""
+        try:
+            self.bot.dman.uns.obs_active = active
+        except (EOFError, OSError):
+            # The manager stops before the cog during restart and shutdown
+            return False
+        return True
 
     @tasks.loop(seconds=POLL_SECONDS)
     async def poll(self):
         """Mirror whether OBS is streaming or recording into the shared state."""
-        uns = self.bot.dman.uns
         try:
             status = await asyncio.to_thread(self.obs.status)
         except OBSError:
@@ -47,17 +55,21 @@ class OBSCog(commands.Cog):
                 logger.info("Lost the OBS connection.")
             self.was_connected = False
             self.last_status = None
-            uns.obs_active = False
+            if not self.set_active(False):
+                self.poll.cancel()
             return
         except Exception:
             logger.exception("OBS poll failed.")
             return
         self.last_status = status
-        uns.obs_active = bool(status["streaming"] or status["recording"])
+        active = bool(status["streaming"] or status["recording"])
+        if not self.set_active(active):
+            self.poll.cancel()
+            return
         if not self.was_connected:
             self.was_connected = True
             logger.info("Connected to OBS.")
-            if not uns.obs_active:
+            if not active:
                 try:
                     await self.apply_video()
                 except OBSError as e:
