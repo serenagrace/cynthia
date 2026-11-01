@@ -1,6 +1,11 @@
 # Changelog
 
-## 1.7.0 (pending)
+## 1.7.1 (pending)
+
+### Fixed
+- Silence routine `discord.gateway` events below WARNING while keeping warnings and errors visible.
+
+## 1.7.0
 
 ### Added
 
