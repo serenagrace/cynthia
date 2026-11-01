@@ -1,0 +1,17 @@
+# Panes shown on the OBS scene. Copy to obs_layout.yaml (or set `obs_layout_file`)
+# and run `/obs layout` in a DM with the bot to apply it; it is also applied
+# whenever the bot connects to OBS and before each stream or recording starts.
+#
+# x, y, w, h are fractions (0 to 1) of the OBS canvas, so the layout works at
+# any resolution. Panes stack in file order, later ones on top.
+#   kind:    video | status | inputs | ssim | stats | chat | url
+#   visible: false keeps the pane in OBS but hidden
+#   url:     page to show (kind: url only)
+#   css:     custom CSS for browser panes (default is a transparent page)
+# Remove a pane from this file to delete it from the scene.
+panes:
+- {name: video, kind: video, x: 0, y: 0, w: 1, h: 1}
+- {name: inputs, kind: inputs, x: 0.785, y: 0.34, w: 0.2, h: 0.22}
+- {name: chat, kind: chat, x: 0.015, y: 0.5, w: 0.23, h: 0.48}
+- {name: ssim, kind: ssim, x: 0.015, y: 0.02, w: 0.23, h: 0.3}
+- {name: stats, kind: stats, x: 0.69, y: 0.68, w: 0.3, h: 0.3}

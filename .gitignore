@@ -2,12 +2,10 @@ env
 .env
 .env.test
 __pycache__
-*/__pycache__
 tags*
 build
 *.egg-info
 .mypy_cache
-*/.mypy_cache
 cynthia/dist/
 config.yaml
 config.yaml.bak
@@ -25,3 +23,4 @@ relic_data.json
 /cynthia/daemons/scenes/quick_settings_sample3.png
 /cynthia/daemons/scenes/sample_no_quick_settings.png
 /cynthia/daemons/scenes/switch_home_screen_full.png
+obs_layout.yaml

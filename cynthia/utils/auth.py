@@ -177,3 +177,24 @@ def button_requires_permission(**perms):
         return wrapper
 
     return decorator
+
+
+# Contexts for commands that only make sense in the owner's DMs
+DM_ONLY_CONTEXTS = app_commands.AppCommandContext(
+    guild=False, dm_channel=True, private_channel=False
+)
+
+
+class OwnerGroup(app_commands.Group):
+    """Command group usable only by the bot owner, and only in DMs."""
+
+    def __init__(self, **kwargs):
+        """Create the group restricted to DM contexts."""
+        super().__init__(allowed_contexts=DM_ONLY_CONTEXTS, **kwargs)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        """Require the configured bot owner for every subcommand."""
+        return _require(
+            str(interaction.user.id) == interaction.client.owner,
+            "Only the bot owner can use this command.",
+        )

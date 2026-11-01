@@ -4,109 +4,290 @@ import asyncio
 import gzip
 import json
 import logging
+import os
+import time
+import urllib.error
+import urllib.request
 import zlib
-from contextlib import asynccontextmanager, closing
-from multiprocessing import shared_memory
+from collections import OrderedDict, deque
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import cv2
-import numpy
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, StreamingResponse
 
+from cynthia.utils.streamcfg import CV_FPS, setting, size_for
+from cynthia.utils.twitchchat import TwitchChat
+
 from .daemon import Daemon
-from .dman import FB0
+from .frames import AUDIO_BYTES_PER_SEC
 
 SITE_DIR = Path(__file__).resolve().parent.parent / "site"
-ASOUND_CARDS = Path("/proc/asound/cards")
 
 
-def find_audio_device(env=None):
-    """Return the ALSA capture device: `AUDIO_DEVICE`, else the Elgato card."""
-    configured = env.get("AUDIO_DEVICE", None) if env is not None else None
-    if configured:
-        return configured
-    try:
-        for line in ASOUND_CARDS.read_text().splitlines():
-            if "elgato" in line.lower() and "[" in line:
-                card_id = line.split("[", 1)[1].split("]", 1)[0].strip()
-                return f"plughw:CARD={card_id}"
-    except OSError:
-        pass
-    return None
+CACHE_BYTES = 64 * 1024 * 1024
+JPEG_QUALITY = 85
+# A listener this far behind the live edge is moved forward instead of lagging.
+# Generous, because skipping audio is audible; brief stalls are absorbed instead.
+AUDIO_MAX_LAG_MS = 1500
+AUDIO_START_LAG_MS = 60
+# Video is held back this long so the audio buffer can ride out hiccups in sync
+DEFAULT_VIDEO_DELAY_MS = 1000
+AUDIO_ENCODER = [
+    "ffmpeg",
+    "-nostdin",
+    "-loglevel",
+    "error",
+    "-fflags",
+    "nobuffer",
+    "-f",
+    "s16le",
+    "-ar",
+    "48000",
+    "-ac",
+    "2",
+    "-i",
+    "pipe:0",
+    "-c:a",
+    "libmp3lame",
+    "-b:a",
+    "192k",
+    "-flush_packets",
+    "1",
+    "-f",
+    "mp3",
+    "-",
+]
 
 
-def create_app(drive, ns, uns, fb, audio_device=None):
+class JpegCache:
+    """Byte-budgeted LRU of encoded frames keyed by frame hash."""
+
+    def __init__(self, budget=CACHE_BYTES):
+        """Create an empty cache holding at most `budget` bytes."""
+        self.budget = budget
+        self.size = 0
+        self.items = OrderedDict()
+        self.hits = 0
+        self.misses = 0
+
+    def get(self, key):
+        """Return the cached bytes for `key`, refreshing its recency."""
+        value = self.items.get(key)
+        if value is None:
+            self.misses += 1
+            return None
+        self.items.move_to_end(key)
+        self.hits += 1
+        return value
+
+    def put(self, key, value):
+        """Store bytes, evicting the least recently used entries over budget."""
+        if key in self.items or len(value) > self.budget:
+            return
+        self.items[key] = value
+        self.size += len(value)
+        while self.size > self.budget:
+            _, old = self.items.popitem(last=False)
+            self.size -= len(old)
+
+
+def encode_jpeg(frame, height=720):
+    """Downscale a frame to `height` (16:9) and encode it as JPEG bytes (4:2:0)."""
+    size = size_for(height)
+    if frame.shape[1] != size[0]:
+        frame = cv2.resize(frame, size, interpolation=cv2.INTER_AREA)
+    success, buffer = cv2.imencode(
+        ".jpg",
+        frame,
+        (
+            cv2.IMWRITE_JPEG_QUALITY,
+            JPEG_QUALITY,
+            cv2.IMWRITE_JPEG_SAMPLING_FACTOR,
+            cv2.IMWRITE_JPEG_SAMPLING_FACTOR_420,
+        ),
+    )
+    return buffer.tobytes() if success else None
+
+
+PANES = ("status", "ssim", "stats", "chat", "inputs")
+
+
+def render_page(name):
+    """Read a site page, inlining the shared controller pad where it asks."""
+    html = (SITE_DIR / "html" / name).read_text()
+    return html.replace("<!--PAD-->", (SITE_DIR / "html" / "pad.html").read_text())
+
+
+HISTORY_STEP_S = 0.05
+
+
+def create_app(
+    drive,
+    ns,
+    uns,
+    ring,
+    audio_ring=None,
+    video_delay_ms=DEFAULT_VIDEO_DELAY_MS,
+    twitch_channel=None,
+):
     """Build the FastAPI app that streams frames and serves status endpoints."""
     viewers = {"count": 0}
-    latest = {"seq": 0, "chunk": None}
+    chat = TwitchChat(twitch_channel) if twitch_channel else None
+    latest = {"seq": 0, "chunk": None, "ns": 0}
     last_status = {}
     last_stats = {}
+    cache = JpegCache()
+    wake = {"viewers": None, "frame": None}
+    audio_stats = {"listeners": 0, "skipped_bytes": 0}
+    sync = {"video_latency_ms": 60.0}
+    # Recent input and SSIM samples, so the web view can show them as late as its video
+    history = deque(maxlen=int(video_delay_ms / HISTORY_STEP_S / 1000) + 40)
+    # Cumulative counters; clients difference successive polls to get rates
+    stream_stats = {"encoded": 0, "sent": 0, "encode_ms": 0.0, "jpeg_bytes": 0.0}
 
-    def encode(frame):
-        """Downscale a frame to 720p and encode it as high-quality JPEG bytes."""
-        success, buffer = cv2.imencode(
-            ".jpg",
-            cv2.resize(frame, (1280, 720), interpolation=cv2.INTER_AREA),
-            (
-                cv2.IMWRITE_JPEG_QUALITY,
-                90,
-                cv2.IMWRITE_JPEG_OPTIMIZE,
-                1,
-                cv2.IMWRITE_JPEG_SAMPLING_FACTOR,
-                cv2.IMWRITE_JPEG_SAMPLING_FACTOR_444,
-            ),
-        )
-        return buffer.tobytes() if success else None
+    def encode_next(after_seq, last_ns):
+        """Block for a newer frame within the fps budget and encode (or reuse) it."""
+        claim = ring.wait_frame(after_seq, 0.25)
+        if claim is None:
+            return after_seq, last_ns, None
+        try:
+            # Capture timestamps jitter, so allow frames slightly early
+            if claim.time_ns - last_ns < 0.8e9 / setting(uns, "web_fps"):
+                return claim.seq, last_ns, None
+            height = setting(uns, "web_height")
+            key = (claim.hash, height)
+            jpeg = cache.get(key)
+            if jpeg is None:
+                started = time.perf_counter()
+                jpeg = encode_jpeg(claim.frame, height)
+                if jpeg is not None:
+                    cache.put(key, jpeg)
+                    took = (time.perf_counter() - started) * 1000
+                    stream_stats["encode_ms"] += 0.1 * (
+                        took - stream_stats["encode_ms"]
+                    )
+            return claim.seq, claim.time_ns, (jpeg, claim.time_ns) if jpeg else None
+        finally:
+            claim.release()
 
     async def encoder():
-        """Encode new shared-memory frames while viewers are connected."""
+        """Encode new ring frames, idling completely while nobody is watching."""
+        after_seq, last_ns = 0, 0
         while ns.run:
-            if viewers["count"] == 0 or uns.fbptr is None:
-                await asyncio.sleep(0.05)
+            if viewers["count"] == 0:
+                wake["viewers"].clear()
+                await wake["viewers"].wait()
                 continue
-            fbptr = uns.fbptr
-            uns_time = uns.uvc_time1 if fbptr else uns.uvc_time0
-            if ns.uvc_time == uns_time:
-                await asyncio.sleep(0.01)
-                continue
-            ns.uvc_time = uns_time
-            jpeg = await asyncio.to_thread(encode, fb[fbptr])
+            after_seq, last_ns, jpeg = await asyncio.to_thread(
+                encode_next, after_seq, last_ns
+            )
             if jpeg is not None:
-                latest["chunk"] = (
-                    b"--frame\r\n" b"Content-Type: image/jpeg\r\n\r\n" + jpeg + b"\r\n"
+                async with wake["frame"]:
+                    jpeg, captured_ns = jpeg
+                    # Smoothed capture-to-ready delay of the video path
+                    delay_ms = (time.time_ns() - captured_ns) / 1e6
+                    sync["video_latency_ms"] += 0.1 * (
+                        delay_ms - sync["video_latency_ms"]
+                    )
+                    # X-Capture-Ns lets clients measure how old each frame is
+                    latest["chunk"] = (
+                        b"--frame\r\nContent-Type: image/jpeg\r\n"
+                        + b"X-Capture-Ns: %d\r\n\r\n" % captured_ns
+                        + jpeg
+                        + b"\r\n"
+                    )
+                    latest["ns"] = captured_ns
+                    stream_stats["encoded"] += 1
+                    stream_stats["jpeg_bytes"] += 0.1 * (
+                        len(jpeg) - stream_stats["jpeg_bytes"]
+                    )
+                    latest["seq"] += 1
+                    wake["frame"].notify_all()
+
+    async def sampler():
+        """Record the current inputs and SSIM scores a few times a second."""
+        while True:
+            history.append(
+                (
+                    time.monotonic(),
+                    list(getattr(uns, "pressed_buttons", None) or []),
+                    list(getattr(uns, "ssim_scores", None) or []),
                 )
-                latest["seq"] += 1
-            await asyncio.sleep(0.03)
+            )
+            await asyncio.sleep(HISTORY_STEP_S)
+
+    def sample(delayed):
+        """Return (pressed, scores): live, or as they were video_delay_ms ago."""
+        if delayed and history:
+            cutoff = time.monotonic() - video_delay_ms / 1000
+            for stamp, pressed, scores in reversed(history):
+                if stamp <= cutoff:
+                    return pressed, scores
+            return [], []
+        return (
+            list(getattr(uns, "pressed_buttons", None) or []),
+            list(getattr(uns, "ssim_scores", None) or []),
+        )
 
     @asynccontextmanager
     async def lifespan(_):
         """Start the frame encoder with the app and cancel it on shutdown."""
-        task = asyncio.create_task(encoder())
+        wake["viewers"] = asyncio.Event()
+        wake["frame"] = asyncio.Condition()
+        tasks = [asyncio.create_task(encoder()), asyncio.create_task(sampler())]
+        if chat is not None:
+            tasks.append(asyncio.create_task(chat.run()))
         try:
             yield
         finally:
-            task.cancel()
-            await asyncio.gather(task, return_exceptions=True)
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     app = FastAPI(lifespan=lifespan)
     app.state.viewers = viewers
     app.state.latest = latest
+    app.state.cache = cache
 
     async def frame_generator():
         """Yield newly encoded multipart frames to a streaming response."""
         viewers["count"] += 1
-        last_seq = latest["seq"]
+        uns.web_viewers = viewers["count"]
+        wake["viewers"].set()
+        last_seq = 0
+        delay_ns = int(video_delay_ms * 1e6)
+        pending = deque()  # (capture time, chunk) waiting out the video delay
         try:
             while ns.run:
-                if latest["seq"] != last_seq:
-                    last_seq = latest["seq"]
-                    yield latest["chunk"]
-                else:
-                    await asyncio.sleep(0.01)
+                async with wake["frame"]:
+                    if latest["seq"] == last_seq:
+                        wait = 1.0
+                        if pending:
+                            due = pending[0][0] + delay_ns - time.time_ns()
+                            wait = min(wait, max(0.001, due / 1e9))
+                        try:
+                            await asyncio.wait_for(
+                                wake["frame"].wait_for(
+                                    lambda: latest["seq"] != last_seq
+                                ),
+                                timeout=wait,
+                            )
+                        except asyncio.TimeoutError:
+                            pass
+                    if latest["seq"] != last_seq:
+                        last_seq = latest["seq"]
+                        pending.append((latest["ns"], latest["chunk"]))
+                now = time.time_ns()
+                while pending and pending[0][0] + delay_ns <= now:
+                    stream_stats["sent"] += 1
+                    yield pending.popleft()[1]
         finally:
             viewers["count"] -= 1
+            uns.web_viewers = viewers["count"]
 
     @app.get("/api/user_status")
     async def status():
@@ -141,60 +322,63 @@ def create_app(drive, ns, uns, fb, audio_device=None):
         return stats or {}
 
     @app.get("/api/ssim_data")
-    async def ssim_data():
-        """Return the top 5 SSIM scene match scores from the CV daemon."""
-        scores = getattr(uns, "ssim_scores", None) or []
+    async def ssim_data(delayed: bool = False):
+        """Return the top 5 SSIM scene match scores from the CV daemon.
+
+        `delayed=true` lags them by the web stream delay to match the video.
+        """
+        scores = sample(delayed)[1]
         return {"scores": [{"scene": k, "score": float(v)} for k, v in scores[:5]]}
 
     @app.get("/api/inputs")
-    async def inputs():
-        """Return the controller buttons macros are currently pressing."""
-        return {"pressed": list(getattr(uns, "pressed_buttons", None) or [])}
+    async def inputs(delayed: bool = False):
+        """Return the controller buttons macros are currently pressing.
+
+        `delayed=true` lags them by the web stream delay to match the video.
+        """
+        return {"pressed": sample(delayed)[0]}
 
     @app.get("/api/viewers")
     async def viewer_count():
-        """Return the current number of video stream viewers."""
-        return {"viewers": viewers["count"]}
+        """Return the current number of viewers, over MJPEG and WebRTC."""
+        return {"viewers": viewers["count"] + getattr(uns, "webrtc_viewers", 0)}
 
     async def audio_generator():
-        """Yield MP3 chunks from an ffmpeg capture that lives with the listener."""
+        """Encode live PCM from the ring to MP3 for one listener."""
         proc = await asyncio.create_subprocess_exec(
-            "ffmpeg",
-            "-nostdin",
-            "-loglevel",
-            "error",
-            "-fflags",
-            "nobuffer",
-            "-flags",
-            "low_delay",
-            "-probesize",
-            "32",
-            "-analyzeduration",
-            "0",
-            "-thread_queue_size",
-            "1024",
-            "-f",
-            "alsa",
-            "-i",
-            audio_device,
-            "-af",
-            "highpass=f=20,aresample=async=1000",
-            "-ar",
-            "48000",
-            "-ac",
-            "2",
-            "-c:a",
-            "libmp3lame",
-            "-b:a",
-            "192k",
-            "-flush_packets",
-            "1",
-            "-f",
-            "mp3",
-            "-",
+            *AUDIO_ENCODER,
+            stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
         )
+
+        async def feed():
+            """Pump ring audio into the encoder, catching up if it falls behind."""
+            # Own thread: the shared pool is busy with JPEG encoding and a late
+            # read would put a gap in the audio
+            reader = ThreadPoolExecutor(max_workers=1, thread_name_prefix="audio")
+            loop = asyncio.get_running_loop()
+            pos = audio_ring.live_position(AUDIO_START_LAG_MS)
+            silence = bytes(AUDIO_BYTES_PER_SEC // 10)
+            try:
+                while ns.run:
+                    data, pos, _, skipped = await loop.run_in_executor(
+                        reader, audio_ring.read, pos, 0.1, AUDIO_MAX_LAG_MS
+                    )
+                    # No capture data: send silence so the player never stalls
+                    proc.stdin.write(data or silence)
+                    await proc.stdin.drain()
+                    if skipped:
+                        audio_stats["skipped_bytes"] += skipped
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            finally:
+                reader.shutdown(wait=False)
+                proc.stdin.close()
+
+        feeder = asyncio.create_task(feed())
+        audio_stats["listeners"] += 1
+        uns.audio_listeners = audio_stats["listeners"]
         try:
             while ns.run:
                 chunk = await proc.stdout.read(4096)
@@ -202,31 +386,135 @@ def create_app(drive, ns, uns, fb, audio_device=None):
                     break
                 yield chunk
         finally:
+            audio_stats["listeners"] -= 1
+            uns.audio_listeners = audio_stats["listeners"]
+            feeder.cancel()
+            await asyncio.gather(feeder, return_exceptions=True)
             if proc.returncode is None:
                 proc.kill()
             await proc.wait()
 
     @app.get("/api/audio_stream")
     async def audio_stream():
-        """Stream captured game audio as MP3 while a listener is connected."""
-        if not audio_device:
-            raise HTTPException(status_code=503, detail="No audio device")
+        """Stream live game audio as MP3 while a listener is connected."""
+        if audio_ring is None:
+            raise HTTPException(status_code=503, detail="No audio ring")
         return StreamingResponse(
             audio_generator(),
             media_type="audio/mpeg",
             headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
         )
 
+    @app.get("/api/webrtc")
+    async def webrtc_info():
+        """Report whether WebRTC is available and ask for its feed to be running."""
+        ready = bool(getattr(uns, "webrtc_ready", False))
+        if ready:
+            uns.webrtc_requested = time.time()
+        return {"enabled": ready}
+
+    def whep_exchange(offer):
+        """Forward a WHEP offer to MediaMTX; returns (status, answer, location)."""
+        port = getattr(uns, "webrtc_port", 8889)
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/cynthia/whep",
+            data=offer,
+            headers={"Content-Type": "application/sdp"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=5) as res:
+                return res.status, res.read(), res.headers.get("Location")
+        except urllib.error.HTTPError as e:
+            return e.code, e.read(), None
+        except OSError:
+            return 503, b"", None
+
+    @app.post("/api/whep")
+    async def whep(request: Request):
+        """Exchange a browser's WebRTC offer for MediaMTX's answer."""
+        if not getattr(uns, "webrtc_ready", False):
+            raise HTTPException(status_code=503, detail="WebRTC is unavailable")
+        uns.webrtc_requested = time.time()
+        offer = await request.body()
+        status, answer, _ = await asyncio.to_thread(whep_exchange, offer)
+        return Response(
+            content=answer,
+            status_code=status,
+            media_type="application/sdp",
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.get("/api/sync")
+    async def sync_info():
+        """Return the video path delay the page uses to line audio up with it."""
+        return {"video_latency_ms": round(sync["video_latency_ms"] + video_delay_ms, 1)}
+
+    @app.get("/api/stream_stats")
+    async def stream_info():
+        """Return cumulative video and audio encode counters for the stats overlay."""
+        return {
+            "server_ns": time.time_ns(),
+            "capture_seq": ring.seq,
+            "capture_dropped": ring.dropped,
+            "capture_age_ms": (
+                round((time.time_ns() - ring.last_time_ns) / 1e6, 1)
+                if ring.last_time_ns
+                else None
+            ),
+            "encoded_frames": stream_stats["encoded"],
+            "sent_frames": stream_stats["sent"],
+            "encode_ms": round(stream_stats["encode_ms"], 2),
+            "jpeg_kb": round(stream_stats["jpeg_bytes"] / 1024, 1),
+            "cache_hits": cache.hits,
+            "cache_misses": cache.misses,
+            "cpu_load": [round(v, 2) for v in os.getloadavg()],
+            "cpu_count": os.cpu_count() or 1,
+            "viewers": viewers["count"] + getattr(uns, "webrtc_viewers", 0),
+            "mjpeg_viewers": viewers["count"],
+            "webrtc_viewers": getattr(uns, "webrtc_viewers", 0),
+            "capture_mode": getattr(uns, "capture_mode", None),
+            "web_fps": setting(uns, "web_fps"),
+            "web_height": setting(uns, "web_height"),
+            "obs_fps": setting(uns, "obs_fps"),
+            "obs_height": setting(uns, "obs_height"),
+            "cv_fps": CV_FPS,
+            "video_delay_ms": video_delay_ms,
+            "video_latency_ms": round(sync["video_latency_ms"] + video_delay_ms, 1),
+            "audio": {
+                **audio_stats,
+                "captured": audio_ring is not None and audio_ring.last_time_ns > 0,
+            },
+        }
+
+    @app.get("/api/audio_stats")
+    async def audio_info():
+        """Return listener count and how much audio was skipped to catch up."""
+        return {
+            **audio_stats,
+            "captured": audio_ring is not None and audio_ring.last_time_ns > 0,
+        }
+
     @app.get("/video_feed", response_class=HTMLResponse)
     async def video_feed_page():
         """Serve the local HTML page for the video stream."""
-        html_content = (SITE_DIR / "html" / "video_feed.html").read_text()
-        return HTMLResponse(content=html_content, status_code=200)
+        return HTMLResponse(content=render_page("video_feed.html"), status_code=200)
+
+    @app.get("/pane/{kind}", response_class=HTMLResponse)
+    async def pane_page(kind: str):
+        """Serve one overlay pane; OBS shows these as browser sources."""
+        if kind not in PANES:
+            raise HTTPException(status_code=404, detail="Unknown pane")
+        return HTMLResponse(content=render_page("overlay.html"), status_code=200)
+
+    @app.get("/api/twitch_chat")
+    async def twitch_chat():
+        """Return the latest Twitch chat messages (empty without a channel)."""
+        return {"messages": chat.recent() if chat else []}
 
     @app.get("/api/stream_endpoint")
     async def video_feed():
         """Stream captured frames as a multipart MJPEG response."""
-        ns.uvc_hash = -1
         return StreamingResponse(
             frame_generator(),
             media_type="multipart/x-mixed-replace; boundary=frame",
@@ -260,43 +548,40 @@ class CYStream(Daemon):
     def __init__(self, dman):
         """Create the web worker and attach compressed access logging."""
 
-        def loop(ns, uns, fba, fbb, drive, audio_device):
+        def loop(ns, uns, ring, audio_ring, drive, video_delay_ms, twitch_channel):
             """Serve the FastAPI app over the local HTTP interface."""
-            with (
-                closing(shared_memory.SharedMemory(name=fba)) as shmA,
-                closing(shared_memory.SharedMemory(name=fbb)) as shmB,
-            ):
-                shms = (shmA, shmB)
-                fb = list(
-                    numpy.ndarray(FB0.shape(), dtype=numpy.uint8, buffer=shms[idx].buf)
-                    for idx in (0, 1)
-                )
-                app = create_app(drive, ns, uns, fb, audio_device)
-                ns.done = True
-                config = uvicorn.Config(
-                    app,
-                    host="127.0.0.1",
-                    port=8000,
-                    log_config=None,
-                    access_log=True,
-                )
-                # Config() sets both uvicorn loggers to one level; split them afterwards
-                logging.getLogger("uvicorn.error").setLevel(logging.WARNING)
-                access = logging.getLogger("uvicorn.access")
-                access.setLevel(logging.INFO)
-                access.propagate = False
-                access_path = drive.path("uvicorn_access.log.gz")
-                if access_path is not None:
-                    access.addHandler(GzipLogHandler(access_path))
-                uvicorn.Server(config).run()
+            app = create_app(
+                drive, ns, uns, ring, audio_ring, video_delay_ms, twitch_channel
+            )
+            ns.done = True
+            config = uvicorn.Config(
+                app,
+                host="127.0.0.1",
+                port=8000,
+                log_config=None,
+                access_log=True,
+            )
+            # Config() sets both uvicorn loggers to one level; split them afterwards
+            logging.getLogger("uvicorn.error").setLevel(logging.WARNING)
+            access = logging.getLogger("uvicorn.access")
+            access.setLevel(logging.INFO)
+            access.propagate = False
+            access_path = drive.path("uvicorn_access.log.gz")
+            if access_path is not None:
+                access.addHandler(GzipLogHandler(access_path))
+            uvicorn.Server(config).run()
 
         super().__init__(
             dman,
             dman.drive,
-            find_audio_device(dman.context.env),
-            fbs=(0,),
+            max(
+                0,
+                int(dman.context.config.get("stream_delay_ms", DEFAULT_VIDEO_DELAY_MS)),
+            ),
+            dman.context.env.get("TWITCH_CHANNEL", None) or None,
+            ring=True,
+            audio_ring=True,
         )
-        self.ns.uvc_time = -1
         self.ns.done = False
         self.loop = loop
         self.start()

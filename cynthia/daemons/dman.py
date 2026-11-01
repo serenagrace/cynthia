@@ -5,7 +5,7 @@ import importlib
 import logging
 import sys
 import time
-from multiprocessing import Manager, shared_memory
+from multiprocessing import Manager
 from pathlib import Path
 
 import numpy
@@ -13,8 +13,10 @@ from discord import app_commands
 
 from cynthia.utils.drive import Drive
 from cynthia.utils.namespace import Namespace
+from cynthia.utils.streamcfg import init_settings
 
 from .daemon import Daemon
+from .frames import AudioRing, FrameRing
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -37,6 +39,11 @@ class FB0:
         """Return the array shape for one RGB frame buffer."""
         return (FB0.HEIGHT, FB0.WIDTH, FB0.CHANNELS)
 
+    @staticmethod
+    def native_shape():
+        """Return the array shape of one NV12 frame: Y plane, then interleaved UV."""
+        return (FB0.HEIGHT * 3 // 2, FB0.WIDTH)
+
 
 class DMan:
     """Manage daemon discovery, shared frame buffers, and process lifecycle."""
@@ -55,17 +62,16 @@ class DMan:
         self.__loaded_daemons = Namespace()
         self.__running_daemons = Namespace()
         self.__previously_loaded_modules = list()
-        self.fb = (
-            shared_memory.SharedMemory(create=True, size=FB0.nbytes()),
-            shared_memory.SharedMemory(create=True, size=FB0.nbytes()),
-        )
-        self.fbptr = None
+        self.ring = FrameRing(FB0.shape())
+        # The card's own NV12, kept so encoders skip the BGR round trip
+        self.native_ring = FrameRing(FB0.native_shape())
+        self.audio_ring = AudioRing()
         self.pending_state = {}
         self._last_restart = {}
         self._needs_restart = set()
         self.manager = Manager()
         self.uns = self.manager.Namespace()
-        self.uns.fbptr = None
+        init_settings(self.uns, self.context.config)
         self.load_daemons()
         self.run_daemons()
 
@@ -78,14 +84,13 @@ class DMan:
         self.__modules = [
             module.stem
             for module in Path(__file__).parent.glob("*.py")
-            if module.stem not in ["__init__", "dman", "daemon"]
+            if module.stem not in ["__init__", "dman", "daemon", "frames"]
         ]
         logger.debug(
-            f"{len(self.modules)} daemon modules found in {self.daemon_directory}."
+            f"Loading {len(self.modules)} daemon modules from {self.daemon_directory}:"
         )
         errors = []
         for module in self.modules:
-            logger.debug(f"Loading daemons from module: {module} ...")
             daemons_module = None
             try:
                 if module in self.__previously_loaded_modules:
@@ -102,7 +107,7 @@ class DMan:
                     f" ERR.\n\tFailed to load daemon from module: {module}\n"
                     + f"\tError: {e}"
                 )
-                logger.error(error)
+                logger.error(f"Failed to load daemon module `{module}`: {e}")
                 errors += error
             if daemons_module is not None:
                 public_objects = filter(
@@ -116,11 +121,13 @@ class DMan:
                     if daemon.__name__ == "Daemon":
                         continue
                     if daemon.__name__ in self.__loaded_daemons:
-                        logger.warn(f'Duplicate daemon with name "{daemon.__name__}".')
+                        logger.warning(
+                            f'Duplicate daemon with name "{daemon.__name__}".'
+                        )
                     self.__loaded_daemons[daemon.__name__] = daemon
-                logger.debug("Done")
+                logger.debug(f"  `{module}`")
             else:
-                logger.error(f" ERR.\n\tNo daemon found in module: {module}")
+                logger.error(f"No daemon found in module: `{module}`")
         return len(self.loaded_daemons), errors
 
     def run_daemons(self, *, daemons=None):
@@ -128,12 +135,12 @@ class DMan:
         if daemons is not None:
             for _daemon in daemons:
                 if _daemon not in self.__loaded_daemons:
-                    logger.error(f" ERR. Specified daemon `{_daemon}` not loaded.")
+                    logger.error(f"Specified daemon `{_daemon}` not loaded.")
                     continue
                 if _daemon not in self.__running_daemons:
                     self.__running_daemons[_daemon] = self.loaded_daemons[_daemon](self)
                 else:
-                    logger.error(f" ERR. Specified daemon `{_daemon}` already running.")
+                    logger.error(f"Specified daemon `{_daemon}` already running.")
             return
 
         for name, daemon in self.loaded_daemons.items():
@@ -150,7 +157,8 @@ class DMan:
 
     async def stop_daemons(self, *, daemons=None):
         """Signal selected daemons to stop and clean up their processes."""
-        if daemons is None:
+        stopping_all = daemons is None
+        if stopping_all:
             daemons = list(self.__running_daemons.keys())
         daemons = [
             d for d in daemons if self.__running_daemons.get(d, None) is not None
@@ -164,12 +172,12 @@ class DMan:
                     and not getattr(self.__running_daemons[_daemon].ns, "done", False)
                     for _daemon in daemons
                 ):
-                    logger.info(
+                    logger.debug(
                         f"Still waiting for daemon(s) {list(filter(lambda k: self.__running_daemons[k].process.is_alive() and not getattr(self.__running_daemons[k].ns,'done', False), self.__running_daemons.keys()))} to close..."
                     )
                     await asyncio.sleep(5)
         except TimeoutError:
-            logger.error(" ERR. Some daemon(s) failed to stop.")
+            logger.error("Some daemon(s) failed to stop.")
 
         for _daemon in daemons:
             daemon_obj = self.__running_daemons.get(_daemon, None)
@@ -177,7 +185,7 @@ class DMan:
                 continue
             if daemon_obj.process.is_alive():
                 if getattr(daemon_obj.ns, "done", False):
-                    logger.info(f"Terminating non-daemon process `{_daemon}`.")
+                    logger.debug(f"Terminating non-daemon process `{_daemon}`.")
                     daemon_obj.process.terminate()
                     daemon_obj.process.join()
                     self._forget(_daemon)
@@ -189,6 +197,12 @@ class DMan:
                     self._forget(_daemon)
                 continue
             self._forget(_daemon)
+        if stopping_all and not self.__running_daemons:
+            self.ring.close(unlink=True)
+            self.native_ring.close(unlink=True)
+            self.audio_ring.close()
+            # Without this the shared-state manager process outlives the bot
+            self.manager.shutdown()
 
     def _forget(self, name):
         """Drop a stopped daemon and shut down its namespace manager."""
@@ -223,10 +237,7 @@ class DMan:
         uvc = self.__running_daemons.get("UVCDaemon", None)
         if uvc is not None and uvc.process.is_alive() and uvc.ns.run:
             last = getattr(uvc, "started_at", now)
-            for key in ("uvc_time0", "uvc_time1"):
-                frame_time = getattr(self.uns, key, None)
-                if frame_time is not None:
-                    last = max(last, frame_time / 1e9)
+            last = max(last, self.ring.last_time_ns / 1e9)
             if now - last > self.STALL_TIMEOUT:
                 stalled.append("UVCDaemon")
         cv = self.__running_daemons.get("CVDaemon", None)

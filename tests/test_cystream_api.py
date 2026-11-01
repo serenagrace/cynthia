@@ -8,9 +8,9 @@ from cynthia.utils.drive import Drive
 
 def test_cystream_api_status_viewers_and_video_page(tmp_path):
     (tmp_path / "user_status.json").write_text('{"name": "test stream"}')
-    ns = SimpleNamespace(run=True, uvc_time=0)
-    uns = SimpleNamespace(fbptr=None)
-    app = create_app(Drive(tmp_path), ns, uns, [None, None])
+    ns = SimpleNamespace(run=True)
+    uns = SimpleNamespace()
+    app = create_app(Drive(tmp_path), ns, uns, None)
 
     with TestClient(app) as client:
         status_response = client.get("/api/user_status")
@@ -30,9 +30,9 @@ def test_cystream_api_returns_empty_status_for_invalid_json(tmp_path):
     (tmp_path / "user_status.json").write_text("{invalid")
     app = create_app(
         Drive(tmp_path),
-        SimpleNamespace(run=True, uvc_time=0),
-        SimpleNamespace(fbptr=None),
-        [None, None],
+        SimpleNamespace(run=True),
+        SimpleNamespace(),
+        None,
     )
 
     with TestClient(app) as client:
@@ -42,13 +42,13 @@ def test_cystream_api_returns_empty_status_for_invalid_json(tmp_path):
     assert response.json() == {}
 
 
-def test_cystream_stream_endpoint_is_multipart_and_resets_frame_hash(tmp_path):
-    ns = SimpleNamespace(run=False, uvc_time=0, uvc_hash=10)
+def test_cystream_stream_endpoint_is_multipart(tmp_path):
+    ns = SimpleNamespace(run=False)
     app = create_app(
         Drive(tmp_path),
         ns,
-        SimpleNamespace(fbptr=None),
-        [None, None],
+        SimpleNamespace(),
+        None,
     )
 
     with TestClient(app) as client:
@@ -58,7 +58,6 @@ def test_cystream_stream_endpoint_is_multipart_and_resets_frame_hash(tmp_path):
     assert response.headers["content-type"].startswith(
         "multipart/x-mixed-replace; boundary=frame"
     )
-    assert ns.uvc_hash == -1
     assert app.state.viewers["count"] == 0
 
 
@@ -66,9 +65,9 @@ def test_cystream_api_activity_stats(tmp_path):
     (tmp_path / "activity_stats.json").write_text('{"bot_started": 1}')
     app = create_app(
         Drive(tmp_path),
-        SimpleNamespace(run=True, uvc_time=0),
-        SimpleNamespace(fbptr=None),
-        [None, None],
+        SimpleNamespace(run=True),
+        SimpleNamespace(),
+        None,
     )
 
     with TestClient(app) as client:
@@ -80,9 +79,9 @@ def test_cystream_api_activity_stats(tmp_path):
 def test_cystream_status_apis_return_empty_data_when_drive_disabled():
     app = create_app(
         Drive(None),
-        SimpleNamespace(run=True, uvc_time=0),
-        SimpleNamespace(fbptr=None),
-        [None, None],
+        SimpleNamespace(run=True),
+        SimpleNamespace(),
+        None,
     )
 
     with TestClient(app) as client:
@@ -98,9 +97,9 @@ def test_cystream_status_apis_return_empty_data_when_drive_disabled():
 def test_cystream_api_inputs(tmp_path):
     app = create_app(
         Drive(tmp_path),
-        SimpleNamespace(run=True, uvc_time=0),
-        SimpleNamespace(fbptr=None, pressed_buttons=["A", "DPAD_UP"]),
-        [None, None],
+        SimpleNamespace(run=True),
+        SimpleNamespace(pressed_buttons=["A", "DPAD_UP"]),
+        None,
     )
 
     with TestClient(app) as client:
@@ -109,40 +108,156 @@ def test_cystream_api_inputs(tmp_path):
     assert response.json() == {"pressed": ["A", "DPAD_UP"]}
 
 
-def test_cystream_audio_stream_unavailable_without_device(tmp_path):
+def test_cystream_delayed_inputs_and_ssim_lag_the_web_stream(tmp_path):
+    import time
+
+    uns = SimpleNamespace(pressed_buttons=["A"], ssim_scores=[("home", 0.9)])
     app = create_app(
-        Drive(tmp_path),
-        SimpleNamespace(run=True, uvc_time=0),
-        SimpleNamespace(fbptr=None),
-        [None, None],
+        Drive(tmp_path), SimpleNamespace(run=True), uns, None, video_delay_ms=300
     )
 
     with TestClient(app) as client:
-        response = client.get("/api/audio_stream")
+        time.sleep(0.5)
+        uns.pressed_buttons = ["B"]
+        uns.ssim_scores = [("map", 0.8)]
+        live = client.get("/api/inputs").json()
+        lagged = client.get("/api/inputs?delayed=true").json()
+        lagged_ssim = client.get("/api/ssim_data?delayed=true").json()
+        time.sleep(0.5)
+        caught_up = client.get("/api/inputs?delayed=true").json()
 
-    assert response.status_code == 503
+    assert live == {"pressed": ["B"]}
+    assert lagged == {"pressed": ["A"]}
+    assert lagged_ssim["scores"][0]["scene"] == "home"
+    assert caught_up == {"pressed": ["B"]}
 
 
-def test_cystream_audio_stream_proxies_ffmpeg_output(tmp_path, monkeypatch):
-    import asyncio
+def test_jpeg_cache_evicts_least_recently_used_over_budget():
+    from cynthia.daemons.cystream import JpegCache
 
-    real_exec = asyncio.create_subprocess_exec
+    cache = JpegCache(budget=10)
+    cache.put(1, b"aaaa")
+    cache.put(2, b"bbbb")
+    assert cache.get(1) == b"aaaa"
+    cache.put(3, b"cccc")
 
-    async def fake_exec(*args, **kwargs):
-        assert args[0] == "ffmpeg" and "test_dev" in args
-        return await real_exec("printf", "ID3audio", **kwargs)
+    assert cache.get(2) is None
+    assert cache.get(1) == b"aaaa"
+    assert cache.get(3) == b"cccc"
 
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
-    app = create_app(
-        Drive(tmp_path),
-        SimpleNamespace(run=True, uvc_time=0),
-        SimpleNamespace(fbptr=None),
-        [None, None],
-        "test_dev",
-    )
+
+def test_cystream_encodes_ring_frames_for_viewers_and_reuses_cache(tmp_path):
+    import threading
+
+    from cynthia.daemons.frames import FrameRing
+
+    ring = FrameRing((72, 128, 3))
+    ns = SimpleNamespace(run=True)
+    app = create_app(Drive(tmp_path), ns, SimpleNamespace(), ring)
+    try:
+        for n in range(2):
+            slot = ring.begin_write()
+            ring.view(slot)[:] = 7
+            ring.end_write(slot, (n + 1) * 10**9, 99)
+        with TestClient(app) as client:
+            # TestClient buffers the whole body, so end the stream from a timer
+            timer = threading.Timer(1.5, lambda: setattr(ns, "run", False))
+            timer.start()
+            chunk = client.get("/api/stream_endpoint").content
+            timer.cancel()
+        assert b"image/jpeg" in chunk
+        assert app.state.cache.misses == 1
+    finally:
+        ring.close(unlink=True)
+
+
+def test_cystream_audio_stream_encodes_ring_pcm_and_reports_sync(tmp_path):
+    import threading
+
+    from cynthia.daemons.frames import AudioRing, FrameRing
+
+    ring = FrameRing((72, 128, 3))
+    audio = AudioRing(seconds=2)
+    ns = SimpleNamespace(run=True)
+    app = create_app(Drive(tmp_path), ns, SimpleNamespace(), ring, audio)
+    stop = threading.Timer(1.5, lambda: setattr(ns, "run", False))
+    try:
+        with TestClient(app) as client:
+            assert client.get("/api/sync").json()["video_latency_ms"] > 0
+            stop.start()
+            response = client.get("/api/audio_stream")
+        assert response.headers["content-type"] == "audio/mpeg"
+        # Silence fills in when the capture ring is empty, so MP3 data still flows
+        assert len(response.content) > 1000
+        assert audio.total == 0
+    finally:
+        stop.cancel()
+        ring.close(unlink=True)
+        audio.close()
+
+
+def test_cystream_audio_stream_unavailable_without_ring(tmp_path):
+    ns = SimpleNamespace(run=True)
+    app = create_app(Drive(tmp_path), ns, SimpleNamespace(), None)
 
     with TestClient(app) as client:
-        response = client.get("/api/audio_stream")
+        assert client.get("/api/audio_stream").status_code == 503
 
-    assert response.headers["content-type"] == "audio/mpeg"
-    assert response.content == b"ID3audio"
+
+def test_cystream_holds_video_back_by_the_configured_delay(tmp_path):
+    import threading
+    import time
+
+    from cynthia.daemons.frames import FrameRing
+
+    def stream(delay_ms):
+        ring = FrameRing((72, 128, 3))
+        ns = SimpleNamespace(run=True)
+        app = create_app(
+            Drive(tmp_path), ns, SimpleNamespace(), ring, video_delay_ms=delay_ms
+        )
+        try:
+            slot = ring.begin_write()
+            ring.view(slot)[:] = 7
+            ring.end_write(slot, time.time_ns(), 99)
+            with TestClient(app) as client:
+                timer = threading.Timer(1.5, lambda: setattr(ns, "run", False))
+                timer.start()
+                body = client.get("/api/stream_endpoint").content
+                timer.cancel()
+                sync = client.get("/api/sync").json()["video_latency_ms"]
+            return body, sync
+        finally:
+            ring.close(unlink=True)
+
+    held, sync = stream(5000)
+    assert b"image/jpeg" not in held
+    assert sync >= 5000
+    released, _ = stream(0)
+    assert b"image/jpeg" in released
+
+
+def test_cystream_stream_stats_report_counters(tmp_path):
+    import threading
+
+    from cynthia.daemons.frames import FrameRing
+
+    ring = FrameRing((72, 128, 3))
+    ns = SimpleNamespace(run=True)
+    app = create_app(Drive(tmp_path), ns, SimpleNamespace(), ring, video_delay_ms=0)
+    try:
+        slot = ring.begin_write()
+        ring.view(slot)[:] = 7
+        ring.end_write(slot, 10**9, 99)
+        with TestClient(app) as client:
+            timer = threading.Timer(1.5, lambda: setattr(ns, "run", False))
+            timer.start()
+            client.get("/api/stream_endpoint")
+            timer.cancel()
+            stats = client.get("/api/stream_stats").json()
+        assert stats["capture_seq"] == 1
+        assert stats["encoded_frames"] == 1 and stats["sent_frames"] == 1
+        assert stats["cache_misses"] == 1 and stats["jpeg_kb"] > 0
+        assert stats["audio"]["listeners"] == 0
+    finally:
+        ring.close(unlink=True)

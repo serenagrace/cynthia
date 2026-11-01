@@ -1,0 +1,118 @@
+<style>
+        .controller-pad {
+            display: block;
+            width: 100%;
+            height: auto;
+        }
+
+        .pad-key {
+            color: #a0a0ad;
+            transition: color 0.05s;
+        }
+
+        .pad-key .button {
+            fill: #34343e;
+            stroke: #555560;
+            stroke-width: 2;
+            transition: fill 0.05s, stroke 0.05s;
+        }
+
+        .pad-key .label {
+            fill: currentColor;
+            font: 600 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            text-anchor: middle;
+            dominant-baseline: central;
+            pointer-events: none;
+        }
+
+        .pad-key.on {
+            color: #ffffff;
+        }
+
+        .pad-key.on .button {
+            fill: #3a6ff0;
+            stroke: #9db7ff;
+        }
+
+        .controller-body {
+            fill: #23232a;
+            stroke: #41414d;
+            stroke-width: 3;
+        }
+
+        .controller-detail {
+            fill: #1b1b20;
+            stroke: #383842;
+            stroke-width: 2;
+        }
+</style>
+                    <svg class="controller-pad" id="pad" viewBox="0 0 500 300" role="img" aria-label="Controller input display">
+                        <path class="controller-body" d="M91 18h318c27 0 45 18 53 50l31 152c7 31-11 55-39 55-19 0-34-12-48-33l-30-45c-10-15-26-23-44-23H168c-18 0-34 8-44 23l-30 45c-14 21-29 33-48 33-28 0-46-24-39-55L38 68c8-32 26-50 53-50z"/>
+                        <path class="controller-detail" d="M205 54h90a8 8 0 0 1 8 8v29h-106V62a8 8 0 0 1 8-8z"/>
+
+                        <g class="pad-key" id="L" transform="translate(6 12)" aria-label="L">
+                            <title>L</title><path class="button" d="M122 -6H88a12 12 0 0 0 0 24H122z"/><text class="label" x="100" y="6">L</text>
+                        </g>
+                        <g class="pad-key" id="ZL" transform="translate(6 12)" aria-label="ZL">
+                            <title>ZL</title><path class="button" d="M122 -6H156a12 12 0 0 1 0 24H122z"/><text class="label" x="144" y="6">ZL</text>
+                        </g>
+                        <g class="pad-key" id="ZR" transform="translate(-6 12)" aria-label="ZR">
+                            <title>ZR</title><path class="button" d="M378 -6H344a12 12 0 0 0 0 24H378z"/><text class="label" x="356" y="6">ZR</text>
+                        </g>
+                        <g class="pad-key" id="R" transform="translate(-6 12)" aria-label="R">
+                            <title>R</title><path class="button" d="M378 -6H412a12 12 0 0 1 0 24H378z"/><text class="label" x="400" y="6">R</text>
+                        </g>
+
+                        <g class="pad-key" id="DPAD_UP" transform="translate(-40 -51)" aria-label="D-pad up">
+                            <title>D-pad up</title><rect class="button" x="119" y="109" width="32" height="32" rx="5"/><text class="label" x="135" y="125">↑</text>
+                        </g>
+                        <g class="pad-key" id="DPAD_LEFT" transform="translate(-40 -51)" aria-label="D-pad left">
+                            <title>D-pad left</title><rect class="button" x="85" y="143" width="32" height="32" rx="5"/><text class="label" x="101" y="159">←</text>
+                        </g>
+                        <g class="pad-key" id="DPAD_DOWN" transform="translate(-40 -51)" aria-label="D-pad down">
+                            <title>D-pad down</title><rect class="button" x="119" y="177" width="32" height="32" rx="5"/><text class="label" x="135" y="193">↓</text>
+                        </g>
+                        <g class="pad-key" id="DPAD_RIGHT" transform="translate(-40 -51)" aria-label="D-pad right">
+                            <title>D-pad right</title><rect class="button" x="153" y="143" width="32" height="32" rx="5"/><text class="label" x="169" y="159">→</text>
+                        </g>
+
+
+                        <g class="pad-key" id="Y" transform="translate(0 -34)" aria-label="Y">
+                            <title>Y</title><circle class="button" cx="373" cy="142" r="17"/><text class="label" x="373" y="142">Y</text>
+                        </g>
+                        <g class="pad-key" id="X" transform="translate(0 -34)" aria-label="X">
+                            <title>X</title><circle class="button" cx="405" cy="110" r="17"/><text class="label" x="405" y="110">X</text>
+                        </g>
+                        <g class="pad-key" id="B" transform="translate(0 -34)" aria-label="B">
+                            <title>B</title><circle class="button" cx="405" cy="174" r="17"/><text class="label" x="405" y="174">B</text>
+                        </g>
+                        <g class="pad-key" id="A" transform="translate(0 -34)" aria-label="A">
+                            <title>A</title><circle class="button" cx="437" cy="142" r="17"/><text class="label" x="437" y="142">A</text>
+                        </g>
+
+                        <g class="pad-key" id="MINUS" transform="translate(0 -16)" aria-label="Minus">
+                            <title>Minus</title><rect class="button" x="212" y="124" width="25" height="16" rx="8"/><text class="label" x="224.5" y="132">−</text>
+                        </g>
+                        <g class="pad-key" id="PLUS" transform="translate(0 -16)" aria-label="Plus">
+                            <title>Plus</title><rect class="button" x="263" y="124" width="25" height="16" rx="8"/><text class="label" x="275.5" y="132">+</text>
+                        </g>
+                        <g class="pad-key" id="CAPTURE" transform="translate(0 -16)" aria-label="Capture">
+                            <title>Capture</title><circle class="button" cx="232" cy="172" r="11"/><text class="label" x="232" y="172">□</text>
+                        </g>
+                        <g class="pad-key" id="HOME" transform="translate(0 -16)" aria-label="Home">
+                            <title>Home</title><circle class="button" cx="268" cy="172" r="13"/><text class="label" x="268" y="172">⌂</text>
+                        </g>
+
+                        <g class="pad-key" id="JCL_SL" display="none" aria-label="Left Joy-Con SL">
+                            <title>Left Joy-Con SL</title><rect class="button" x="45" y="143" width="19" height="28" rx="6"/><text class="label" x="54" y="157">SL</text>
+                        </g>
+                        <g class="pad-key" id="JCL_SR" display="none" aria-label="Left Joy-Con SR">
+                            <title>Left Joy-Con SR</title><rect class="button" x="66" y="177" width="19" height="28" rx="6"/><text class="label" x="75" y="191">SR</text>
+                        </g>
+                        <g class="pad-key" id="JCR_SL" display="none" aria-label="Right Joy-Con SL">
+                            <title>Right Joy-Con SL</title><rect class="button" x="436" y="177" width="19" height="28" rx="6"/><text class="label" x="445" y="191">SL</text>
+                        </g>
+                        <g class="pad-key" id="JCR_SR" display="none" aria-label="Right Joy-Con SR">
+                            <title>Right Joy-Con SR</title><rect class="button" x="457" y="143" width="19" height="28" rx="6"/><text class="label" x="466" y="157">SR</text>
+                        </g>
+                    </svg>

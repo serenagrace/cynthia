@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>Cynthia overlay</title>
+        <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { width: 100%; height: 100%; background: transparent; overflow: hidden; }
+        body {
+            color: #e1e1e6;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            /* Everything scales with the pane so one layout works at any canvas size */
+            font-size: clamp(10px, 4.5vmin, 40px);
+        }
+        .card {
+            width: 100%; height: 100%; padding: 0.6em 0.8em;
+            background: rgba(18, 18, 20, 0.78); border-radius: 0.5em;
+            display: flex; flex-direction: column; gap: 0.3em; overflow: hidden;
+        }
+        .title { font-weight: 700; color: #9db7ff; }
+        .row { display: flex; justify-content: space-between; gap: 1em; font-variant-numeric: tabular-nums; }
+        .row span:first-child { color: #a0a0ad; }
+        .game { font-weight: 700; }
+        /* Fit cards hug their content and sit in a pane corner; font size scales with pane width */
+        .card.fit { position: absolute; width: max-content; height: auto; max-width: 100%; max-height: 100%; }
+        .card.stats { top: 0; right: 0; text-align: right; }
+        .card.ssim { top: 0; left: 0; }
+        .card.chat { bottom: 0; left: 0; justify-content: flex-start; }
+        .msgs { display: flex; flex-direction: column; justify-content: flex-end; gap: 0.3em; min-height: 0; overflow: hidden; }
+        .card.stats .row { justify-content: flex-end; }
+        .card .title { font-size: 0.8em; letter-spacing: 0.12em; text-transform: uppercase; white-space: nowrap; padding-bottom: 0.25em; border-bottom: 1px solid rgba(157, 183, 255, 0.35); }
+        .card.stats .headline { font-size: 1.15em; font-weight: 700; color: #fff; }
+        .msg { overflow-wrap: anywhere; line-height: 1.25; }
+        .msg b { margin-right: 0.35em; }
+        [hidden] { display: none !important; }
+        </style>
+    </head>
+    <body>
+        <div class="card" id="card" hidden></div>
+        <div id="inputs" hidden><!--PAD--></div>
+        <script>
+        const pane = new URLSearchParams(location.search).get("pane") || location.pathname.split("/").pop();
+        const $ = (id) => document.getElementById(id);
+        const card = $("card");
+        const getJson = async (url) => (await fetch(url, { cache: "no-store" })).json();
+        const row = (name, value) => `<div class="row"><span>${name}</span><b>${value}</b></div>`;
+        const esc = (text) => text.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+        function formatDuration(ms) {
+            const total = Math.max(0, Math.floor(ms / 1000));
+            const d = Math.floor(total / 86400), h = Math.floor((total % 86400) / 3600);
+            const m = Math.floor((total % 3600) / 60), s = total % 60;
+            if (d > 0) return `${d}d ${h}h`;
+            if (h > 0) return `${h}h ${m}m`;
+            if (m > 0) return `${m}:${String(s).padStart(2, "0")}`;
+            return `${s}s`;
+        }
+
+        function show(html) {
+            card.hidden = !html;
+            card.innerHTML = html;
+        }
+
+        const panes = {
+            async status() {
+                const [status, stats] = await Promise.all([getJson("/api/user_status"), getJson("/api/activity_stats")]);
+                if (!status || !status.name) return show("");
+                const now = Date.now();
+                const huntEnd = stats.hunt_stopped_at ?? now;
+                const huntStart = typeof stats.hunt_started === "number"
+                    ? stats.hunt_started + (stats.hunt_correction_ms || 0) : undefined;
+                const match = /^(\d+)\s+(\w+)$/.exec(status.state || "");
+                const lines = [`<div class="game">${esc(status.name)}</div>`];
+                if (status.details) lines.push(`<div>${esc(status.details)}</div>`);
+                if (match) {
+                    lines.push(row(match[2].charAt(0).toUpperCase() + match[2].slice(1), Number(match[1]).toLocaleString()));
+                } else if (status.state) {
+                    lines.push(row("Status", esc(status.state)));
+                }
+                if (huntStart !== undefined) lines.push(row("Hunting for", formatDuration(huntEnd - huntStart)));
+                if (typeof stats.average_interval_ms === "number") lines.push(row("Avg per encounter", formatDuration(stats.average_interval_ms)));
+                if (typeof stats.last_encounter === "number") lines.push(row("Since last encounter", formatDuration(now - stats.last_encounter)));
+                show(lines.join(""));
+            },
+            async ssim() {
+                document.body.style.fontSize = "clamp(10px, 5vw, 60px)";
+                card.classList.add("fit", "ssim");
+                const data = await getJson("/api/ssim_data");
+                show(`<div class="title">Scene matches</div>` + (data.scores.length
+                    ? data.scores.map((s) => row(esc(s.scene), s.score.toFixed(4))).join("") : "No data"));
+            },
+            async stats() {
+                document.body.style.fontSize = "clamp(10px, 4.4vw, 50px)";
+                card.classList.add("fit", "stats");
+                const [a, status] = await Promise.all([getJson("/api/activity_stats"), getJson("/api/user_status")]);
+                const now = Date.now();
+                const huntEnd = a.hunt_stopped_at ?? now;
+                const huntStart = typeof a.hunt_started === "number" ? a.hunt_started + (a.hunt_correction_ms || 0) : undefined;
+                const match = /^(\d+)\s+(\w+)$/.exec((status && status.state) || "");
+                const title = (status && (status.name || status.details)) || "";
+                if (!title) return show("");
+                const lines = [`<div class="title" id="title">${esc(title)}</div>`];
+                if (status.name && status.details) lines.push(`<div class="headline">${esc(status.details)}</div>`);
+                if (match) lines.push(row(match[2].charAt(0).toUpperCase() + match[2].slice(1), Number(match[1]).toLocaleString()));
+                else if (status.state) lines.push(row("Status", esc(status.state)));
+                if (huntStart !== undefined) lines.push(row(a.hunt_stopped_at ? "Hunt duration" : "Hunt uptime", formatDuration(huntEnd - huntStart)));
+                if (typeof a.average_interval_ms === "number") {
+                    lines.push(row("Avg per encounter", formatDuration(a.average_interval_ms)));
+                    lines.push(row("Per hour", (3600000 / a.average_interval_ms).toFixed(1)));
+                }
+                if (typeof a.last_encounter === "number") lines.push(row("Since last encounter", formatDuration(now - a.last_encounter)));
+                show(lines.join(""));
+                // Shrink the title until it fits on one line
+                const el = $("title");
+                for (let size = 0.8; el.scrollWidth > el.clientWidth && size > 0.3; size -= 0.05) el.style.fontSize = size + "em";
+            },
+            async chat() {
+                document.body.style.fontSize = "clamp(10px, 4.4vw, 50px)";
+                card.classList.add("fit", "chat");
+                const data = await getJson("/api/twitch_chat");
+                if (!data.messages.length) return show("");
+                show(`<div class="title">Chat</div><div class="msgs">` + data.messages.map((m) =>
+                    `<div class="msg"><b style="color:${esc(m.color || "#9db7ff")}">${esc(m.user)}</b>${esc(m.text)}</div>`).join("") + `</div>`);
+            },
+            async inputs() {
+                $("inputs").hidden = false;
+                const pressed = new Set((await getJson("/api/inputs")).pressed);
+                for (const el of document.querySelectorAll(".pad-key[id]")) el.classList.toggle("on", pressed.has(el.id));
+            },
+        };
+
+        const run = panes[pane];
+        async function tick() {
+            try { await run(); } catch (e) { /* keep the last frame on transient failures */ }
+        }
+        if (run) {
+            tick();
+            setInterval(tick, pane === "inputs" ? 100 : 1000);
+        }
+        </script>
+    </body>
+</html>

@@ -86,15 +86,24 @@ def test_uvc_resets_usb_only_when_id_is_configured(monkeypatch):
     run = Mock()
     monkeypatch.setattr(uvc.subprocess, "run", run)
     monkeypatch.setattr(uvc.asyncio, "sleep", AsyncMock())
-    monkeypatch.setattr(uvc.cv2, "VideoCapture", Mock())
-    monkeypatch.setattr(uvc.UVC, "read_frame", AsyncMock())
+    monkeypatch.setattr(
+        uvc.cv2,
+        "VideoCapture",
+        Mock(
+            return_value=Mock(
+                get=Mock(return_value=0), read=Mock(return_value=(False, None))
+            )
+        ),
+    )
 
     for usb_id, expected in (("0fd9:009b", 1), (None, 0)):
         run.reset_mock()
         asyncio.run(uvc.UVC(usb_id).setup())
         assert run.call_count == expected
         if expected:
-            run.assert_called_once_with(["usbreset", usb_id])
+            run.assert_called_once_with(
+                ["usbreset", usb_id], capture_output=True, text=True
+            )
 
 
 def test_env_loader_file_values_are_overridden_by_process_environment(

@@ -1,16 +1,18 @@
 """Command-line entry point for the Cynthia bot."""
 
 import argparse
-import logging
 import subprocess
 
-from .bot import Bot
-from .context import Context
-from .utils.auth import verify_factory
+from .utils.log import get_logger, setup_logging
 
-logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.DEBUG)
-logging.getLogger("nxbt").setLevel(logging.INFO)
+setup_logging()
+
+from .bot import Bot  # noqa: E402
+from .context import Context  # noqa: E402
+from .exceptions import ExitCynthia  # noqa: E402
+from .utils.auth import verify_factory  # noqa: E402
+
+logger = get_logger(__name__)
 
 
 def main():
@@ -26,31 +28,52 @@ def main():
     args = parser.parse_args()
 
     _context = Context(args)
-    bot = Bot(_context)
-    if _context.env.DISCORD_BOT_TOKEN is None:
-        logger.error("Error: 'DISCORD_BOT_TOKEN' not specified in .env file.")
-        raise ValueError("Must specify 'DISCORD_BOT_TOKEN' in .env file.")
+    bot = None
+    try:
+        bot = Bot(_context)
+        if _context.env.DISCORD_BOT_TOKEN is None:
+            logger.error("'DISCORD_BOT_TOKEN' not specified in .env file.")
+            raise ValueError("Must specify 'DISCORD_BOT_TOKEN' in .env file.")
 
-    if _context.env.OTP_SECRET is None:
-        logger.warn(
-            "Warning: 'OTP_SECRET' not specified in .env file. OTP verification will be disabled."
-        )
-    else:
-        bot.verify = verify_factory(_context.env.OTP_SECRET)
+        if _context.env.OTP_SECRET is None:
+            logger.warning(
+                "'OTP_SECRET' not specified in .env file. OTP verification will be disabled."
+            )
+        else:
+            bot.verify = verify_factory(_context.env.OTP_SECRET)
 
-    bot.run(_context.env.DISCORD_BOT_TOKEN)
+        bot.run(_context.env.DISCORD_BOT_TOKEN, log_handler=None)
+    except KeyboardInterrupt:
+        # Ctrl-C is an expected way to stop the bot, at any point in startup
+        pass
 
-    logger.info(bot.kill_reason)
+    action = _exit_action(bot)
+    logger.notice(f"Shutting down ({action or 'interrupted'}).")
+    if bot is not None:
+        try:
+            _context.update_config(bot.config.dict(), bot.perms.dict())
+        except KeyboardInterrupt:
+            logger.warning("Interrupted while saving config; config not saved.")
 
-    _context.update_config(bot.config.dict(), bot.perms.dict())
-
-    if len(bot.kill_reason[1].args) and bot.kill_reason[1].args[0] == "Restart":
-        logger.info("Restarting...")
+    if action == "Restart":
+        logger.notice("Restarting...")
         exit(2)
-    if len(bot.kill_reason[1].args) and bot.kill_reason[1].args[0] == "Reboot":
-        logger.info("Rebooting host...")
+    if action == "Reboot":
+        logger.notice("Rebooting host...")
         subprocess.run(["sudo", "-n", "reboot"])
     exit(0)
+
+
+def _exit_action(bot):
+    """Return the ExitCynthia action ("Restart", "Reboot", ...) or None for Ctrl-C."""
+    reason = getattr(bot, "kill_reason", None)
+    if reason is None:
+        return None
+    reasons = reason if isinstance(reason, list) else [reason]
+    for _, exc, _ in reasons:
+        if isinstance(exc, ExitCynthia) and exc.args:
+            return exc.args[0]
+    return None
 
 
 if __name__ == "__main__":

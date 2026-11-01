@@ -1,5 +1,55 @@
 # Changelog
 
+## 1.7.0 (pending)
+
+### Added
+
+#### Streaming and OBS
+- `/twitch` (start, stop, test, url, uptime, status), `/obs` (framerate, resolution, record, stop, layout, show) and `/webstream` (framerate, resolution) commands, owner-only and DM-only, driving OBS through obs-websocket. New env keys `OBS_WS_*`, `OBS_STREAM_KEY`, `TWITCH_STREAM_KEY`, `TWITCH_CHANNEL`.
+- OBS feed: while OBS is open, an NVENC H.264 stream is sent to `udp://127.0.0.1:5000`, with an importable scene collection in `deploy/obs/` and `obs_feed*` config keys. `obs_feed: always` sends it even when OBS is not open (`true` follows OBS, `false` disables).
+- The OBS feed is held back one second by default (`obs_feed_delay_ms`) as a safety buffer. Audio rides in the same MPEG-TS, so it stays in sync.
+- Customizable OBS scene from `obs_layout.yaml` (see `obs_layout.example.yaml`), with video, input, SSIM, hunt statistics and Twitch chat panes. The statistics pane is titled by the current activity and hidden without one; it shows encounters, hunt uptime, average per encounter, rate and time since the last encounter. Layouts refresh browser sources so edits apply without restarting OBS.
+- `bin/obs.sh` runs OBS headless and `deploy/cynthia.sh` starts it in the tmux session. OBS renders on the GPU through a headless NVIDIA Xorg display (`deploy/xorg-headless.conf`), cutting its CPU use from about 440% to 120%, with Xvfb as the fallback.
+- 60 fps: web and OBS frame rate and resolution are set independently (`web_fps`, `web_height`, `obs_fps`, `obs_height`) and change live. CV is always limited to 30 fps. The capture card switches mode to match the running endpoints.
+- OBS outranks the web view: the WebRTC encoder and MediaMTX run at nice 15, and web viewers no longer raise the capture mode while OBS is streaming or recording.
+
+#### Web viewer
+- WebRTC: one NVENC H.264 + Opus encode is fanned out by a local MediaMTX (`cynthia/daemons/webrtc.py`, `/api/whep`), started only while a page wants it. Config keys `webrtc*`; set `webrtc_hosts` and forward UDP/TCP `webrtc_media_port` (8189) for viewers off the LAN.
+- The page falls back to MJPEG plus MP3 audio when WebRTC cannot connect or `mediamtx` is missing, retries WebRTC every five minutes, and shows the active transport and playback stats (fps, dropped, freezes, loss, jitter). `transport=mjpeg` forces MJPEG for comparison.
+- A wrench button opens a stats-for-nerds overlay (capture, encode and delivered fps, frame size, cache hit rate, dropped frames, stream delay, audio buffer and skips, CPU load averages), backed by `/api/stream_stats`.
+- Audio: the web viewer plays the capture card's audio with a mute toggle and volume slider; sync is automatic via `/api/sync`.
+- `stream_delay_ms` (default 1000) holds the web stream's video back so the audio buffer can ride out hiccups; CV and OBS never see this delay.
+- Viewer counts include WebRTC viewers. The viewer keeps its size and shows an empty dark frame while the bot restarts or no feed is connected.
+- The SSIM toggle is a brain icon and the stats wrench sits rightmost. The input visualizer has a smaller, redrawn controller pad (SL/SR rails hidden, triggers stacked at the edges, taller body).
+- Behind a reverse proxy, allow `/api/sync`, `/api/stream_stats`, `/api/activity_stats`, `/api/webrtc` and `/api/whep`.
+
+#### Capture, audio and CV
+- At 1080p the capture card is read as raw NV12 and published to a second shared ring, so the OBS and web encoders feed NVENC without the CPU BGR conversion (about 2.8 ms per frame instead of 12.7 ms, and half the bytes through the pipe). CV and the web page still get BGR derived from the same frame, and the card falls back to YUYV if it gives no usable NV12.
+- An `AudioDaemon` captures the Elgato's ALSA audio into a shared ring with live-edge catch-up. It idles when there is no web listener and the OBS feed is not running. The OBS feed muxes it as AAC on the same wall clock as the video.
+- The MPEG-TS feed no longer packs about 180 ms of audio per packet (`-pes_payload_size 0`, zero mux delay), which made WebRTC audio arrive in bursts and pop. Audio capture errors and silent gaps are logged.
+- CV scene matching is about 100x cheaper (about 210 ms to under 2 ms per frame): SSIM runs on OpenCV box filters with cached reference statistics (scores match skimage to 1e-6), the home, AFK home and no-signal scenes are re-scored every 1 s, 1 s and 10 s, and a thumbnail check skips hopeless comparisons.
+- The OBS and WebRTC feeds copy each frame and free its ring slot before the pipe write, so slow encoders no longer make capture drop frames.
+- Audio capture keeps the tail of a pipe read that ends mid-frame instead of dropping it, which shifted later audio by a sample and could click.
+
+#### Logging
+- Colorized, standardized logging through `cynthia.utils.log`: module and message stand out from the boilerplate, and PaddleOCR / OpenCV model-load chatter is silenced on startup.
+
+### Changed
+- Video pipeline: triple-buffered locked frame ring, threaded YUYV 30 fps capture, event-driven stream encoder with a frame-hash JPEG cache, and half-size scene comparison.
+- PaddlePaddle is now chosen at install time with an extra: `pip install -e ".[dev,cpu]"` or `".[dev,gpu]"` (the GPU build needs Paddle's CUDA package index; see the README). Install exactly one. `paddlepaddle` is no longer a base dependency, so installs without either extra have no OCR backend.
+- OCR runs on the GPU when Paddle was built with CUDA and falls back to the CPU otherwise.
+- A failed first controller connection no longer sends the "Connection to NXBTDaemon lost!" alert; that is kept for dropped connections.
+- Packaging includes the web pages and static files (`cynthia.site`), so non-editable installs serve the viewer.
+
+### Fixed
+- OCR now runs on the GPU inside the CV process: importing Paddle in the parent broke CUDA in every forked daemon, which crashed CV and stalled ternaries.
+- Frames are no longer upside down; the vertical flip only applies to MJPG capture, not YUYV.
+- OBS scene collection reads the UDP feed with a larger socket buffer, which removes dropped frames and audio gaps.
+- `scrape_text` sliced columns twice and returned the wrong region.
+- The web and OBS video feeds no longer slow to about one frame a second after running a while: a stalled audio pump or skipped ring audio left the audio behind real time, and ffmpeg held the video back to match. Lasting shortfalls are now padded with silence, and audio that runs slightly slow is stretched by up to 2% to stay level with real time, which removes the 60 to about 38 fps decay on the OBS feed.
+- A short visit to the HOME screen no longer replaces the game in the status; HOME only shows after it has been up for more than 5 seconds.
+- The web viewer's activity pane stayed hidden while playing, because playing statuses carry no name; the details line is now its title, as in the OBS overlay.
+
 ## 1.6.0
 
 ### Added

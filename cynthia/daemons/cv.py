@@ -2,37 +2,77 @@
 
 import asyncio
 import logging
+import os
 import re
 import time
 import unicodedata
-from contextlib import closing
 from datetime import datetime
-from multiprocessing import shared_memory
 from pathlib import Path
 
 import cv2
 import discord
 import numpy
-from paddleocr import PaddleOCR
+
+from cynthia.utils.log import get_logger, quiet_ocr
+
+quiet_ocr()
+
 from rapidfuzz import fuzz, process
 from skimage.metrics import structural_similarity as ssim
 
 from cynthia.utils.encounters import encounter_log_name
+from cynthia.utils.streamcfg import CV_FPS
 
 from .daemon import Daemon
 from .dman import FB0
 from .uvc import UVC
 
-logging.getLogger("pytesseract").setLevel(logging.INFO)
-logging.getLogger("ppocr").setLevel(logging.INFO)
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-ocr = PaddleOCR(
-    lang="en",
-    use_textline_orientation=True,
-    use_doc_orientation_classify=False,
-    use_doc_unwarping=False,
-)
+logger = get_logger(__name__, logging.INFO)
+SCENE_SCALE = 0.5  # scenes are compared on a half-size frame
+THUMB_SIZE = (32, 18)  # thumbnail used to rule out hopeless matches
+SSIM_WINDOW = 7  # skimage's default window, kept so scores stay comparable
+PREVIEW_INTERVAL = 1.0  # seconds between PNG/embed refreshes for the bot
+# CV yields CPU to NXBT, which needs the highest priority for Bluetooth
+CV_NICE = 10
+CV_THREADS = 2
+
+
+def build_ocr():
+    """Create the OCR engine on the GPU, falling back to the CPU."""
+    # Paddle is imported here, not at module level: importing it in the parent
+    # breaks CUDA in every daemon forked afterwards.
+    import paddle
+    from paddleocr import PaddleOCR
+
+    # Paddle prints a C++ traceback when the daemon is SIGTERMed on shutdown
+    paddle.disable_signal_handler()
+    quiet_ocr()  # paddlex resets its own logger level on import
+    options = dict(
+        lang="en",
+        use_textline_orientation=True,
+        use_doc_orientation_classify=False,
+        use_doc_unwarping=False,
+    )
+    if paddle.device.is_compiled_with_cuda() and paddle.device.cuda.device_count():
+        try:
+            return PaddleOCR(device="gpu:0", **options)
+        except Exception as error:
+            logger.warning("GPU OCR unavailable; falling back to the CPU: %s", error)
+    return PaddleOCR(**options)
+
+
+# Built on first use, inside the process that runs OCR.
+ocr = None
+
+
+def get_ocr():
+    """Return the shared OCR engine, creating it on first use."""
+    global ocr
+    if ocr is None:
+        ocr = build_ocr()
+    return ocr
+
+
 SCENES_DIR = Path(__file__).resolve().parent / "scenes"
 GAME_TITLES = {
     "pokemon home": "Pokémon HOME",
@@ -76,11 +116,62 @@ def canonical_game_title(game):
     return GAME_TITLES[match[0]] if match else game
 
 
+def _window_stats(image):
+    """Return the windowed mean and sample variance SSIM needs for one image."""
+    mean = cv2.blur(image, (SSIM_WINDOW, SSIM_WINDOW))
+    squares = cv2.blur(image * image, (SSIM_WINDOW, SSIM_WINDOW))
+    area = SSIM_WINDOW * SSIM_WINDOW
+    return mean, (squares - mean * mean) * (area / (area - 1))
+
+
+def fast_ssim(ref, ref_stats, image):
+    """Mean structural similarity of two same-size uint8 images.
+
+    Matches `skimage.metrics.structural_similarity` (uniform window, sample
+    covariance) but works in float32 with OpenCV box filters, and takes the
+    reference's window statistics precomputed since the reference never changes.
+    """
+    pad = (SSIM_WINDOW - 1) // 2
+    if min(ref.shape[:2]) <= SSIM_WINDOW:
+        return ssim(ref, image, channel_axis=-1 if ref.ndim == 3 else None)
+    other = image.astype(numpy.float32)
+    ref_mean, ref_var = ref_stats
+    mean, var = _window_stats(other)
+    area = SSIM_WINDOW * SSIM_WINDOW
+    cov = (cv2.blur(ref.astype(numpy.float32) * other, (SSIM_WINDOW,) * 2)) - (
+        ref_mean * mean
+    )
+    cov *= area / (area - 1)
+    c1, c2 = (0.01 * 255) ** 2, (0.03 * 255) ** 2
+    score = ((2 * ref_mean * mean + c1) * (2 * cov + c2)) / (
+        (ref_mean * ref_mean + mean * mean + c1) * (ref_var + var + c2)
+    )
+    return float(score[pad:-pad, pad:-pad].mean())
+
+
 class Scene:
-    """Describe a reference image and its comparison region."""
+    """Describe a reference image and its comparison region.
+
+    `scale` is the frame scale the scene is compared at (default `SCENE_SCALE`);
+    large, slowly changing scenes use a smaller one. `interval` is the minimum
+    seconds between comparisons, with the last score reused in between.
+    `reject` is a mean-difference limit on a thumbnail above which the frame
+    cannot be a match, so the full comparison is skipped and 0.0 returned.
+    """
 
     def __init__(
-        self, buffer, *_, x=0, y=0, w=1920, h=1080, text=None, grayscale=False
+        self,
+        buffer,
+        *_,
+        x=0,
+        y=0,
+        w=1920,
+        h=1080,
+        text=None,
+        grayscale=False,
+        scale=None,
+        interval=0.0,
+        reject=None,
     ):
         """Store a reference frame and its crop and comparison settings."""
         self.buffer = buffer
@@ -90,23 +181,79 @@ class Scene:
         self.h = h
         self.text = text
         self.grayscale = grayscale
+        self.scale = SCENE_SCALE if scale is None else scale
+        self.interval_ns = int(interval * 1e9)
+        self.reject = reject
 
-    def ssim_match(self, buffer):
-        """Return structural similarity between the reference and a frame crop."""
-        x, y, w, h = self.x, self.y, self.w, self.h
-        cropped = buffer[y : y + h, x : x + w]
-        if self.grayscale:
-            score = ssim(
-                cv2.cvtColor(self.buffer, cv2.COLOR_BGR2GRAY),
-                cv2.cvtColor(cropped, cv2.COLOR_BGR2GRAY),
+    def _scaled(self, scale):
+        """Return the cached crop box, reference, and its SSIM statistics."""
+        cache = self.__dict__.setdefault("_scaled_cache", {})
+        if scale not in cache:
+            if scale == 1.0:
+                ref, box = self.buffer, (self.x, self.y, self.w, self.h)
+            else:
+                ref = cv2.resize(
+                    self.buffer,
+                    (0, 0),
+                    fx=scale,
+                    fy=scale,
+                    interpolation=cv2.INTER_AREA,
+                )
+                h, w = ref.shape[:2]
+                box = (round(self.x * scale), round(self.y * scale), w, h)
+            if self.grayscale:
+                ref = cv2.cvtColor(ref, cv2.COLOR_BGR2GRAY)
+            ref_f = ref.astype(numpy.float32)
+            thumb = cv2.resize(ref, THUMB_SIZE, interpolation=cv2.INTER_AREA)
+            cache[scale] = (box, ref_f, _window_stats(ref_f), thumb.astype(numpy.int16))
+        return cache[scale]
+
+    def _aligned(self, scale):
+        """Whether the crop lands on whole pixels of a frame scaled by `scale`."""
+        return all(
+            abs(value * scale - round(value * scale)) < 1e-6
+            for value in (self.x, self.y, self.w, self.h)
+        )
+
+    def ssim_match(self, buffer, scale=1.0, full=None, now_ns=None):
+        """Return structural similarity between the reference and a frame crop.
+
+        `buffer` is the frame resized by `scale`; the crop and reference are scaled
+        to match, so comparisons rarely touch full-resolution pixels. Crops that
+        would straddle a scaled pixel are cut from the `full` frame and resized,
+        which keeps their scores aligned with the reference. With `now_ns` and an
+        `interval`, the previous score is reused until the interval has passed.
+        """
+        if self.interval_ns and now_ns is not None:
+            last = self.__dict__.get("_last")
+            if last and now_ns - last[0] < self.interval_ns:
+                return last[1]
+            score = self._match(buffer, scale, full)
+            self._last = (now_ns, score)
+            return score
+        return self._match(buffer, scale, full)
+
+    def _match(self, buffer, scale, full):
+        """Compare one frame to the reference, without interval caching."""
+        _, ref, stats, thumb = self._scaled(scale)
+        if scale != 1.0 and full is not None and not self._aligned(scale):
+            cropped = cv2.resize(
+                full[self.y : self.y + self.h, self.x : self.x + self.w],
+                (0, 0),
+                fx=scale,
+                fy=scale,
+                interpolation=cv2.INTER_AREA,
             )
         else:
-            score = ssim(
-                cv2.resize(self.buffer, (0, 0), fx=0.5, fy=0.5),
-                cv2.resize(cropped, (0, 0), fx=0.5, fy=0.5),
-                channel_axis=-1,
-            )
-        return score
+            (x, y, w, h), *_ = self._scaled(scale)
+            cropped = buffer[y : y + h, x : x + w]
+        if self.grayscale:
+            cropped = cv2.cvtColor(cropped, cv2.COLOR_BGR2GRAY)
+        if self.reject is not None:
+            small = cv2.resize(cropped, THUMB_SIZE, interpolation=cv2.INTER_AREA)
+            if numpy.abs(small.astype(numpy.int16) - thumb).mean() > self.reject:
+                return 0.0
+        return fast_ssim(ref, stats, cropped)
 
 
 class CVDaemon(Daemon):
@@ -117,185 +264,188 @@ class CVDaemon(Daemon):
     def __init__(self, dman):
         """Create shared state and start the computer-vision worker."""
 
-        def loop(ns, uns, fba, fbb, drive):
+        def loop(ns, uns, ring, drive):
             """Read shared frames and process them until shutdown."""
-            with (
-                closing(shared_memory.SharedMemory(name=fba)) as shmA,
-                closing(shared_memory.SharedMemory(name=fbb)) as shmB,
-            ):
-                shm = (shmA, shmB)
-                fb = list(
-                    numpy.ndarray(FB0.shape(), dtype=numpy.uint8, buffer=shm[idx].buf)
-                    for idx in (0, 1)
-                )
-                frame = numpy.zeros(FB0.shape(), dtype=numpy.uint8)
+            os.nice(CV_NICE)
+            cv2.setNumThreads(CV_THREADS)
+            get_ocr()  # load the models now rather than during a hunt
+            frame = numpy.zeros(FB0.shape(), dtype=numpy.uint8)
 
-                async def main_task():
-                    """Classify scenes, detect encounters, and publish each frame."""
+            async def main_task():
+                """Classify scenes, detect encounters, and publish each frame."""
 
-                    def encounter_timer(uns_time, timer, game):
-                        """Log elapsed encounter time and flag long encounters."""
-                        encounter_time = (uns_time - timer) / 1_000_000
-                        with drive.open(ns.encounter_log, "a") as f:
-                            f.write(f"{datetime.now()},{game},{encounter_time:0f}\n")
-                        logger.info(f"Encounter Time: {encounter_time:.0f}ms")
-                        uns.last_encounter_time = time.time()
+                def encounter_timer(uns_time, timer, game):
+                    """Log elapsed encounter time and flag long encounters."""
+                    encounter_time = (uns_time - timer) / 1_000_000
+                    with drive.open(ns.encounter_log, "a") as f:
+                        f.write(f"{datetime.now()},{game},{encounter_time:0f}\n")
+                    logger.notice(f"Encounter time: {encounter_time:.0f}ms")
+                    uns.last_encounter_time = time.time()
 
-                        if encounter_time > 2000:
-                            return True
+                    if encounter_time > 2000:
+                        return True
 
-                        return False
+                    return False
 
-                    timer = -1
-                    timing_encounter = False
-                    while ns.run:
-                        ns.heartbeat = time.time()
-                        while uns.fbptr is None:
-                            await asyncio.sleep(0.05)
-                            ns.heartbeat = time.time()
-                        fbptr = uns.fbptr
-                        uns_time = uns.uvc_time1 if fbptr else uns.uvc_time0
-                        if ns.uvc_time != uns_time:
-                            ns.uvc_time = uns_time
-                            try:
-                                frame[:] = fb[fbptr][:]
-                                perf_time = time.perf_counter()
-                                # Only compared while a HOME tap is being checked
-                                if uns.quick_settings_watch:
-                                    uns.quick_settings_open = (
-                                        CV.quick_settings_scene.ssim_match(frame)
-                                        > CV.QUICK_SETTINGS_THRESHOLD
-                                    )
-                                scores = {}
-                                scores["home"] = CV.home_screen_scene.ssim_match(frame)
-                                scores["afk_home"] = (
-                                    CV.afk_home_screen_scene.ssim_match(frame)
+                timer = -1
+                timing_encounter = False
+                last_seq = 0
+                last_preview = 0.0
+                last_cv_ns = 0
+                while ns.run:
+                    ns.heartbeat = time.time()
+                    # Blocks until a newer frame exists; wakes at least every 0.25s
+                    claim = await asyncio.to_thread(ring.wait_frame, last_seq, 0.25)
+                    if claim is None:
+                        continue
+                    last_seq = claim.seq
+                    uns_time = claim.time_ns
+                    # CV is capped at CV_FPS even when the card runs faster;
+                    # capture times jitter, so accept frames slightly early
+                    if uns_time - last_cv_ns < 0.8e9 / CV_FPS:
+                        claim.release()
+                        continue
+                    last_cv_ns = uns_time
+                    try:
+                        frame[:] = claim.frame
+                    finally:
+                        claim.release()
+                    try:
+                        small = cv2.resize(
+                            frame,
+                            (0, 0),
+                            fx=SCENE_SCALE,
+                            fy=SCENE_SCALE,
+                            interpolation=cv2.INTER_AREA,
+                        )
+                        perf_time = time.perf_counter()
+                        # Only compared while a HOME tap is being checked
+                        if uns.quick_settings_watch:
+                            uns.quick_settings_open = (
+                                CV.quick_settings_scene.ssim_match(
+                                    small, SCENE_SCALE, frame, uns_time
                                 )
-                                scores["boot"] = CV.boot_screen_scene.ssim_match(frame)
-                                scores["elgato_no_signal"] = (
-                                    CV.elgato_no_signal_scene.ssim_match(frame)
-                                )
-                                scores["bdsp_tbox"] = CV.bdsp_tbox_scene.ssim_match(
-                                    frame
-                                )
-                                scores["bdsp_run"] = CV.bdsp_run_scene.ssim_match(frame)
-                                scores["route_202"] = CV.route_202_scene.ssim_match(
-                                    frame
-                                )
-                                scores["roamer"] = CV.bdsp_roamer_scene.ssim_match(
-                                    frame
-                                )
-                                buffer = UVC.frame_to_buffer(frame)
-                                filename = "frame.png"
+                                > CV.QUICK_SETTINGS_THRESHOLD
+                            )
+                        scores = {}
+                        scores["home"] = CV.home_screen_scene.ssim_match(
+                            small, SCENE_SCALE, frame, uns_time
+                        )
+                        scores["afk_home"] = CV.afk_home_screen_scene.ssim_match(
+                            small, SCENE_SCALE, frame, uns_time
+                        )
+                        scores["boot"] = CV.boot_screen_scene.ssim_match(
+                            small, SCENE_SCALE, frame, uns_time
+                        )
+                        scores["elgato_no_signal"] = (
+                            CV.elgato_no_signal_scene.ssim_match(
+                                small, SCENE_SCALE, frame, uns_time
+                            )
+                        )
+                        scores["bdsp_tbox"] = CV.bdsp_tbox_scene.ssim_match(
+                            small, SCENE_SCALE, frame, uns_time
+                        )
+                        scores["bdsp_run"] = CV.bdsp_run_scene.ssim_match(
+                            small, SCENE_SCALE, frame, uns_time
+                        )
+                        scores["route_202"] = CV.route_202_scene.ssim_match(
+                            small, SCENE_SCALE, frame, uns_time
+                        )
+                        scores["roamer"] = CV.bdsp_roamer_scene.ssim_match(
+                            small, SCENE_SCALE, frame, uns_time
+                        )
+                        filename = "frame.png"
 
-                                embed = discord.Embed(title="UVC Data:")
-                                embed.set_image(url=f"attachment://{filename}")
-                                sorted_scores = list(
-                                    sorted(
-                                        scores.items(),
-                                        key=lambda item: item[1],
-                                        reverse=True,
-                                    )
-                                )
-                                uns.ssim_scores = sorted_scores[:5]
-                                score_text = [
-                                    f"{key}: {value}" for key, value in sorted_scores
-                                ]
-                                if sorted_scores[0][1] > 0.9:
-                                    score_text[0] = f"**{score_text[0]}**"
-                                embed.add_field(
-                                    name="Scenes:", value="\n".join(score_text)
-                                )
+                        embed = discord.Embed(title="UVC Data:")
+                        embed.set_image(url=f"attachment://{filename}")
+                        sorted_scores = list(
+                            sorted(
+                                scores.items(),
+                                key=lambda item: item[1],
+                                reverse=True,
+                            )
+                        )
+                        uns.ssim_scores = sorted_scores[:5]
+                        score_text = [f"{key}: {value}" for key, value in sorted_scores]
+                        if sorted_scores[0][1] > 0.9:
+                            score_text[0] = f"**{score_text[0]}**"
+                        embed.add_field(name="Scenes:", value="\n".join(score_text))
 
-                                if uns.match_scene_id is not None:
-                                    if uns.match_scene_id in scores:
-                                        if scores[uns.match_scene_id] > 0.98:
-                                            uns.scene_matched = True
+                        if uns.match_scene_id is not None:
+                            if uns.match_scene_id in scores:
+                                if scores[uns.match_scene_id] > 0.98:
+                                    uns.scene_matched = True
 
-                                if sorted_scores[0][1] > 0.9:
-                                    if sorted_scores[0][0] in ("home", "afk_home"):
-                                        game = CV.scrape_text(
-                                            frame, y=200, h=100
-                                        ).strip()
-                                        no_start_chars = ("-", ".", "_", ":", ";")
-                                        while any(
-                                            game.startswith(char)
-                                            for char in no_start_chars
-                                        ):
-                                            game = game[1:].strip()
-                                        game = re.sub(r"^[a-zA-Z\-] ", "", game)
-                                        game = canonical_game_title(game)
-                                        embed.add_field(
-                                            name="Selected Game:", value=game
-                                        )
-                                        ns.game = game
-                                        ns.home = True
-                                        ns.playing = False
-                                    if sorted_scores[0][0] in ("elgato_no_signal"):
-                                        ns.home = False
-                                        ns.playing = False
-                                    if sorted_scores[0][0] in ("boot", "boot2"):
-                                        ns.home = False
-                                        ns.playing = True
-                                    if sorted_scores[0][0] in ("bdsp_tbox"):
-                                        raw_text = CV.scrape_text(
-                                            frame, y=870, h=260, w=860
-                                        )
-                                        if ns.self_encounter:
-                                            if "Go" in raw_text:
-                                                timer = uns_time
-                                                timing_encounter = True
-                                            else:
-                                                if timing_encounter:
-                                                    self.uns.nxbt_daemon_stop = (
-                                                        encounter_timer(
-                                                            uns_time, timer, ns.game
-                                                        )
-                                                    )
-                                                    timing_encounter = False
-                                        elif any(
-                                            word in raw_text
-                                            for word in ("appeared", "encountered")
-                                        ):
-                                            timer = uns_time
-                                            timing_encounter = True
-                                        else:  # not currently starting the timer
-                                            if (
-                                                timing_encounter
-                                                and not ns.self_encounter
-                                            ):
-                                                self.uns.nxbt_daemon_stop = (
-                                                    encounter_timer(
-                                                        uns_time, timer, ns.game
-                                                    )
-                                                )
-                                                timing_encounter = False
-
-                                    if sorted_scores[0][0] in ("bdsp_run"):
-                                        if (
-                                            timing_encounter
-                                        ):  # if this is a non-self it's too late anyways
+                        if sorted_scores[0][1] > 0.9:
+                            if sorted_scores[0][0] in ("home", "afk_home"):
+                                game = CV.scrape_text(frame, y=200, h=100).strip()
+                                no_start_chars = ("-", ".", "_", ":", ";")
+                                while any(
+                                    game.startswith(char) for char in no_start_chars
+                                ):
+                                    game = game[1:].strip()
+                                game = re.sub(r"^[a-zA-Z\-] ", "", game)
+                                game = canonical_game_title(game)
+                                embed.add_field(name="Selected Game:", value=game)
+                                ns.game = game
+                                ns.home = True
+                                ns.playing = False
+                            if sorted_scores[0][0] in ("elgato_no_signal"):
+                                ns.home = False
+                                ns.playing = False
+                            if sorted_scores[0][0] in ("boot", "boot2"):
+                                ns.home = False
+                                ns.playing = True
+                            if sorted_scores[0][0] in ("bdsp_tbox"):
+                                raw_text = CV.scrape_text(frame, y=870, h=260, w=860)
+                                if ns.self_encounter:
+                                    if "Go" in raw_text:
+                                        timer = uns_time
+                                        timing_encounter = True
+                                    else:
+                                        if timing_encounter:
                                             self.uns.nxbt_daemon_stop = encounter_timer(
                                                 uns_time, timer, ns.game
                                             )
                                             timing_encounter = False
-                                else:
-                                    ns.home = False
-                                    ns.playing = True
-                                embed.set_footer(
-                                    text=f"Scene: {(time.perf_counter() - perf_time)*1000:.0f}ms"
-                                )
-                                ns.embed, ns.png = embed, buffer.getvalue()
-                                uns.cv_frame_time = time.time()
-                            except Exception:
-                                logger.exception(
-                                    "CV frame processing failed; skipping frame."
-                                )
+                                elif any(
+                                    word in raw_text
+                                    for word in ("appeared", "encountered")
+                                ):
+                                    timer = uns_time
+                                    timing_encounter = True
+                                else:  # not currently starting the timer
+                                    if timing_encounter and not ns.self_encounter:
+                                        self.uns.nxbt_daemon_stop = encounter_timer(
+                                            uns_time, timer, ns.game
+                                        )
+                                        timing_encounter = False
 
-                asyncio.run(main_task())
+                            if sorted_scores[0][0] in ("bdsp_run"):
+                                if (
+                                    timing_encounter
+                                ):  # if this is a non-self it's too late anyways
+                                    self.uns.nxbt_daemon_stop = encounter_timer(
+                                        uns_time, timer, ns.game
+                                    )
+                                    timing_encounter = False
+                        else:
+                            ns.home = False
+                            ns.playing = True
+                        embed.set_footer(
+                            text=f"Scene: {(time.perf_counter() - perf_time)*1000:.0f}ms"
+                        )
+                        if time.time() - last_preview >= PREVIEW_INTERVAL:
+                            last_preview = time.time()
+                            buffer = await asyncio.to_thread(UVC.frame_to_buffer, frame)
+                            ns.embed, ns.png = embed, buffer.getvalue()
+                        uns.cv_frame_time = time.time()
+                    except Exception:
+                        logger.exception("CV frame processing failed; skipping frame.")
 
-        super().__init__(dman, dman.drive, fbs=(0,))
-        self.ns.uvc_time = -1
+            asyncio.run(main_task())
+
+        super().__init__(dman, dman.drive, ring=True)
         self.ns.heartbeat = time.time()
         self.uns.cv_frame_time = time.time()
         self.uns.nxbt_daemon_stop = False
@@ -337,17 +487,18 @@ class CV:
     @staticmethod
     def _recognize(gray):
         """Run OCR on a grayscale image and return the recognized lines."""
-        if not hasattr(ocr, "predict"):
+        engine = get_ocr()
+        if not hasattr(engine, "predict"):
             # PaddleOCR 2.x is still installed; `pip install -e .` upgrades it
-            result = ocr.ocr(gray, cls=True)
+            result = engine.ocr(gray, cls=True)
             return "\n".join(line[1][0] for page in result for line in page or [])
-        result = ocr.predict(cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR))
+        result = engine.predict(cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR))
         return "\n".join(text for page in result for text in page["rec_texts"])
 
     @staticmethod
     def scrape_text(buffer, *_, x=0, y=0, w=1920, h=1080):
         """Extract text from a frame crop, retrying OCR with inverted colors."""
-        cropped = buffer[y : y + h][x : x + w]
+        cropped = buffer[y : y + h, x : x + w]
         gray = cv2.cvtColor(cropped, cv2.COLOR_BGR2GRAY)
         text = CV._recognize(gray)
         if not text or text.isspace():
@@ -369,18 +520,26 @@ class CV:
         cv2.imread(str(SCENES_DIR / "switch_home_screen.png")),
         y=720,
         h=200,
+        interval=1.0,
+        reject=30,
     )
     afk_home_screen_scene = Scene(
         cv2.imread(str(SCENES_DIR / "switch_home_screen_afk.png")),
         y=720,
         h=200,
+        interval=1.0,
+        reject=30,
     )
     boot_screen_scene = Scene(
         cv2.imread(str(SCENES_DIR / "switch_boot_screen.png")),
         x=1580,
         y=920,
     )
-    elgato_no_signal_scene = Scene(cv2.imread(str(SCENES_DIR / "elgato_no_signal.png")))
+    elgato_no_signal_scene = Scene(
+        cv2.imread(str(SCENES_DIR / "elgato_no_signal.png")),
+        interval=10.0,
+        reject=30,
+    )
     bdsp_tbox_scene = Scene(
         cv2.imread(str(SCENES_DIR / "bdsp_tbox.png")),
         x=90,

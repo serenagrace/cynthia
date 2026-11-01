@@ -21,7 +21,7 @@ class Database:
             return
         self.db_path = self.drive.path(DB_PATH)
         if not self.drive.exists(DB_PATH, is_file=True):
-            logger.info(
+            logger.notice(
                 f"Database file {self.db_path} does not exist. Creating new database."
             )
         self.create_db()
