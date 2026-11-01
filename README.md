@@ -12,40 +12,21 @@
 
 Cynthia is a Python Discord bot with slash commands, permission-aware controls, and optional integrations for Nintendo Switch, filesystem storage, and video capture.
 
-## Video feed
+### Features
 
-[View Cynthia’s video feed](https://serenegrace.io/video_feed).
+- **Nintendo Switch control and automation:** connect over Bluetooth, send controller inputs from Discord, and define, save, queue, pause, or loop macros. Macros support simultaneous buttons, custom timing, nested macros, and conditional branches based on detected scenes. Sample BDSP hunting macros include their helper dependencies.
+- **Computer vision and shiny hunting:** compare capture frames with reference scenes, read selected game titles with OCR, and track encounter timing for supported BDSP hunts. Possible shinies pause automation and alert the owner with a capture image. Encounter logs support hunt statistics, while watchdogs and encounter-reset logic help stalled macros recover. Other recognized game titles provide status information, not universal encounter detection.
+- **Live video and streaming:** watch the capture feed in a browser through WebRTC, with an MJPEG fallback, or send hardware-encoded video and capture-card audio to OBS. Discord commands control video modes, recordings, scene previews, and layouts. Overlay panes show inputs, scene scores, hunt statistics, Twitch chat, and the bot version.
+- **Twitch integration:** start and stop broadcasts with button confirmation, check stream health, and share the channel link with live status. Optional authorization enables automatic hunt titles, game categories, and delayed clips for possible shinies. Configurable safeguards restart long broadcasts and stop streams after prolonged capture-card signal loss.
+- **Music in Discord voice channels:** play YouTube searches, direct links, playlists, and albums; manage playback and per-server queues; and pin preferred results. Search ranking favors relevant tracks over covers, remixes, and unrelated recordings unless requested.
+- **Server tools and permissions:** manage command allowlists and permissions by user, role, or guild; configure message-log channels; and change the bot's server nickname or avatar. Optional member screening provides interactive insights, greetings, and moderation actions, including automated kick/ban rules when the bot has the configured Bouncer role.
+- **Host administration and storage:** check configured services and network hosts, manage configuration, upload or download drive files, and run authorized shell commands. Reload commands, cogs, or daemons and control bot restarts, shutdowns, and host reboots from Discord. An enabled drive persists macros, logs, message-trigger rules, and integration state.
+- **Status and external integrations:** publish game, hunt, and custom activity status through the local web API; expose plain-text StreamElements commands; and mirror activity into desktop Discord Rich Presence with the optional `cyclient` script. A Pokémon lookup command is available when its species dataset is supplied.
 
-### Sending the feed to OBS
-
-While OBS Studio is open, the bot encodes the capture with NVENC (H.264, BT.709, MPEG-TS) and sends it to `udp://127.0.0.1:5000`; it stops when OBS closes. This needs an NVIDIA GPU and an `ffmpeg` with `h264_nvenc`. In OBS, use *Scene Collection → Import* and pick `deploy/obs/Cynthia.json` (the feed and default overlay panes at 1080p60), or add a Media Source with the URL `udp://127.0.0.1:5000?overrun_nonfatal=1&fifo_size=5000000&buffer_size=4194304` and the input format `mpegts`. The `buffer_size` matters: with the default socket buffer a busy receiver drops UDP packets, which shows up as stutters and audio gaps. The feed carries AAC audio from the capture card. Set `obs_feed: always` to send it even when OBS is closed. From there OBS can stream to Twitch or YouTube.
-
-#### Controlling OBS from Discord
-
-The bot drives OBS through obs-websocket (Tools → WebSocket Server Settings, or `"server_enabled": true` in `~/.config/obs-studio/plugin_config/obs-websocket/config.json`); put the password in `OBS_WS_PASSWORD`. The web viewer uses WebRTC when the `mediamtx` binary is on `PATH` (download from github.com/bluenviron/mediamtx) and falls back to MJPEG otherwise; see the `webrtc*` config keys. The OBS browser plugin (`obs-studio-plugin-browser` on Arch) is needed for the overlay panes. `bin/obs.sh` runs OBS headless and restarts it. It starts a virtual-monitor NVIDIA Xorg server (`deploy/xorg-headless.conf`, display `:98`, needs `sudo -n` unless run as root) so OBS composites on the GPU, and falls back to `xvfb-run` with software OpenGL, which can use several CPU cores; `deploy/cynthia.sh` starts it in window 2 of the tmux session.
-
-All of these are owner-only and DM-only:
-
-- `/twitch start | stop | test | uptime | status`: stream to Twitch with `TWITCH_STREAM_KEY` (or `OBS_STREAM_KEY`). `test` uses Twitch's bandwidth-test mode, so nothing goes live. `start` and `stop` ask you to confirm with a button first, so they can't go off by accident. Only the person who ran the command can press it, and after a minute the buttons expire and nothing changes.
-- `/twitch auth`: let the bot set the channel's title and category and clip shinies (see below).
-- `/obs framerate | resolution | record | stop | layout | show`, `/webstream framerate | resolution`: web and OBS frame rate and resolution are set independently and apply live. CV is always limited to 30 fps. The capture card runs at the cheapest mode that covers every running endpoint (OBS counts only while streaming or recording, the web stream only while someone watches), never below 720p for CV.
-
-`/twitchurl` is open to everyone, anywhere: it posts the `TWITCH_CHANNEL` link and says whether the channel is live. Once `/twitch auth` has been run it asks Twitch, so a bandwidth test counts as offline; otherwise it goes by whether OBS is streaming.
-
-The OBS scene is built from `obs_layout.yaml` (copy `obs_layout.example.yaml`): panes for the video, input visualizer, SSIM scores, hunt statistics (titled by the current activity), Twitch chat (`TWITCH_CHANNEL`) and a small `Cynthia (version)` watermark in the top-right corner. The reverse proxy in front of the web viewer must allow `/api/sync`, `/api/stream_stats` and `/api/activity_stats`.
-
-#### Twitch title, category and clips
-
-The bot can set the channel's category to the detected game and its title to the hunt (for example "Hunting shiny Cresselia"):
-
-1. Register an application at [dev.twitch.tv/console](https://dev.twitch.tv/console) and put its `TWITCH_CLIENT_ID` (and `TWITCH_CLIENT_SECRET` for a confidential client) in `.env`. Restart the bot.
-2. Run `/twitch auth`, open the link it sends and approve the code. The token is kept in the drive's `twitch_token.json` and renewed automatically. Once you confirm, `/twitch start` asks for this itself when the token is missing, lacks a scope or has been revoked, and starts the stream once you approve (or after 5 minutes); otherwise it starts straight away. With a confidential client (`TWITCH_CLIENT_SECRET` set) the token doesn't lapse, so one approval lasts until you revoke it; a public client's token lapses after 30 days unused.
-
-The channel changes only when the bot is sure and only when something new is detected. A game counts once it has been playing (not on the HOME screen) for `twitch_info_confirm_seconds` and it is one of the known titles. The category and title are then set once. They are not touched again, even if you edit them on Twitch, until a different game is detected or a different hunt is set. Clearing the hunt or returning to HOME never changes them. Without a hunt only the category is set. The last applied game and hunt are kept in `twitch_channel.json`, so a restart doesn't reapply them. If no Twitch category has exactly the game's name, the category is left alone; map it in `twitch_categories`.
-
-When the hunt stops for a possible shiny while the stream is live, the bot waits as long as the input visualizer's delay (`obs_feed_delay_ms` + `obs_overlay_lag_ms`) plus `twitch_clip_delay_seconds`, so the moment has reached Twitch, then creates a 30-second clip titled after the hunt, and DMs you its edit link. Clipping needs the `clips:edit` scope, so run `/twitch auth` again if you authorized before it was added.
-
-Two safeguards end or renew long streams: a stream restarts after `twitch_restart_hours`, and a stream that shows the capture card's no-signal screen for `twitch_no_signal_stop_minutes` is stopped. You get a DM either way.
+Integrations depend on the relevant hardware, credentials, datasets, and permissions.
+Command modules, cogs, and daemons are discovered automatically, so the bot can
+be extended without maintaining a central registration list. Installation and
+configuration come first below; detailed streaming and macro instructions follow.
 
 ## Requirements
 
@@ -243,6 +224,41 @@ Edit the copies in place before enabling the service; the paths and user in the 
 | Capture card | `lsusb`, `v4l2-ctl --list-devices` |
 | Group membership | `id` |
 | Service logs | `systemctl status cynthia.service`, `tmux attach -t cynthia` |
+
+## Video feed
+
+[View Cynthia’s video feed](https://serenegrace.io/video_feed).
+
+### Sending the feed to OBS
+
+While OBS Studio is open, the bot encodes the capture with NVENC (H.264, BT.709, MPEG-TS) and sends it to `udp://127.0.0.1:5000`; it stops when OBS closes. This needs an NVIDIA GPU and an `ffmpeg` with `h264_nvenc`. In OBS, use *Scene Collection → Import* and pick `deploy/obs/Cynthia.json` (the feed and default overlay panes at 1080p60), or add a Media Source with the URL `udp://127.0.0.1:5000?overrun_nonfatal=1&fifo_size=5000000&buffer_size=4194304` and the input format `mpegts`. The `buffer_size` matters: with the default socket buffer a busy receiver drops UDP packets, which shows up as stutters and audio gaps. The feed carries AAC audio from the capture card. Set `obs_feed: always` to send it even when OBS is closed. From there OBS can stream to Twitch or YouTube.
+
+#### Controlling OBS from Discord
+
+The bot drives OBS through obs-websocket (Tools → WebSocket Server Settings, or `"server_enabled": true` in `~/.config/obs-studio/plugin_config/obs-websocket/config.json`); put the password in `OBS_WS_PASSWORD`. The web viewer uses WebRTC when the `mediamtx` binary is on `PATH` (download from github.com/bluenviron/mediamtx) and falls back to MJPEG otherwise; see the `webrtc*` config keys. The OBS browser plugin (`obs-studio-plugin-browser` on Arch) is needed for the overlay panes. `bin/obs.sh` runs OBS headless and restarts it. It starts a virtual-monitor NVIDIA Xorg server (`deploy/xorg-headless.conf`, display `:98`, needs `sudo -n` unless run as root) so OBS composites on the GPU, and falls back to `xvfb-run` with software OpenGL, which can use several CPU cores; `deploy/cynthia.sh` starts it in window 2 of the tmux session.
+
+All of these are owner-only and DM-only:
+
+- `/twitch start | stop | test | uptime | status`: stream to Twitch with `TWITCH_STREAM_KEY` (or `OBS_STREAM_KEY`). `test` uses Twitch's bandwidth-test mode, so nothing goes live. `start` and `stop` ask you to confirm with a button first, so they can't go off by accident. Only the person who ran the command can press it, and after a minute the buttons expire and nothing changes.
+- `/twitch auth`: let the bot set the channel's title and category and clip shinies (see below).
+- `/obs framerate | resolution | record | stop | layout | show`, `/webstream framerate | resolution`: web and OBS frame rate and resolution are set independently and apply live. CV is always limited to 30 fps. The capture card runs at the cheapest mode that covers every running endpoint (OBS counts only while streaming or recording, the web stream only while someone watches), never below 720p for CV.
+
+`/twitchurl` is open to everyone, anywhere: it posts the `TWITCH_CHANNEL` link and says whether the channel is live. Once `/twitch auth` has been run it asks Twitch, so a bandwidth test counts as offline; otherwise it goes by whether OBS is streaming.
+
+The OBS scene is built from `obs_layout.yaml` (copy `obs_layout.example.yaml`): panes for the video, input visualizer, SSIM scores, hunt statistics (titled by the current activity), Twitch chat (`TWITCH_CHANNEL`) and a small `Cynthia (version)` watermark in the top-right corner. The reverse proxy in front of the web viewer must allow `/api/sync`, `/api/stream_stats` and `/api/activity_stats`.
+
+#### Twitch title, category and clips
+
+The bot can set the channel's category to the detected game and its title to the hunt (for example "Hunting shiny Cresselia"):
+
+1. Register an application at [dev.twitch.tv/console](https://dev.twitch.tv/console) and put its `TWITCH_CLIENT_ID` (and `TWITCH_CLIENT_SECRET` for a confidential client) in `.env`. Restart the bot.
+2. Run `/twitch auth`, open the link it sends and approve the code. The token is kept in the drive's `twitch_token.json` and renewed automatically. Once you confirm, `/twitch start` asks for this itself when the token is missing, lacks a scope or has been revoked, and starts the stream once you approve (or after 5 minutes); otherwise it starts straight away. With a confidential client (`TWITCH_CLIENT_SECRET` set) the token doesn't lapse, so one approval lasts until you revoke it; a public client's token lapses after 30 days unused.
+
+The channel changes only when the bot is sure and only when something new is detected. A game counts once it has been playing (not on the HOME screen) for `twitch_info_confirm_seconds` and it is one of the known titles. The category and title are then set once. They are not touched again, even if you edit them on Twitch, until a different game is detected or a different hunt is set. Clearing the hunt or returning to HOME never changes them. Without a hunt only the category is set. The last applied game and hunt are kept in `twitch_channel.json`, so a restart doesn't reapply them. If no Twitch category has exactly the game's name, the category is left alone; map it in `twitch_categories`.
+
+When the hunt stops for a possible shiny while the stream is live, the bot waits as long as the input visualizer's delay (`obs_feed_delay_ms` + `obs_overlay_lag_ms`) plus `twitch_clip_delay_seconds`, so the moment has reached Twitch, then creates a 30-second clip titled after the hunt, and DMs you its edit link. Clipping needs the `clips:edit` scope, so run `/twitch auth` again if you authorized before it was added.
+
+Two safeguards end or renew long streams: a stream restarts after `twitch_restart_hours`, and a stream that shows the capture card's no-signal screen for `twitch_no_signal_stop_minutes` is stopped. You get a DM either way.
 
 ## Nintendo Switch macros
 
