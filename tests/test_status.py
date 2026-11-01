@@ -75,7 +75,24 @@ def test_status_with_disabled_drive_keeps_hunt_status_without_file_io(tmp_path):
 
     assert cog.user_activity["details"] == "Hunting shiny Uxie"
     assert cog.user_activity["state"] == "No encounters yet"
-    assert cog.get_activity_stats() == {"bot_started": 123}
+    assert cog.get_activity_stats() == {
+        "bot_started": 123,
+        "hunt": "Uxie",
+        "self_encounter": False,
+    }
+
+
+def test_activity_stats_carry_status_text_and_self_encounter(tmp_path):
+    cog, _ = make_status_cog(
+        tmp_path, hunt=None, vars=make_vars(text="Breeding Eevees")
+    )
+    cog.bot.started_at_ms = 123
+    assert cog.get_activity_stats() == {"bot_started": 123, "status": "Breeding Eevees"}
+
+    cog, _ = make_status_cog(tmp_path, hunt="mew", self_encounter=True)
+    cog.bot.drive = Drive(None)
+    cog.bot.started_at_ms = 123
+    assert cog.get_activity_stats()["self_encounter"] is True
 
 
 def test_status_cycle_clears_when_activity_becomes_none(tmp_path):

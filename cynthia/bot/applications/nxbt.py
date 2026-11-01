@@ -14,6 +14,7 @@ from cynthia.utils.auth import (
     nxbt_permission,
     privileged_only,
 )
+from cynthia.utils.embeds import make_embed
 from cynthia.utils.encounters import encounter_log_name
 from cynthia.utils.nxbt_utils import Input, Macro
 from cynthia.utils.onmessage import OnMessage
@@ -210,7 +211,8 @@ async def get_macro(interaction: discord.Interaction, macro: str):
     if macro_str is None:
         await interaction.followup.send(f"No macro found with name '{macro}'.")
         return
-    await interaction.followup.send(f"```\n{macro_str}```")
+    embed = make_embed(f"Macro: {macro.lower()}", f"```\n{macro_str[:4080]}```")
+    await interaction.followup.send(embed=embed)
 
 
 @app_commands.command()

@@ -1,3 +1,5 @@
+"""Mirror Cynthia's public hunt status into local Discord Rich Presence."""
+
 import time
 
 # Replace with your Discord application's Client ID.
@@ -50,6 +52,7 @@ def update_presence(rpc, data, activity_types):
 
 
 def main():
+    """Poll Cynthia and keep the desktop client's Rich Presence up to date."""
     import requests
     from pypresence import Presence
     from pypresence.types import ActivityType

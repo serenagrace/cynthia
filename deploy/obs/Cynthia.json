@@ -20,11 +20,86 @@
             }
         },
         {
+            "id": "browser_source",
+            "name": "Cynthia inputs",
+            "versioned_id": "browser_source",
+            "settings": {
+                "url": "http://127.0.0.1:8000/pane/inputs",
+                "width": 384,
+                "height": 238,
+                "fps_custom": true,
+                "fps": 60,
+                "css": "body { background-color: rgba(0, 0, 0, 0); margin: 0; overflow: hidden; }",
+                "reroute_audio": false,
+                "shutdown": false
+            }
+        },
+        {
+            "id": "browser_source",
+            "name": "Cynthia chat",
+            "versioned_id": "browser_source",
+            "settings": {
+                "url": "http://127.0.0.1:8000/pane/chat",
+                "width": 442,
+                "height": 518,
+                "fps_custom": true,
+                "fps": 60,
+                "css": "body { background-color: rgba(0, 0, 0, 0); margin: 0; overflow: hidden; }",
+                "reroute_audio": false,
+                "shutdown": false
+            }
+        },
+        {
+            "id": "browser_source",
+            "name": "Cynthia ssim",
+            "versioned_id": "browser_source",
+            "settings": {
+                "url": "http://127.0.0.1:8000/pane/ssim",
+                "width": 442,
+                "height": 324,
+                "fps_custom": true,
+                "fps": 60,
+                "css": "body { background-color: rgba(0, 0, 0, 0); margin: 0; overflow: hidden; }",
+                "reroute_audio": false,
+                "shutdown": false
+            }
+        },
+        {
+            "id": "browser_source",
+            "name": "Cynthia stats",
+            "versioned_id": "browser_source",
+            "settings": {
+                "url": "http://127.0.0.1:8000/pane/stats",
+                "width": 576,
+                "height": 346,
+                "fps_custom": true,
+                "fps": 60,
+                "css": "body { background-color: rgba(0, 0, 0, 0); margin: 0; overflow: hidden; }",
+                "reroute_audio": false,
+                "shutdown": false
+            }
+        },
+        {
+            "id": "browser_source",
+            "name": "Cynthia watermark",
+            "versioned_id": "browser_source",
+            "settings": {
+                "url": "http://127.0.0.1:8000/pane/watermark",
+                "width": 384,
+                "height": 38,
+                "fps_custom": true,
+                "fps": 60,
+                "css": "body { background-color: rgba(0, 0, 0, 0); margin: 0; overflow: hidden; }",
+                "reroute_audio": false,
+                "shutdown": false
+            }
+        },
+        {
             "id": "scene",
             "name": "Cynthia",
             "versioned_id": "scene",
             "settings": {
-                "id_counter": 1,
+                "id_counter": 6,
                 "items": [
                     {
                         "name": "Cynthia Feed",
@@ -33,6 +108,46 @@
                         "bounds_type": 2,
                         "bounds": {"x": 1920.0, "y": 1080.0},
                         "pos": {"x": 0.0, "y": 0.0}
+                    },
+                    {
+                        "name": "Cynthia inputs",
+                        "id": 2,
+                        "visible": true,
+                        "bounds_type": 1,
+                        "bounds": {"x": 384.0, "y": 238.0},
+                        "pos": {"x": 1507.0, "y": 367.0}
+                    },
+                    {
+                        "name": "Cynthia chat",
+                        "id": 3,
+                        "visible": true,
+                        "bounds_type": 1,
+                        "bounds": {"x": 442.0, "y": 518.0},
+                        "pos": {"x": 29.0, "y": 540.0}
+                    },
+                    {
+                        "name": "Cynthia ssim",
+                        "id": 4,
+                        "visible": true,
+                        "bounds_type": 1,
+                        "bounds": {"x": 442.0, "y": 324.0},
+                        "pos": {"x": 29.0, "y": 22.0}
+                    },
+                    {
+                        "name": "Cynthia stats",
+                        "id": 5,
+                        "visible": true,
+                        "bounds_type": 1,
+                        "bounds": {"x": 576.0, "y": 346.0},
+                        "pos": {"x": 1325.0, "y": 734.0}
+                    },
+                    {
+                        "name": "Cynthia watermark",
+                        "id": 6,
+                        "visible": true,
+                        "bounds_type": 1,
+                        "bounds": {"x": 384.0, "y": 38.0},
+                        "pos": {"x": 1536.0, "y": 0.0}
                     }
                 ]
             }

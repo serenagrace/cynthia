@@ -6,7 +6,7 @@
 [![discord.py](https://img.shields.io/badge/discord.py-bot-5865F2?logo=discord&logoColor=white)](https://github.com/Rapptz/discord.py)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![Platform: Linux](https://img.shields.io/badge/platform-linux-FCC624?logo=linux&logoColor=black)](#requirements)
-[![Version](https://img.shields.io/badge/version-1.6.0-success.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.7.3-success.svg)](CHANGELOG.md)
 
 **Customizable Internal Network Task Handler + Interactive Assistant**
 
@@ -18,7 +18,7 @@ Cynthia is a Python Discord bot with slash commands, permission-aware controls, 
 
 ### Sending the feed to OBS
 
-While OBS Studio is open, the bot encodes the capture with NVENC (H.264, BT.709, MPEG-TS) and sends it to `udp://127.0.0.1:5000`; it stops when OBS closes. This needs an NVIDIA GPU and an `ffmpeg` with `h264_nvenc`. In OBS, use *Scene Collection → Import* and pick `deploy/obs/Cynthia.json`, or add a Media Source with the URL `udp://127.0.0.1:5000?overrun_nonfatal=1&fifo_size=5000000&buffer_size=4194304` and the input format `mpegts`. The `buffer_size` matters: with the default socket buffer a busy receiver drops UDP packets, which shows up as stutters and audio gaps. The feed carries AAC audio from the capture card. Set `obs_feed: always` to send it even when OBS is closed. From there OBS can stream to Twitch or YouTube.
+While OBS Studio is open, the bot encodes the capture with NVENC (H.264, BT.709, MPEG-TS) and sends it to `udp://127.0.0.1:5000`; it stops when OBS closes. This needs an NVIDIA GPU and an `ffmpeg` with `h264_nvenc`. In OBS, use *Scene Collection → Import* and pick `deploy/obs/Cynthia.json` (the feed and default overlay panes at 1080p60), or add a Media Source with the URL `udp://127.0.0.1:5000?overrun_nonfatal=1&fifo_size=5000000&buffer_size=4194304` and the input format `mpegts`. The `buffer_size` matters: with the default socket buffer a busy receiver drops UDP packets, which shows up as stutters and audio gaps. The feed carries AAC audio from the capture card. Set `obs_feed: always` to send it even when OBS is closed. From there OBS can stream to Twitch or YouTube.
 
 #### Controlling OBS from Discord
 
@@ -26,10 +26,26 @@ The bot drives OBS through obs-websocket (Tools → WebSocket Server Settings, o
 
 All of these are owner-only and DM-only:
 
-- `/twitch start | stop | test | url | uptime | status`: stream to Twitch with `TWITCH_STREAM_KEY` (or `OBS_STREAM_KEY`). `test` uses Twitch's bandwidth-test mode, so nothing goes live.
+- `/twitch start | stop | test | uptime | status`: stream to Twitch with `TWITCH_STREAM_KEY` (or `OBS_STREAM_KEY`). `test` uses Twitch's bandwidth-test mode, so nothing goes live. `start` and `stop` ask you to confirm with a button first, so they can't go off by accident. Only the person who ran the command can press it, and after a minute the buttons expire and nothing changes.
+- `/twitch auth`: let the bot set the channel's title and category and clip shinies (see below).
 - `/obs framerate | resolution | record | stop | layout | show`, `/webstream framerate | resolution`: web and OBS frame rate and resolution are set independently and apply live. CV is always limited to 30 fps. The capture card runs at the cheapest mode that covers every running endpoint (OBS counts only while streaming or recording, the web stream only while someone watches), never below 720p for CV.
 
-The OBS scene is built from `obs_layout.yaml` (copy `obs_layout.example.yaml`): panes for the video, input visualizer, SSIM scores, hunt statistics (titled by the current activity) and Twitch chat (`TWITCH_CHANNEL`). The reverse proxy in front of the web viewer must allow `/api/sync`, `/api/stream_stats` and `/api/activity_stats`.
+`/twitchurl` is open to everyone, anywhere: it posts the `TWITCH_CHANNEL` link and says whether the channel is live. Once `/twitch auth` has been run it asks Twitch, so a bandwidth test counts as offline; otherwise it goes by whether OBS is streaming.
+
+The OBS scene is built from `obs_layout.yaml` (copy `obs_layout.example.yaml`): panes for the video, input visualizer, SSIM scores, hunt statistics (titled by the current activity), Twitch chat (`TWITCH_CHANNEL`) and a small `Cynthia (version)` watermark in the top-right corner. The reverse proxy in front of the web viewer must allow `/api/sync`, `/api/stream_stats` and `/api/activity_stats`.
+
+#### Twitch title, category and clips
+
+The bot can set the channel's category to the detected game and its title to the hunt (for example "Hunting shiny Cresselia"):
+
+1. Register an application at [dev.twitch.tv/console](https://dev.twitch.tv/console) and put its `TWITCH_CLIENT_ID` (and `TWITCH_CLIENT_SECRET` for a confidential client) in `.env`. Restart the bot.
+2. Run `/twitch auth`, open the link it sends and approve the code. The token is kept in the drive's `twitch_token.json` and renewed automatically. Once you confirm, `/twitch start` asks for this itself when the token is missing, lacks a scope or has been revoked, and starts the stream once you approve (or after 5 minutes); otherwise it starts straight away. With a confidential client (`TWITCH_CLIENT_SECRET` set) the token doesn't lapse, so one approval lasts until you revoke it; a public client's token lapses after 30 days unused.
+
+The channel changes only when the bot is sure and only when something new is detected. A game counts once it has been playing (not on the HOME screen) for `twitch_info_confirm_seconds` and it is one of the known titles. The category and title are then set once. They are not touched again, even if you edit them on Twitch, until a different game is detected or a different hunt is set. Clearing the hunt or returning to HOME never changes them. Without a hunt only the category is set. The last applied game and hunt are kept in `twitch_channel.json`, so a restart doesn't reapply them. If no Twitch category has exactly the game's name, the category is left alone; map it in `twitch_categories`.
+
+When the hunt stops for a possible shiny while the stream is live, the bot waits as long as the input visualizer's delay (`obs_feed_delay_ms` + `obs_overlay_lag_ms`) plus `twitch_clip_delay_seconds`, so the moment has reached Twitch, then creates a 30-second clip titled after the hunt, and DMs you its edit link. Clipping needs the `clips:edit` scope, so run `/twitch auth` again if you authorized before it was added.
+
+Two safeguards end or renew long streams: a stream restarts after `twitch_restart_hours`, and a stream that shows the capture card's no-signal screen for `twitch_no_signal_stop_minutes` is stopped. You get a DM either way.
 
 ## Requirements
 
@@ -105,6 +121,14 @@ Do not install both extras. To switch an existing environment, uninstall the oth
 
 Use `env` as the virtualenv name: `bin/run.sh` and the `deploy/` scripts expect `env/bin/cynthia`.
 
+After changing the package version, refresh the installed metadata without
+changing dependencies, then restart the bot with `/restart`:
+
+```bash
+env/bin/python -m pip install --no-deps -e .
+env/bin/python -c "from importlib.metadata import version; print(version('cynthia'))"
+```
+
 The `nxbt` dependency installs directly from [serenagrace/nxbt](https://github.com/serenagrace/nxbt), branch `cynthia-patches`, as configured in `pyproject.toml`.
 
 Copy the example files and edit them. They are private runtime files and Git ignores the real ones:
@@ -126,7 +150,8 @@ cp perms.example.yaml perms.yaml
 | `SYNC_GUILD_ID` | no | Guild that receives slash commands immediately after each sync. Global sync still happens. |
 | `OBS_WS_HOST` / `OBS_WS_PORT` / `OBS_WS_PASSWORD` | no | obs-websocket address (default `127.0.0.1:4455`) and password. |
 | `TWITCH_STREAM_KEY` / `OBS_STREAM_KEY` | no | Stream key for `/twitch`. The Twitch one wins. |
-| `TWITCH_CHANNEL` | no | Channel for the chat overlay and `/twitch url`. |
+| `TWITCH_CHANNEL` | no | Channel for the chat overlay and `/twitchurl`. |
+| `TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET` | no | Twitch application that sets the stream title and category after `/twitch auth`. The secret is only for confidential clients. |
 | `STATUS_HOSTS` | no | Comma-separated hostnames or IPs the owner's `/status` command pings. Defaults to `discord.com,github.com,google.com`. |
 
 Values in the process environment win over `.env`.
@@ -147,8 +172,16 @@ Values in the process environment win over `.env`.
 | `obs_scene` | OBS scene the bot manages. Defaults to `Cynthia`. |
 | `obs_layout_file` | OBS pane layout. Defaults to `obs_layout.yaml`. |
 | `twitch_bitrate_kbps` | Video bitrate for Twitch streams (OBS Simple output mode). Defaults to `6000`. |
+| `twitch_no_signal_stop_minutes` | Stop the stream once the capture card's no-signal screen has been up this long. Defaults to `10`; `0` disables it. |
+| `twitch_auto_clip` | Clip the stream when a shiny is found. Defaults to `true`; needs `/twitch auth`. |
+| `twitch_clip_delay_seconds` | Seconds to wait after the shiny shows on the input visualizer (`obs_feed_delay_ms` + `obs_overlay_lag_ms`) before clipping, so the moment has reached Twitch (Twitch clips the 30 seconds before the request). Defaults to `10`. |
+| `twitch_restart_hours` | Stop and restart a stream once it has run this long, since Twitch ends broadcasts at 48 hours. The owner gets a DM. Defaults to `24`; `0` disables it. |
+| `twitch_auto_info` | Set the Twitch title and category from the detected game and hunt. Defaults to `true`; it does nothing until `/twitch auth` has been run. |
+| `twitch_info_confirm_seconds` | How long a new game or hunt must hold before the channel is changed. Defaults to `60`. |
+| `twitch_categories` | Map a detected game title to a Twitch category name or id when Twitch names it differently. Defaults to `{}`. |
 | `obs_feed_bitrate` | H.264 (NVENC) bitrate of the OBS feed. Defaults to `50M`. |
 | `obs_feed_delay_ms` | Hold the OBS feed back this long (a safety buffer that smooths bursts and audio stalls). Defaults to `1000`; `0` disables it. |
+| `obs_overlay_lag_ms` | Extra delay, on top of `obs_feed_delay_ms`, for the OBS overlay's inputs and scene-match panes so they line up with the video OBS shows (which also trails by encode, OBS buffering and decode time). Defaults to `1700`. |
 
 ### `perms.yaml`
 
@@ -162,6 +195,7 @@ The drive directory holds runtime state:
 - `cynthia.db`: Discord logging and OnMessage rules
 - `pokemonDB_dataset.csv`: species data for `/pokemon`. Provide it yourself; `/pokemon` is disabled when it is missing.
 - `encounter_times.log`, `user_status.json`, `activity_stats.json`, `uvicorn_access.log.gz` and a gzipped message log
+- `twitch_token.json` (the Twitch authorization, readable only by the bot's user) and `twitch_channel.json` (the last game and hunt sent to Twitch)
 
 ## Run
 
@@ -172,6 +206,14 @@ bin/run.sh --config config.yaml --perms perms.yaml
 `bin/run.sh` runs `sudo env/bin/cynthia` in a loop: exit codes 0 and 1 stop it, anything else restarts the bot. The user needs passwordless `sudo`. Both options default to the filenames above. The bot loads slash commands and cogs at startup and writes updated configuration and permissions back to their files when it exits.
 
 The bot also serves a local FastAPI app on `127.0.0.1:8000` (the video feed page and `/api/*` endpoints). Put a reverse proxy such as nginx in front of it to publish it.
+
+These endpoints return plain text for StreamElements custom commands (allow them in the reverse proxy too):
+
+- `/api/streamelements/uptime`: how long the bot has been running, e.g. `has been running for 3 hours and 5 minutes`.
+- `/api/streamelements/online`: always `True`; a request that fails means the bot is down.
+- `/api/streamelements/description`: the hunt (`hunting shiny Cresselia`, or `trying to get a shiny Mew` for a self encounter), else the `/set_status` text, else `not doing anything in particular right now`.
+
+Use them in a command such as `Cynthia ${customapi.https://example.com/api/streamelements/description}`.
 
 ## Start at boot
 
@@ -227,7 +269,13 @@ Macro names are matched as substrings of a line. A very short name such as `a` o
 
 ### Sample macros
 
-`examples/macros/` includes sample shiny-hunting macros for Pokémon Brilliant Diamond and Shining Pearl: `mespirit`, `cresselia`, `shaymin`, `arceus` and `darkrai`, plus the helpers they call (`roamer_decide`, `encounter_roamer`, `roamer_reroll`, `screen_record`, `pause` and `run_up_down`). Each file starts with its `$name` line. Paste each file's contents into Discord and use **Define Macro**. Define the helper macros before the target macro; saved definitions persist in the configured drive.
+`examples/macros/` includes sample shiny-hunting macros for Pokémon Brilliant Diamond and Shining Pearl: `mespirit`, `cresselia`, `shaymin`, `arceus` and `darkrai`, plus the helpers they call (`roamer_decide`, `encounter_roamer`, `try_close_bag`, `encounter_proceed`, `roamer_reroll`, `screen_record`, `pause` and `run_up_down`). Each file starts with its `$name` line. Paste each file's contents into Discord and use **Define Macro**. Define the helper macros before the target macro; saved definitions persist in the configured drive.
+
+All conditional branches are included, including recursive helpers. `wait`,
+`hold`, and `tap` are built-in timing keywords, not separate saved macros.
+`zoom` and `cleanup` are registered automatically by the bot. To update an
+already saved sample, change its first line from `$name` to `$!name` before
+using **Define Macro**.
 
 These macros need a working Switch capture feed and the CV daemon. In BDSP settings, set **Text Box** to style 22 for reliable scene matching. Save in front of the target with the game open, then leave the Switch at the **Change Grip/Order** menu.
 
@@ -242,7 +290,7 @@ Connect and start a hunt with the target name and matching macro name:
 
 Replace `Darkrai` and `darkrai` with your target and its macro name. The Mesprit macro is named `mespirit`. `cyclient` is optional; run it on your desktop to sync your Discord Rich Presence with the bot's detected game status.
 
-The conditional steps use scenes such as `route_202`, `roamer` and `bdsp_run`, provided by the CV daemon.
+The conditional steps use scenes such as `route_202`, `roamer`, `bdsp_bag` and `bdsp_run`, provided by the CV daemon.
 
 ## Music
 

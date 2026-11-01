@@ -206,7 +206,12 @@ def test_test_bot_exercises_live_guild_and_safe_command_callbacks(tmp_path):
             await auth_app.command_allow.callback(owner_interaction, "loaded_commands")
             await _run_checks(loaded_command, user_interaction)
             await loaded_command.callback(user_interaction)
-            assert "Loaded" in user_interaction.response.send_message.await_args.args[0]
+            assert (
+                "Loaded"
+                in user_interaction.response.send_message.await_args.kwargs[
+                    "embed"
+                ].title
+            )
             await auth_app.command_disallow.callback(
                 owner_interaction, "loaded_commands"
             )

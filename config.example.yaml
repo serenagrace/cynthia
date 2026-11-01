@@ -10,6 +10,18 @@ status_services:
   - cynthia.service
 # Restart the looping macro 5 seconds after each encounter
 encounter_reset: true
+# Twitch automation (all durations are independent; set stop/restart to 0 to disable)
+twitch_restart_hours: 24
+twitch_no_signal_stop_minutes: 10
+twitch_auto_clip: true
+# Added to the input visualizer delay before making a shiny clip
+twitch_clip_delay_seconds: 10
+twitch_auto_info: true
+twitch_info_confirm_seconds: 60
+# Map detected game titles to Twitch category names when they differ
+twitch_categories: {}
+# Positions and sizes of the OBS overlay panes
+obs_layout_file: obs_layout.yaml
 # Optional: public hostnames or IPs offered to WebRTC viewers outside the LAN
 # (also forward UDP/TCP 8189 to this machine)
 # webrtc_hosts:

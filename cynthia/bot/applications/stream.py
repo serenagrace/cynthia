@@ -8,6 +8,7 @@ import discord
 from discord import app_commands
 
 from cynthia.utils.auth import OwnerGroup
+from cynthia.utils.embeds import LIVE, OFFLINE, image_embed
 from cynthia.utils.obs import OBSError
 from cynthia.utils.obslayout import LayoutError
 from cynthia.utils.streamcfg import (
@@ -191,12 +192,37 @@ async def obs_layout(interaction: discord.Interaction):
 async def obs_show(interaction: discord.Interaction):
     """Send a screenshot of what OBS is currently showing."""
     await interaction.response.defer(thinking=True)
+    control = obs_cog(interaction).obs
     try:
-        png = await asyncio.to_thread(obs_cog(interaction).obs.screenshot)
+        png = await asyncio.to_thread(control.screenshot)
+        status = await asyncio.to_thread(control.status)
     except OBSError as e:
         await interaction.followup.send(f"❌ {e}")
         return
-    await interaction.followup.send(file=discord.File(io.BytesIO(png), "obs.png"))
+    uns = interaction.client.dman.uns
+    fields = [
+        ("Video mode", f"{setting(uns, 'obs_height')}p{setting(uns, 'obs_fps')}"),
+        (
+            "Streaming",
+            f"🔴 {clock(status['stream_seconds'])}" if status["streaming"] else "No",
+        ),
+        (
+            "Recording",
+            f"⏺️ {clock(status['record_seconds'])}" if status["recording"] else "No",
+        ),
+    ]
+    color = LIVE if status["streaming"] else OFFLINE
+    embed = image_embed("OBS Scene", "obs.png", color=color, fields=fields)
+    await interaction.followup.send(
+        embed=embed, file=discord.File(io.BytesIO(png), "obs.png")
+    )
+
+
+def clock(seconds):
+    """Format seconds as `1:02:03`."""
+    minutes, secs = divmod(int(seconds), 60)
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}:{minutes:02d}:{secs:02d}"
 
 
 __application__ = [webstream, obs]

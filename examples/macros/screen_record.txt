@@ -1,2 +1,4 @@
 $screen_record
 hold C
+wait
+wait

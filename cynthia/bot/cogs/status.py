@@ -86,8 +86,14 @@ class StatusCog(commands.Cog):
 
         Active hunt time is (hunt_stopped_at or now) - (hunt_started + hunt_correction_ms),
         where the correction is time spent not hunting in completed stop/start pauses.
+        Also carries the hunt and the custom status for the StreamElements commands.
         """
         stats = {"bot_started": self.bot.started_at_ms}
+        if self.bot.args.hunt:
+            stats["hunt"] = self.bot.args.hunt
+            stats["self_encounter"] = self.self_encounter()
+        if self.bot.vars.status.text is not None:
+            stats["status"] = self.bot.vars.status.text
         if self.bot.args.hunt and self.bot.drive.enabled:
             with self.bot.drive.open(
                 encounter_log_name(self.bot.args.hunt), "r", touch=True
@@ -105,6 +111,14 @@ class StatusCog(commands.Cog):
             if average_ms is not None:
                 stats["average_interval_ms"] = round(average_ms)
         return stats
+
+    def self_encounter(self):
+        """Whether the hunt is a self encounter (soft resets), from the CV daemon."""
+        cv = self.bot.dman.running_daemons.get("CVDaemon", None)
+        try:
+            return bool(getattr(getattr(cv, "ns", None), "self_encounter", False))
+        except (EOFError, OSError):
+            return False
 
     @tasks.loop(seconds=15.0)
     async def set_status(self):

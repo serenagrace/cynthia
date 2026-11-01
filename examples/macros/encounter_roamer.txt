@@ -12,12 +12,4 @@ hold A
 hold A
 hold B
 hold B
-hold B <
-hold B <
-hold B <
-hold B <
-hold B >
-hold B >
-hold B <
-hold B <
-bdsp_run ? pause : run_up_down
+bdsp_bag ? try_close_bag : encounter_proceed

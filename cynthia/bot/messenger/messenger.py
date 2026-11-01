@@ -2,6 +2,8 @@
 
 import discord
 
+from cynthia.utils.embeds import make_embed
+
 from .response_matrix import ResponseMatrix
 
 
@@ -33,13 +35,12 @@ class Messenger:
             )
 
     async def send_list(self, send_context, title, items):
-        """Send a titled list of items through an interaction response."""
-        if not items:
-            await send_context.response.send_message(f"{title}\n*(Empty.)*")
-            return
-
-        formatted_items = "\n".join(f" - {item}" for item in items)
-        await send_context.response.send_message(f"{title}\n{formatted_items}")
+        """Send a titled list of items as an embed through an interaction response."""
+        if items:
+            description = "\n".join(f"- {item}" for item in items)[:4096]
+        else:
+            description = "*(Empty.)*"
+        await send_context.response.send_message(embed=make_embed(title, description))
 
     async def respond(self, message):
         """Run a response-matrix handler for a matching message."""

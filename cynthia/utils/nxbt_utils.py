@@ -116,6 +116,7 @@ class Input:
         uns.pressed_buttons = [str(button) for button in self.input_list]
 
         def release():
+            """Clear this press only if no newer press has replaced it."""
             if Input._press_token == token:
                 uns.pressed_buttons = []
 
