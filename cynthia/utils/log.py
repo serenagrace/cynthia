@@ -54,10 +54,12 @@ class ColorFormatter(logging.Formatter):
     """Dim timestamp and boilerplate; highlight module name and message."""
 
     def __init__(self, color=True):
+        """Set whether terminal records include ANSI colors."""
         super().__init__()
         self.color = color
 
     def format(self, record):
+        """Format a record, preserving exception and stack details."""
         message = record.getMessage()
         if record.exc_info and not record.exc_text:
             record.exc_text = self.formatException(record.exc_info)
@@ -99,6 +101,7 @@ class _MinLevel(logging.Filter):
     """Drop records below WARNING."""
 
     def filter(self, record):
+        """Accept warnings and errors while dropping routine model-load chatter."""
         return record.levelno >= logging.WARNING
 
 

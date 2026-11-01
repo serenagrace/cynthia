@@ -5,7 +5,7 @@ The layout is a YAML file. Positions and sizes are fractions of the OBS canvas
 order, later ones on top. `kind` picks what the pane shows:
 
 * `video`   the capture feed (the UDP media source)
-* `status`, `inputs`, `ssim`, `stats`, `chat`   pages served by the bot
+* `status`, `inputs`, `ssim`, `stats`, `chat`, `watermark`   pages served by the bot
 * `url`     any web page, given by `url`
 """
 
@@ -16,7 +16,7 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
-KINDS = ("video", "status", "inputs", "ssim", "stats", "chat", "url")
+KINDS = ("video", "status", "inputs", "ssim", "stats", "chat", "watermark", "url")
 SOURCE_PREFIX = "Cynthia "
 VIDEO_SOURCE = "Cynthia Feed"
 DEFAULT_CSS = (
@@ -36,7 +36,15 @@ DEFAULT_LAYOUT = {
         },
         {"name": "chat", "kind": "chat", "x": 0.015, "y": 0.5, "w": 0.23, "h": 0.48},
         {"name": "ssim", "kind": "ssim", "x": 0.015, "y": 0.02, "w": 0.23, "h": 0.3},
-        {"name": "stats", "kind": "stats", "x": 0.69, "y": 0.68, "w": 0.3, "h": 0.3},
+        {"name": "stats", "kind": "stats", "x": 0.69, "y": 0.68, "w": 0.3, "h": 0.32},
+        {
+            "name": "watermark",
+            "kind": "watermark",
+            "x": 0.8,
+            "y": 0,
+            "w": 0.2,
+            "h": 0.035,
+        },
     ]
 }
 

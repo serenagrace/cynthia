@@ -1,8 +1,11 @@
+import json
+import time
 from types import SimpleNamespace
 
+import pytest
 from fastapi.testclient import TestClient
 
-from cynthia.daemons.cystream import create_app
+from cynthia.daemons.cystream import create_app, spoken_duration
 from cynthia.utils.drive import Drive
 
 
@@ -76,6 +79,68 @@ def test_cystream_api_activity_stats(tmp_path):
     assert response.json() == {"bot_started": 1}
 
 
+@pytest.mark.parametrize(
+    "seconds, text",
+    [
+        (0, "0 minutes and 0 seconds"),
+        (61, "1 minute and 1 second"),
+        (59 * 60 + 59, "59 minutes and 59 seconds"),
+        (3600 + 120 + 30, "1 hour and 2 minutes"),
+        (2 * 86400 + 3600 + 59, "2 days and 1 hour"),
+        (86400, "1 day and 0 hours"),
+    ],
+)
+def test_spoken_duration(seconds, text):
+    assert spoken_duration(seconds) == text
+
+
+@pytest.mark.parametrize(
+    "stats, text",
+    [
+        ({"hunt": "cresselia", "self_encounter": False}, "hunting shiny Cresselia"),
+        (
+            {"hunt": "mew", "self_encounter": True, "status": "x"},
+            "trying to get a shiny Mew",
+        ),
+        ({"status": "Breeding Eevees for a Sylveon"}, "Breeding Eevees for a Sylveon"),
+        ({}, "not doing anything in particular right now"),
+    ],
+)
+def test_streamelements_description_is_plain_text(tmp_path, stats, text):
+    (tmp_path / "activity_stats.json").write_text(json.dumps(stats))
+    app = create_app(
+        Drive(tmp_path), SimpleNamespace(run=True), SimpleNamespace(), None
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/api/streamelements/description")
+
+    assert response.headers["content-type"].startswith("text/plain")
+    assert response.text == text
+
+
+def test_streamelements_uptime_is_plain_text(tmp_path):
+    started_ms = (time.time() - (3 * 3600 + 5 * 60 + 10)) * 1000
+    (tmp_path / "activity_stats.json").write_text(
+        json.dumps({"bot_started": started_ms})
+    )
+    app = create_app(
+        Drive(tmp_path), SimpleNamespace(run=True), SimpleNamespace(), None
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/api/streamelements/uptime")
+        (tmp_path / "activity_stats.json").write_text("{}")
+        missing = client.get("/api/streamelements/uptime")
+        online = client.get("/api/streamelements/online")
+
+    assert response.headers["content-type"].startswith("text/plain")
+    assert response.text == "has been running for 3 hours and 5 minutes"
+    assert missing.text == "isn't running right now"
+    assert online.headers["content-type"].startswith("text/plain")
+    assert online.text == "True"
+
+
 def test_cystream_status_apis_return_empty_data_when_drive_disabled():
     app = create_app(
         Drive(None),
@@ -130,6 +195,33 @@ def test_cystream_delayed_inputs_and_ssim_lag_the_web_stream(tmp_path):
     assert lagged == {"pressed": ["A"]}
     assert lagged_ssim["scores"][0]["scene"] == "home"
     assert caught_up == {"pressed": ["B"]}
+
+
+def test_cystream_obs_feed_inputs_use_the_obs_delay(tmp_path):
+    import time
+
+    uns = SimpleNamespace(pressed_buttons=["A"], ssim_scores=[("home", 0.9)])
+    app = create_app(
+        Drive(tmp_path),
+        SimpleNamespace(run=True),
+        uns,
+        None,
+        video_delay_ms=100,
+        obs_delay_ms=600,
+    )
+
+    with TestClient(app) as client:
+        time.sleep(0.8)
+        uns.pressed_buttons = ["B"]
+        uns.ssim_scores = [("map", 0.8)]
+        time.sleep(0.3)
+        web = client.get("/api/inputs?delayed=true").json()
+        obs = client.get("/api/inputs?delayed=true&feed=obs").json()
+        obs_ssim = client.get("/api/ssim_data?delayed=true&feed=obs").json()
+
+    assert web == {"pressed": ["B"]}
+    assert obs == {"pressed": ["A"]}
+    assert obs_ssim["scores"][0]["scene"] == "home"
 
 
 def test_jpeg_cache_evicts_least_recently_used_over_budget():

@@ -16,6 +16,17 @@ MAX_MESSAGES = 50
 PRIVMSG = re.compile(
     r"^(?:@(?P<tags>\S+) )?:(?P<nick>[^!\s]+)![^\s]* PRIVMSG #\S+ :(?P<text>.*)$"
 )
+# Moderation: CLEARMSG deletes one message, CLEARCHAT a user's (ban/timeout) or all
+CLEAR = re.compile(
+    r"^(?:@(?P<tags>\S+) )?:\S+ (?P<command>CLEARMSG|CLEARCHAT) #\S+(?: :(?P<target>.*))?$"
+)
+# Fields the overlay shows; the rest only match moderation events
+PUBLIC_FIELDS = ("user", "color", "text", "time")
+
+
+def parse_tags(tags):
+    """Split an IRCv3 tag string into a dict."""
+    return dict(part.split("=", 1) for part in (tags or "").split(";") if "=" in part)
 
 
 def parse_privmsg(line):
@@ -23,16 +34,15 @@ def parse_privmsg(line):
     match = PRIVMSG.match(line)
     if match is None:
         return None
-    tags = dict(
-        part.split("=", 1)
-        for part in (match.group("tags") or "").split(";")
-        if "=" in part
-    )
+    tags = parse_tags(match.group("tags"))
     return {
         "user": tags.get("display-name") or match.group("nick"),
         "color": tags.get("color") or None,
         "text": match.group("text"),
         "time": time.time(),
+        "id": tags.get("id"),
+        "login": match.group("nick").lower(),
+        "user_id": tags.get("user-id"),
     }
 
 
@@ -46,7 +56,44 @@ class TwitchChat:
 
     def recent(self, count=15):
         """Return the newest `count` messages, oldest first."""
-        return list(self.messages)[-count:]
+        return [
+            {key: message[key] for key in PUBLIC_FIELDS}
+            for message in list(self.messages)[-count:]
+        ]
+
+    def handle(self, line):
+        """Record a chat message or apply a moderator's deletion."""
+        message = parse_privmsg(line)
+        if message is not None:
+            self.messages.append(message)
+            return
+        match = CLEAR.match(line)
+        if match is None:
+            return
+        tags = parse_tags(match.group("tags"))
+        if match.group("command") == "CLEARMSG":
+            target = tags.get("target-msg-id")
+
+            def deleted(m):
+                """Match the single message removed by its IRC message ID."""
+                return target is not None and m["id"] == target
+
+        elif match.group("target"):
+            user_id = tags.get("target-user-id")
+            login = match.group("target").strip().lower()
+
+            def deleted(m):
+                """Match messages from the banned or timed-out user."""
+                if user_id and m["user_id"]:
+                    return m["user_id"] == user_id
+                return m["login"] == login
+
+        else:
+            self.messages.clear()
+            return
+        kept = [m for m in self.messages if not deleted(m)]
+        self.messages.clear()
+        self.messages.extend(kept)
 
     async def run(self):
         """Stay connected, reconnecting after failures, until cancelled."""
@@ -65,7 +112,7 @@ class TwitchChat:
         try:
             nick = f"justinfan{random.randint(10000, 99999)}"
             writer.write(
-                f"CAP REQ :twitch.tv/tags\r\nNICK {nick}\r\nJOIN #{self.channel}\r\n".encode()
+                f"CAP REQ :twitch.tv/tags twitch.tv/commands\r\nNICK {nick}\r\nJOIN #{self.channel}\r\n".encode()
             )
             await writer.drain()
             while line := await reader.readline():
@@ -74,8 +121,6 @@ class TwitchChat:
                     writer.write(text.replace("PING", "PONG", 1).encode() + b"\r\n")
                     await writer.drain()
                     continue
-                message = parse_privmsg(text)
-                if message is not None:
-                    self.messages.append(message)
+                self.handle(text)
         finally:
             writer.close()

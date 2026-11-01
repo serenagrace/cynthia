@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from cynthia.daemons.cystream import create_app
+from cynthia.daemons.cystream import app_version, create_app
 from cynthia.daemons.frames import AUDIO_BYTES_PER_SEC
 from cynthia.daemons.obsfeed import audio_shortfall, audio_stretch
 from cynthia.utils.drive import Drive
@@ -16,7 +16,7 @@ from cynthia.utils.streamcfg import (
     parse_fps,
     parse_height,
 )
-from cynthia.utils.twitchchat import parse_privmsg
+from cynthia.utils.twitchchat import TwitchChat, parse_privmsg
 
 
 def uns(**values):
@@ -148,6 +148,38 @@ def test_twitch_chat_parsing():
     assert parse_privmsg(":tmi.twitch.tv 001 justinfan1 :Welcome") is None
 
 
+def test_twitch_chat_drops_deleted_messages():
+    chat = TwitchChat("chan")
+
+    def say(nick, user_id, msg_id, text):
+        chat.handle(
+            f"@display-name={nick};id={msg_id};user-id={user_id} "
+            f":{nick.lower()}!{nick.lower()}@x.tmi.twitch.tv PRIVMSG #chan :{text}"
+        )
+
+    def texts():
+        return [m["text"] for m in chat.recent()]
+
+    say("Ash", "1", "a1", "hi")
+    say("Gary", "2", "g1", "smell ya")
+    say("Ash", "1", "a2", "spam")
+    say("Gary", "2", "g2", "later")
+
+    chat.handle("@login=ash;target-msg-id=a2 :tmi.twitch.tv CLEARMSG #chan :spam")
+    assert texts() == ["hi", "smell ya", "later"]
+    assert set(chat.recent()[0]) == {"user", "color", "text", "time"}
+
+    # A timeout or ban removes everything that user said
+    chat.handle(
+        "@ban-duration=600;target-user-id=2 :tmi.twitch.tv CLEARCHAT #chan :gary"
+    )
+    assert texts() == ["hi"]
+
+    # /clear empties the pane
+    chat.handle("@room-id=9 :tmi.twitch.tv CLEARCHAT #chan")
+    assert texts() == []
+
+
 def test_overlay_panes_and_chat_endpoint(tmp_path):
     from cynthia.daemons.frames import FrameRing
 
@@ -158,6 +190,9 @@ def test_overlay_panes_and_chat_endpoint(tmp_path):
         assert inputs.status_code == 200 and 'id="DPAD_UP"' in inputs.text
         assert client.get("/pane/chat").status_code == 200
         assert client.get("/pane/nope").status_code == 404
+        watermark = client.get("/pane/watermark").text
+        assert "Cynthia (<!--VERSION-->)" not in watermark
+        assert f"Cynthia ({app_version()})" in watermark
         assert client.get("/api/twitch_chat").json() == {"messages": []}
         stats = client.get("/api/stream_stats").json()
     ring.close(unlink=True)
@@ -249,6 +284,7 @@ def test_obs_cog_unload_tolerates_stopped_daemon_manager():
     cog.bot = SimpleNamespace(dman=SimpleNamespace(uns=DeadNamespace()))
     cog.obs = Mock()
     cog.poll = Mock()
+    cog.restart_task = None
 
     asyncio.run(cog.cog_unload())
 
@@ -283,3 +319,301 @@ def test_obs_cog_poll_stops_when_daemon_manager_is_gone():
 
     cancel.assert_called_once()
     assert not cog.was_connected
+
+
+def test_obs_cog_restarts_a_stream_before_twitchs_48_hour_cutoff(monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, Mock
+
+    import cynthia.bot.cogs.obs as obs_module
+    from cynthia.bot.cogs.obs import OBSCog
+
+    monkeypatch.setattr(obs_module, "POLL_SECONDS", 0)
+    states = iter([True, False])
+    cog = OBSCog.__new__(OBSCog)
+    cog.bot = SimpleNamespace(
+        dman=SimpleNamespace(uns=SimpleNamespace()),
+        config={"twitch_restart_hours": 24},
+        messenger=SimpleNamespace(msg_owner=AsyncMock()),
+    )
+    cog.obs = Mock()
+    cog.was_connected = True
+    cog.last_status = None
+    cog.restart_task = None
+    live = {"streaming": True, "recording": False, "stream_seconds": 24 * 3600 - 2}
+
+    async def run():
+        cog.obs.status.return_value = live
+        await cog.poll.coro(cog)
+        assert cog.restart_task is None
+
+        live["stream_seconds"] = 24 * 3600
+        cog.obs.status.side_effect = [
+            live,
+            *({"streaming": s, "recording": False} for s in states),
+        ]
+        await cog.poll.coro(cog)
+        task = cog.restart_task
+        # A poll during the restart doesn't start a second one
+        assert not cog.restart_due(live)
+        await task
+
+    asyncio.run(run())
+
+    cog.obs.stop_stream.assert_called_once()
+    cog.obs.start_stream.assert_called_once()
+    text = cog.bot.messenger.msg_owner.await_args.args[0]
+    assert text.startswith("🔁 Restarted the stream after 24 hours")
+    cog.bot.config["twitch_restart_hours"] = 0
+    assert not cog.restart_due(live)
+
+
+def test_obs_cog_stops_a_stream_after_ten_minutes_without_signal():
+    import asyncio
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, Mock
+
+    from cynthia.bot.cogs.obs import OBSCog
+
+    cog = OBSCog.__new__(OBSCog)
+    uns = SimpleNamespace(ssim_scores=[("elgato_no_signal", 0.99), ("home", 0.2)])
+    cog.bot = SimpleNamespace(
+        dman=SimpleNamespace(uns=uns),
+        config={},
+        messenger=SimpleNamespace(msg_owner=AsyncMock()),
+    )
+    cog.obs = Mock()
+    cog.restart_task = None
+    cog.no_signal_since = None
+    live = {"streaming": True}
+
+    assert not cog.no_signal_due(live, 0)
+    assert not cog.no_signal_due(live, 599)
+    # The signal coming back restarts the count
+    uns.ssim_scores = [("bdsp_run", 0.95)]
+    assert not cog.no_signal_due(live, 600)
+    uns.ssim_scores = [("elgato_no_signal", 0.99)]
+    assert not cog.no_signal_due(live, 700)
+    assert not cog.no_signal_due({"streaming": False}, 1000)
+    assert not cog.no_signal_due(live, 1100)
+    assert cog.no_signal_due(live, 1700)
+
+    asyncio.run(cog.stop_for_no_signal())
+
+    cog.obs.stop_stream.assert_called_once()
+    assert cog.no_signal_since is None
+    text = cog.bot.messenger.msg_owner.await_args.args[0]
+    assert text.startswith("⏹️ Stopped the stream: no capture signal")
+    cog.bot.config["twitch_no_signal_stop_minutes"] = 0
+    assert not cog.no_signal_due(live, 5000)
+
+
+def command_interaction(client):
+    """A fake interaction whose followup sends are collected in `sent`."""
+    sent = []
+
+    async def defer(**kwargs):
+        pass
+
+    async def send(content=None, **kwargs):
+        sent.append(kwargs.get("embed") or content)
+
+    return sent, SimpleNamespace(
+        client=client,
+        response=SimpleNamespace(defer=defer),
+        followup=SimpleNamespace(send=send),
+    )
+
+
+def test_twitchurl_embed_reports_live_state_and_always_links():
+    import asyncio
+
+    from cynthia.bot.applications.twitch import twitchurl
+
+    class Api:
+        authorized = True
+
+        async def live_stream(self, login):
+            if login == "serena":
+                return {
+                    "title": "Shiny hunting",
+                    "game_name": "BDSP",
+                    "viewer_count": 3,
+                }
+
+    def client(api=None, cog=None, login="serena"):
+        return SimpleNamespace(
+            twitch_api=api, get_cog=lambda name: cog, env={"TWITCH_CHANNEL": login}
+        )
+
+    obs = SimpleNamespace(obs=SimpleNamespace(status=lambda: {"streaming": False}))
+    embeds = []
+    for c in (client(Api()), client(Api(), login="other"), client(None, obs), client()):
+        sent, inter = command_interaction(c)
+        asyncio.run(twitchurl.callback(inter))
+        embeds.append(sent[0])
+
+    live, offline, obs_offline, unknown = embeds
+    assert live.url == "https://twitch.tv/serena"
+    assert live.description == "🔴 **Live now**\nhttps://twitch.tv/serena"
+    assert {f.name: f.value for f in live.fields} == {
+        "Title": "Shiny hunting",
+        "Category": "BDSP",
+        "Viewers": "3",
+    }
+    assert offline.description.startswith("⚫ Offline")
+    assert offline.description.endswith("https://twitch.tv/other")
+    assert obs_offline.description.startswith("⚫ Offline")
+    assert unknown.description.startswith("Couldn't check")
+    assert unknown.description.endswith("https://twitch.tv/serena")
+
+
+def test_obs_show_embeds_the_screenshot_with_output_state():
+    import asyncio
+
+    from cynthia.bot.applications.stream import obs_show
+
+    status = {
+        "streaming": True,
+        "stream_seconds": 3723,
+        "recording": False,
+        "record_seconds": 0,
+    }
+    control = SimpleNamespace(screenshot=lambda: b"png", status=lambda: status)
+    client = SimpleNamespace(
+        get_cog=lambda name: SimpleNamespace(obs=control),
+        dman=SimpleNamespace(uns=SimpleNamespace(obs_height=1080, obs_fps=60)),
+        config={},
+    )
+    files = []
+    sent, inter = command_interaction(client)
+
+    async def send(content=None, **kwargs):
+        sent.append(kwargs.get("embed") or content)
+        files.append(kwargs.get("file"))
+
+    inter.followup.send = send
+    asyncio.run(obs_show.callback(inter))
+
+    embed = sent[0]
+    assert embed.image.url == "attachment://obs.png"
+    assert files[0].filename == "obs.png"
+    assert {f.name: f.value for f in embed.fields} == {
+        "Video mode": "1080p60",
+        "Streaming": "🔴 1:02:03",
+        "Recording": "No",
+    }
+
+
+def test_twitch_start_and_stop_wait_for_a_confirming_button_press():
+    import asyncio
+
+    from cynthia.bot.applications import twitch
+
+    calls = []
+    state = {"streaming": False}
+
+    def status():
+        return {
+            "streaming": state["streaming"],
+            "stream_seconds": 60,
+            "bytes": 0,
+            "total_frames": 1,
+            "skipped_frames": 0,
+            "congestion": 0.0,
+            "reconnecting": False,
+        }
+
+    def start_stream():
+        calls.append("start")
+        state["streaming"] = True
+
+    def stop_stream():
+        calls.append("stop")
+        state["streaming"] = False
+
+    async def prepare():
+        pass
+
+    control = SimpleNamespace(
+        status=status,
+        start_stream=start_stream,
+        stop_stream=stop_stream,
+        set_stream_key=lambda *a: None,
+    )
+    client = SimpleNamespace(
+        get_cog=lambda name: SimpleNamespace(obs=control, prepare=prepare),
+        dman=SimpleNamespace(uns=SimpleNamespace()),
+        config={},
+        env={"TWITCH_STREAM_KEY": "k", "TWITCH_CHANNEL": "serena"},
+    )
+
+    def press(user_id):
+        """A button interaction from `user_id`; returns it and its replies."""
+        replies = []
+
+        async def edit(**kwargs):
+            replies.append(kwargs["view"])
+
+        async def send_message(text, **kwargs):
+            replies.append(text)
+
+        response = SimpleNamespace(edit_message=edit, send_message=send_message)
+        return replies, SimpleNamespace(
+            client=client,
+            user=SimpleNamespace(id=user_id),
+            response=response,
+            edit_original_response=edit,
+        )
+
+    def text(view):
+        return " ".join(
+            c.content for c in view.walk_children() if hasattr(c, "content")
+        )
+
+    async def ask(command):
+        """Run a command and return the ConfirmView it sent."""
+        sent = []
+
+        async def defer(**kwargs):
+            pass
+
+        async def send(content=None, **kwargs):
+            sent.append(kwargs.get("view") or content)
+
+        await command.callback(
+            SimpleNamespace(
+                client=client,
+                user=SimpleNamespace(id=1),
+                response=SimpleNamespace(defer=defer),
+                followup=SimpleNamespace(send=send),
+            )
+        )
+        return sent[0]
+
+    async def run():
+        view = await ask(twitch.start)
+        assert isinstance(view, twitch.ConfirmView) and calls == []
+        replies, stranger = press(2)
+        assert not await view.interaction_check(stranger)
+        assert "Only whoever ran" in replies[0]
+        replies, owner = press(1)
+        await view.cancel(owner)
+        assert calls == [] and "wasn't started" in text(replies[-1])
+
+        view = await ask(twitch.start)
+        replies, owner = press(1)
+        assert await view.interaction_check(owner)
+        await view.confirm(owner)
+        assert calls == ["start"] and "Streaming to Twitch" in text(replies[-1])
+        assert "https://twitch.tv/serena" in text(replies[-1])
+
+        view = await ask(twitch.stop)
+        assert calls == ["start"] and "Stop the Twitch stream?" in text(view)
+        replies, owner = press(1)
+        await view.confirm(owner)
+        assert calls == ["start", "stop"] and "Stream stopped" in text(replies[-1])
+        assert view.is_finished()
+
+    asyncio.run(run())

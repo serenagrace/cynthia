@@ -70,7 +70,7 @@ def test_watchdog_timeout_never_drops_below_default(tmp_path):
     stamps = [f"00:00:{i:02d}" for i in range(20)]
     with drive.open("fast.csv", "w") as f:
         f.writelines(f"2026-01-01 {t}.0,Game,500\n" for t in stamps)
-    assert NXBTDaemon.watchdog_timeout(drive, "fast.csv") == 900.0
+    assert NXBTDaemon.watchdog_timeout(drive, "fast.csv") == 600.0
 
 
 def test_stop_start_markers_are_excluded_from_hunt_time():

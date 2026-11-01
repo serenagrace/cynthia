@@ -10,7 +10,7 @@
             color: #e1e1e6;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             /* Everything scales with the pane so one layout works at any canvas size */
-            font-size: clamp(10px, 4.5vmin, 40px);
+            font-size: clamp(12px, 5.2vmin, 46px);
         }
         .card {
             width: 100%; height: 100%; padding: 0.6em 0.8em;
@@ -28,6 +28,12 @@
         .card.chat { bottom: 0; left: 0; justify-content: flex-start; }
         .msgs { display: flex; flex-direction: column; justify-content: flex-end; gap: 0.3em; min-height: 0; overflow: hidden; }
         .card.stats .row { justify-content: flex-end; }
+        /* Subtle corner mark; sized by pane height so it stays one small line */
+        .watermark {
+            position: absolute; top: 0; right: 0; padding: 0.15em 0.35em;
+            font-size: 62vh; white-space: nowrap; letter-spacing: 0.04em;
+            color: rgba(255, 255, 255, 0.5); text-shadow: 0 0 0.25em rgba(0, 0, 0, 0.6);
+        }
         .card .title { font-size: 0.8em; letter-spacing: 0.12em; text-transform: uppercase; white-space: nowrap; padding-bottom: 0.25em; border-bottom: 1px solid rgba(157, 183, 255, 0.35); }
         .card.stats .headline { font-size: 1.15em; font-weight: 700; color: #fff; }
         .msg { overflow-wrap: anywhere; line-height: 1.25; }
@@ -38,8 +44,12 @@
     <body>
         <div class="card" id="card" hidden></div>
         <div id="inputs" hidden><!--PAD--></div>
+        <div class="watermark" id="watermark" hidden>Cynthia (<!--VERSION-->)</div>
         <script>
-        const pane = new URLSearchParams(location.search).get("pane") || location.pathname.split("/").pop();
+        const params = new URLSearchParams(location.search);
+        const pane = params.get("pane") || location.pathname.split("/").pop();
+        // Extra input-pane delay for tuning; the server already lags by the OBS delay
+        const inputLagMs = Number(params.get("lag")) || 0;
         const $ = (id) => document.getElementById(id);
         const card = $("card");
         const getJson = async (url) => (await fetch(url, { cache: "no-store" })).json();
@@ -83,14 +93,14 @@
                 show(lines.join(""));
             },
             async ssim() {
-                document.body.style.fontSize = "clamp(10px, 5vw, 60px)";
+                document.body.style.fontSize = "clamp(12px, 5.7vw, 68px)";
                 card.classList.add("fit", "ssim");
-                const data = await getJson("/api/ssim_data");
+                const data = await getJson("/api/ssim_data?delayed=true&feed=obs");
                 show(`<div class="title">Scene matches</div>` + (data.scores.length
                     ? data.scores.map((s) => row(esc(s.scene), s.score.toFixed(4))).join("") : "No data"));
             },
             async stats() {
-                document.body.style.fontSize = "clamp(10px, 4.4vw, 50px)";
+                document.body.style.fontSize = "clamp(12px, 4.9vw, 56px)";
                 card.classList.add("fit", "stats");
                 const [a, status] = await Promise.all([getJson("/api/activity_stats"), getJson("/api/user_status")]);
                 const now = Date.now();
@@ -115,7 +125,7 @@
                 for (let size = 0.8; el.scrollWidth > el.clientWidth && size > 0.3; size -= 0.05) el.style.fontSize = size + "em";
             },
             async chat() {
-                document.body.style.fontSize = "clamp(10px, 4.4vw, 50px)";
+                document.body.style.fontSize = "clamp(12px, 5.1vw, 58px)";
                 card.classList.add("fit", "chat");
                 const data = await getJson("/api/twitch_chat");
                 if (!data.messages.length) return show("");
@@ -124,8 +134,10 @@
             },
             async inputs() {
                 $("inputs").hidden = false;
-                const pressed = new Set((await getJson("/api/inputs")).pressed);
-                for (const el of document.querySelectorAll(".pad-key[id]")) el.classList.toggle("on", pressed.has(el.id));
+                const pressed = new Set((await getJson("/api/inputs?delayed=true&feed=obs")).pressed);
+                setTimeout(() => {
+                    for (const el of document.querySelectorAll(".pad-key[id]")) el.classList.toggle("on", pressed.has(el.id));
+                }, inputLagMs);
             },
         };
 
@@ -133,7 +145,8 @@
         async function tick() {
             try { await run(); } catch (e) { /* keep the last frame on transient failures */ }
         }
-        if (run) {
+        if (pane === "watermark") $("watermark").hidden = false;
+        else if (run) {
             tick();
             setInterval(tick, pane === "inputs" ? 100 : 1000);
         }

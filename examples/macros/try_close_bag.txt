@@ -1,0 +1,9 @@
+$try_close_bag
+B
+B
+B
+B
+B
+B
+B
+bdsp_bag ? try_close_bag : encounter_proceed

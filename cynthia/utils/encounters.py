@@ -36,6 +36,7 @@ def marker_line(kind, reason=""):
 
 
 def _marker_kind(line):
+    """Return a recognized hunting-state marker, or None for other log lines."""
     fields = line.split(",", 2)
     if len(fields) > 1 and fields[1].strip() in (STOP_MARKER, START_MARKER):
         return fields[1].strip()

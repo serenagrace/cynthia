@@ -6,6 +6,8 @@ import logging
 import discord
 from discord import app_commands
 
+from cynthia.utils.embeds import make_embed
+
 logger = logging.getLogger(__name__)
 
 
@@ -39,11 +41,13 @@ async def help(interaction: discord.Interaction):
         else:
             logger.debug("Command has no checks: %s", cmd.name)
             available_commands.append(f"- /{cmd.name}")
-    if available_commands:
-        help_message = "Available commands:\n" + "\n".join(available_commands)
-    else:
-        help_message = "No available commands. You may not have permission."
-    await interaction.followup.send(help_message)
+    if not available_commands:
+        await interaction.followup.send(
+            "No available commands. You may not have permission."
+        )
+        return
+    embed = make_embed("Available commands", "\n".join(available_commands)[:4096])
+    await interaction.followup.send(embed=embed)
 
 
 __application__ = [help]

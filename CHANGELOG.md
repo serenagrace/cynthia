@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.7.3 (pending)
+
+### Added
+- `/twitch start` and `/twitch stop` ask you to confirm with a button before anything happens, so they can't be triggered by accident. Only the person who ran the command can press it, and the buttons expire after a minute, leaving the stream as it was. The result replaces the prompt.
+- `/twitch start` asks for Twitch approval first when it's needed (no token, a missing scope or a revoked token), then starts once you approve or after 5 minutes. When the token is fine it starts straight away.
+- A possible shiny found while streaming is clipped on Twitch once the input visualizer's delay plus `twitch_clip_delay_seconds` (default `10`) has passed; the clip is titled after the hunt (e.g. "Shiny Cresselia!"), and the owner gets the clip's edit link. This adds the `clips:edit` scope, so run `/twitch auth` again.
+- A stream that shows the capture card's no-signal screen for `twitch_no_signal_stop_minutes` (default `10`) is stopped, and the owner gets a DM.
+- Streams restart automatically after `twitch_restart_hours` (default `24`), well before Twitch's 48-hour cutoff, and the owner gets a DM.
+- A subtle `Cynthia (version)` watermark in the top-right corner of the OBS scene: a new `watermark` pane kind, included in the default and example layouts.
+- `/api/streamelements/uptime`, `/api/streamelements/online` and `/api/streamelements/description` return plain text for StreamElements custom commands: the bot's uptime, and the hunt or custom status. `activity_stats.json` now also carries `hunt`, `self_encounter` and `status`.
+- The bot can set the Twitch title and category from the detected game and hunt. Set `TWITCH_CLIENT_ID` (and `TWITCH_CLIENT_SECRET` for a confidential client), then run `/twitch auth`. A game or hunt must hold for `twitch_info_confirm_seconds` (default `60`). The channel is set once and changed again only for a different game or hunt, so edits made on Twitch stay. `twitch_categories` maps game titles that Twitch names differently; `twitch_auto_info: false` turns it off.
+
+### Changed
+- CV and NXBT worker loops now delegate scene analysis, preview publication, connection handling, restart timers, playback, and cleanup to named helpers without changing their ordering or thresholds.
+- Completed missing production-code and script docstrings, clarified dense SSIM and frame-ownership logic, and refreshed the configuration and OBS deployment examples. All shipped macro definitions match the drive, with their conditional dependencies verified.
+- More command replies are embeds. `/twitchurl` shows whether the channel is live, with the stream's title, category and viewers once the bot is authorized. `/obs show` shows the screenshot like `/show`, with the video mode and how long OBS has been streaming and recording. The others are `/twitch status`, the bandwidth-test report, the Twitch approval prompt, `/help`, `/get_macro`, `/loaded_modules` and `/loaded_commands`. Errors and one-line confirmations stay plain text. New embeds can use `cynthia.utils.embeds` for a consistent look.
+- `/twitch url` is now `/twitchurl`, open to everyone in servers and DMs. It also says whether the channel is live: Twitch is asked once the bot is authorized, so bandwidth tests count as offline; otherwise it goes by OBS. The link is sent either way.
+- OBS overlay text is about 3 px larger at 1080p (ssim 25 px, stats 28 px, chat 22.5 px, watermark 23.5 px). The default stats pane is taller (`h: 0.32`) to fit it.
+- Updated the sample macros. `cresselia` drops the walk and A presses between its first `hold B V` and the menu. `encounter_roamer` closes the bag if it opened (new `try_close_bag` and `encounter_proceed` helpers, using the new `bdsp_bag` scene). `screen_record` waits 2 seconds after saving the clip.
+- The default NXBT watchdog timeout is 10 minutes (was 15).
+
+### Fixed
+- Messages deleted on Twitch, and messages from users who are timed out or banned, now disappear from the chat pane; `/clear` empties it.
+- The OBS overlay's inputs and scene-match panes now lag by `obs_feed_delay_ms`, so button presses line up with the delayed OBS video instead of showing about a second early. `/api/inputs` and `/api/ssim_data` take `feed=obs` with `delayed=true` for this. The OBS video also trails by encode, OBS buffering and decode time (measured at about 2.7 s in total), so the new `obs_overlay_lag_ms` setting (default `1700`) adds that on top. For quick tuning, `?lag=<ms>` on the inputs pane's browser source URL adds a further delay.
+
 ## 1.7.2 (pending)
 
 ### Fixed

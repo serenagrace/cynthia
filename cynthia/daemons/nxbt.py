@@ -36,14 +36,14 @@ class NXBTDaemon(Daemon):
 
     POLL_RATE = 0.5
     GRACE_PERIOD = 5.0
-    WATCHDOG_DEFAULT_TIMEOUT = 900.0
+    WATCHDOG_DEFAULT_TIMEOUT = 60 * 10
     ENCOUNTER_GRACE = 5.0
     WATCHDOG_AVERAGE_FACTOR = 2
     WATCHDOG_MIN_SAMPLES = 15
 
     @staticmethod
     def watchdog_timeout(drive, log_name):
-        """Return twice the average encounter interval, never below the 15-minute default."""
+        """Return twice the average encounter interval, never below the 10-minute default."""
         try:
             with drive.open(log_name, "r", touch=True) as f:
                 average_ms = average_interval_ms(
@@ -115,188 +115,158 @@ class NXBTDaemon(Daemon):
                     NXBTDaemon.mark_hunting(drive, log_name, START_MARKER)
                     hunting_log = log_name
 
-            async def main_task():
-                """Handle controller connection, macro playback, and shutdown."""
-                nonlocal controller
-                nonlocal playing_gen
-                nonlocal playing
-                nonlocal disconnected_since
-                nonlocal watchdog_since
-                nonlocal watchdog_seen_encounter
-                nonlocal watchdog_timeout
-                nonlocal reset_seen_encounter
-                nonlocal reset_due
-                Macro.bind_macro_tree(macro_tree)
-                load_macros(drive)
+            async def update_connection():
+                """Apply connection requests and detect drops; True skips this tick."""
+                nonlocal controller, disconnected_since, playing_gen
+                if ns.disconnect:
+                    ns.disconnect = False
+                    if not ns.connected:
+                        return True
+                    success = await nxbt_disconnect(nx, controller)
+                    if success:
+                        controller = None
+                        ns.connected = False
 
-                try:
-                    os.setpriority(os.PRIO_PROCESS, 0, -20)
-                except PermissionError:
-                    logger.warning(
-                        "Failed to elevate NXBTDaemon priority. Run with sudo."
-                    )
+                if ns.connect:
+                    ns.connect = False
+                    if ns.connected:
+                        return True
+                    success, controller = await nxbt_connect(nx)
+                    if success:
+                        ns.connected = True
+                        uns.nxbt_connection_lost = False
+                        uns.nxbt_connect_failed = False
+                        return True
+                    else:
+                        # Never connected, so this isn't a lost connection
+                        uns.nxbt_connect_failed = True
+                        logger.error("Couldn't connect the controller.")
+                        await nxbt_disconnect(nx, controller)
+                        controller = None
+                        ns.connected = False
 
-                while ns.run:
-                    sync_hunt_marker()
-                    if ns.disconnect:
-                        ns.disconnect = False
-                        if not ns.connected:
-                            continue
-                        success = await nxbt_disconnect(nx, controller)
-                        if success:
-                            controller = None
-                            ns.connected = False
-
-                    if ns.connect:
-                        ns.connect = False
-                        if ns.connected:
-                            continue
-                        success, controller = await nxbt_connect(nx)
-                        if success:
-                            ns.connected = True
-                            uns.nxbt_connection_lost = False
-                            uns.nxbt_connect_failed = False
-                            continue
-                        else:
-                            # Never connected, so this isn't a lost connection
-                            uns.nxbt_connect_failed = True
-                            logger.error("Couldn't connect the controller.")
+                # Checked before the pause gate so drops are noticed while paused
+                if ns.connected and controller is not None:
+                    if nx.state[controller]["state"] == "connected":
+                        disconnected_since = None
+                    else:
+                        now = time.monotonic()
+                        if disconnected_since is None:
+                            disconnected_since = now
+                            logger.warning(
+                                "Controller left connected state, waiting for recovery..."
+                            )
+                        if now - disconnected_since >= NXBTDaemon.GRACE_PERIOD:
+                            disconnected_since = None
+                            uns.nxbt_connection_lost = True
+                            logger.error("Connection lost, disconnecting controller.")
                             await nxbt_disconnect(nx, controller)
                             controller = None
                             ns.connected = False
-
-                    # Checked before the pause gate so drops are noticed while paused
-                    if ns.connected and controller is not None:
-                        if nx.state[controller]["state"] == "connected":
-                            disconnected_since = None
+                            ns.playing = False
+                            playing_gen = None
+                            ns.epoch += 1
+                            ns.stop = True
                         else:
-                            now = time.monotonic()
-                            if disconnected_since is None:
-                                disconnected_since = now
-                                logger.warning(
-                                    "Controller left connected state, waiting for recovery..."
-                                )
-                            if now - disconnected_since >= NXBTDaemon.GRACE_PERIOD:
-                                disconnected_since = None
-                                uns.nxbt_connection_lost = True
-                                logger.error(
-                                    "Connection lost, disconnecting controller."
-                                )
-                                await nxbt_disconnect(nx, controller)
-                                controller = None
-                                ns.connected = False
-                                ns.playing = False
-                                playing_gen = None
-                                ns.epoch += 1
-                                ns.stop = True
-                            else:
-                                await asyncio.sleep(NXBTDaemon.POLL_RATE)
-                            continue
+                            await asyncio.sleep(NXBTDaemon.POLL_RATE)
+                        return True
+                return False
 
-                    # Restart the looping macro if a hunt makes no progress for too long
-                    now = time.time()
-                    last_encounter = getattr(uns, "last_encounter_time", None)
+            def update_restarts():
+                """Restart looping macros for watchdog expiry or encounter grace."""
+                nonlocal playing_gen, watchdog_since, watchdog_seen_encounter
+                nonlocal watchdog_timeout, reset_seen_encounter, reset_due
+                # Restart the looping macro if a hunt makes no progress for too long
+                now = time.time()
+                last_encounter = getattr(uns, "last_encounter_time", None)
+                if (
+                    ns.loop
+                    and ns.connected
+                    and not ns.pause
+                    and not ns.stop
+                    and playing_gen is not None
+                ):
                     if (
-                        ns.loop
-                        and ns.connected
-                        and not ns.pause
-                        and not ns.stop
-                        and playing_gen is not None
+                        watchdog_since is None
+                        or last_encounter != watchdog_seen_encounter
                     ):
-                        if (
-                            watchdog_since is None
-                            or last_encounter != watchdog_seen_encounter
-                        ):
-                            watchdog_since = now
-                            watchdog_seen_encounter = last_encounter
-                            watchdog_timeout = NXBTDaemon.watchdog_timeout(
-                                drive, getattr(uns, "encounter_log", None)
-                            )
-                        elif now - watchdog_since >= watchdog_timeout:
-                            logger.warning("Watchdog triggered, restarting macro.")
-                            playing_gen = playing.walk()
-                            uns.watchdog_triggered = True
-                            watchdog_since = now
-                    else:
-                        watchdog_since = None
-
-                    # Loop the macro from the start a grace period after an encounter
-                    if (
-                        uns.encounter_reset
-                        and ns.loop
-                        and ns.connected
-                        and not ns.pause
-                        and not ns.stop
-                        and not uns.nxbt_daemon_stop
-                        and playing_gen is not None
-                    ):
-                        if last_encounter != reset_seen_encounter:
-                            reset_seen_encounter = last_encounter
-                            reset_due = (
-                                now + NXBTDaemon.ENCOUNTER_GRACE
-                                if last_encounter is not None
-                                else None
-                            )
-                        elif reset_due is not None and now >= reset_due:
-                            logger.info("Encounter grace elapsed, restarting macro.")
-                            playing_gen = playing.walk()
-                            reset_due = None
-                    else:
-                        reset_seen_encounter = last_encounter
-                        reset_due = None
-
-                    if ns.stop:
-                        # Abort the current macro; stale queued items are dropped by epoch
-                        playing_gen = None
-                        ns.playing = False
-                        ns.stop = False
-                        continue
-
-                    if ns.pause or not ns.connected:
-                        await asyncio.sleep(NXBTDaemon.POLL_RATE)
-                        continue
-                    if uns.nxbt_daemon_stop:
-                        await Macro("hold c").play(nx, controller)
-                        ns.pause = True
-                        continue
-
-                    if ns.connected:
-                        # Keep playing current Macro
-                        if playing_gen is not None:
-                            try:
-                                _input = next(playing_gen)
-                                logger.debug(f"Playing {str(_input)}")
-                                next_step = await _input.play(nx, controller, uns=uns)
-                                if next_step is not None:
-                                    playing_gen = next_step.walk()
-                            except StopIteration:
-                                ns.playing = False
-                                playing_gen = None
-                                if ns.loop:
-                                    tqueue.put((ns.epoch, str(playing)))
-                            except Exception:
-                                logger.exception("Macro playback failed")
-                                ns.playing = False
-                                playing_gen = None
-                            continue
-                    elif playing_gen is not None:
-                        ns.playing = False
-                        playing_gen = None
-
-                    try:
-                        epoch, _input = tqueue.get_nowait()
-
-                        # Queued before the last stop/clear
-                        if epoch != ns.epoch or not isinstance(_input, str):
-                            continue
-
-                        playing = Macro(_input)
+                        watchdog_since = now
+                        watchdog_seen_encounter = last_encounter
+                        watchdog_timeout = NXBTDaemon.watchdog_timeout(
+                            drive, getattr(uns, "encounter_log", None)
+                        )
+                    elif now - watchdog_since >= watchdog_timeout:
+                        logger.warning("Watchdog triggered, restarting macro.")
                         playing_gen = playing.walk()
-                        ns.playing = True
+                        uns.watchdog_triggered = True
+                        watchdog_since = now
+                else:
+                    watchdog_since = None
 
-                    except Empty:
-                        await asyncio.sleep(NXBTDaemon.POLL_RATE)
+                # Loop the macro from the start a grace period after an encounter
+                if (
+                    uns.encounter_reset
+                    and ns.loop
+                    and ns.connected
+                    and not ns.pause
+                    and not ns.stop
+                    and not uns.nxbt_daemon_stop
+                    and playing_gen is not None
+                ):
+                    if last_encounter != reset_seen_encounter:
+                        reset_seen_encounter = last_encounter
+                        reset_due = (
+                            now + NXBTDaemon.ENCOUNTER_GRACE
+                            if last_encounter is not None
+                            else None
+                        )
+                    elif reset_due is not None and now >= reset_due:
+                        logger.info("Encounter grace elapsed, restarting macro.")
+                        playing_gen = playing.walk()
+                        reset_due = None
+                else:
+                    reset_seen_encounter = last_encounter
+                    reset_due = None
 
+            async def play_next():
+                """Advance playback once, or dequeue a macro from the current epoch."""
+                nonlocal playing, playing_gen
+                if ns.connected:
+                    # Keep playing current Macro
+                    if playing_gen is not None:
+                        try:
+                            _input = next(playing_gen)
+                            logger.debug(f"Playing {str(_input)}")
+                            next_step = await _input.play(nx, controller, uns=uns)
+                            if next_step is not None:
+                                playing_gen = next_step.walk()
+                        except StopIteration:
+                            ns.playing = False
+                            playing_gen = None
+                            if ns.loop:
+                                tqueue.put((ns.epoch, str(playing)))
+                        except Exception:
+                            logger.exception("Macro playback failed")
+                            ns.playing = False
+                            playing_gen = None
+                        return
+                elif playing_gen is not None:
+                    ns.playing = False
+                    playing_gen = None
+
+                try:
+                    epoch, _input = tqueue.get_nowait()
+                    # Queued before the last stop/clear
+                    if epoch != ns.epoch or not isinstance(_input, str):
+                        return
+                    playing = Macro(_input)
+                    playing_gen = playing.walk()
+                    ns.playing = True
+                except Empty:
+                    await asyncio.sleep(NXBTDaemon.POLL_RATE)
+
+            async def cleanup():
+                """Persist macros, disconnect NXBT, and mark its process safe to reap."""
                 sync_hunt_marker(shutdown=True)
                 try:
                     save_macros(drive)
@@ -313,6 +283,39 @@ class NXBTDaemon(Daemon):
                         logger.exception("NXBT process cleanup failed")
                     # Mark process safe to boom
                     self.ns.done = True
+
+            async def main_task():
+                """Handle controller connection, macro playback, and shutdown."""
+                nonlocal playing_gen
+                Macro.bind_macro_tree(macro_tree)
+                load_macros(drive)
+                try:
+                    os.setpriority(os.PRIO_PROCESS, 0, -20)
+                except PermissionError:
+                    logger.warning(
+                        "Failed to elevate NXBTDaemon priority. Run with sudo."
+                    )
+                while ns.run:
+                    sync_hunt_marker()
+                    if await update_connection():
+                        continue
+                    # Keep restart bookkeeping before stop/pause gates to reset stale timers.
+                    update_restarts()
+                    if ns.stop:
+                        # Abort the current macro; stale queued items are dropped by epoch
+                        playing_gen = None
+                        ns.playing = False
+                        ns.stop = False
+                        continue
+                    if ns.pause or not ns.connected:
+                        await asyncio.sleep(NXBTDaemon.POLL_RATE)
+                        continue
+                    if uns.nxbt_daemon_stop:
+                        await Macro("hold c").play(nx, controller)
+                        ns.pause = True
+                        continue
+                    await play_next()
+                await cleanup()
 
             asyncio.run(main_task())
 

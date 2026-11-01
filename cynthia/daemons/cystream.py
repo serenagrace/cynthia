@@ -12,12 +12,13 @@ import zlib
 from collections import OrderedDict, deque
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 import cv2
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, StreamingResponse
 
 from cynthia.utils.streamcfg import CV_FPS, setting, size_for
 from cynthia.utils.twitchchat import TwitchChat
@@ -113,16 +114,56 @@ def encode_jpeg(frame, height=720):
     return buffer.tobytes() if success else None
 
 
-PANES = ("status", "ssim", "stats", "chat", "inputs")
+PANES = ("status", "ssim", "stats", "chat", "inputs", "watermark")
+
+
+def app_version():
+    """The installed Cynthia version, or "dev" when it isn't installed."""
+    try:
+        return version("cynthia")
+    except PackageNotFoundError:
+        return "dev"
 
 
 def render_page(name):
-    """Read a site page, inlining the shared controller pad where it asks."""
+    """Read a site page, inlining the shared controller pad and the version."""
     html = (SITE_DIR / "html" / name).read_text()
+    html = html.replace("<!--VERSION-->", app_version())
     return html.replace("<!--PAD-->", (SITE_DIR / "html" / "pad.html").read_text())
 
 
 HISTORY_STEP_S = 0.05
+
+
+def spoken_duration(seconds):
+    """Format a duration as its two largest units, e.g. "3 hours and 5 minutes"."""
+    seconds = max(0, int(seconds))
+    units = [
+        ("day", seconds // 86400),
+        ("hour", seconds // 3600 % 24),
+        ("minute", seconds // 60 % 60),
+        ("second", seconds % 60),
+    ]
+    # Start at the largest nonzero unit, but always show minutes and seconds
+    first = min(
+        next((i for i, (_, amount) in enumerate(units) if amount), 2), len(units) - 2
+    )
+    return " and ".join(
+        f"{amount} {unit}{'' if amount == 1 else 's'}"
+        for unit, amount in units[first : first + 2]
+    )
+
+
+def describe_activity(stats):
+    """Describe the hunt, else the custom status, for a chat command."""
+    hunt = stats.get("hunt")
+    if hunt:
+        if stats.get("self_encounter"):
+            return f"trying to get a shiny {hunt.title()}"
+        return f"hunting shiny {hunt.title()}"
+    if stats.get("status"):
+        return stats["status"]
+    return "not doing anything in particular right now"
 
 
 def create_app(
@@ -133,6 +174,7 @@ def create_app(
     audio_ring=None,
     video_delay_ms=DEFAULT_VIDEO_DELAY_MS,
     twitch_channel=None,
+    obs_delay_ms=0,
 ):
     """Build the FastAPI app that streams frames and serves status endpoints."""
     viewers = {"count": 0}
@@ -145,7 +187,9 @@ def create_app(
     audio_stats = {"listeners": 0, "skipped_bytes": 0}
     sync = {"video_latency_ms": 60.0}
     # Recent input and SSIM samples, so the web view can show them as late as its video
-    history = deque(maxlen=int(video_delay_ms / HISTORY_STEP_S / 1000) + 40)
+    history = deque(
+        maxlen=int(max(video_delay_ms, obs_delay_ms) / HISTORY_STEP_S / 1000) + 40
+    )
     # Cumulative counters; clients difference successive polls to get rates
     stream_stats = {"encoded": 0, "sent": 0, "encode_ms": 0.0, "jpeg_bytes": 0.0}
 
@@ -220,10 +264,14 @@ def create_app(
             )
             await asyncio.sleep(HISTORY_STEP_S)
 
-    def sample(delayed):
-        """Return (pressed, scores): live, or as they were video_delay_ms ago."""
-        if delayed and history:
-            cutoff = time.monotonic() - video_delay_ms / 1000
+    def sample(delayed, feed="web"):
+        """Return (pressed, scores): live, or as they were one feed's delay ago.
+
+        `feed="obs"` uses the OBS feed delay; anything else the web stream's.
+        """
+        delay_ms = obs_delay_ms if feed == "obs" else video_delay_ms
+        if delayed and delay_ms and history:
+            cutoff = time.monotonic() - delay_ms / 1000
             for stamp, pressed, scores in reversed(history):
                 if stamp <= cutoff:
                     return pressed, scores
@@ -289,6 +337,37 @@ def create_app(
             viewers["count"] -= 1
             uns.web_viewers = viewers["count"]
 
+    def read_activity_stats():
+        """Return the saved activity stats, or the last good copy mid-write."""
+        if not drive.enabled:
+            return {}
+        try:
+            with drive.open("activity_stats.json", "r", touch=True) as f:
+                stats = json.load(f)
+            last_stats.clear()
+            last_stats.update(stats or {})
+        except json.JSONDecodeError:
+            stats = dict(last_stats)
+        return stats or {}
+
+    @app.get("/api/streamelements/uptime", response_class=PlainTextResponse)
+    async def streamelements_uptime():
+        """Return how long the bot has been running, as text for StreamElements."""
+        started = read_activity_stats().get("bot_started")
+        if not isinstance(started, (int, float)):
+            return "isn't running right now"
+        return f"has been running for {spoken_duration(time.time() - started / 1000)}"
+
+    @app.get("/api/streamelements/online", response_class=PlainTextResponse)
+    async def streamelements_online():
+        """Answer "True" while the bot's web server is up, for StreamElements."""
+        return "True"
+
+    @app.get("/api/streamelements/description", response_class=PlainTextResponse)
+    async def streamelements_description():
+        """Return the current hunt or status, as text for StreamElements."""
+        return describe_activity(read_activity_stats())
+
     @app.get("/api/user_status")
     async def status():
         """Return the saved user status mapping."""
@@ -310,33 +389,26 @@ def create_app(
     @app.get("/api/activity_stats")
     async def activity_stats():
         """Return raw activity timestamps; the site computes durations."""
-        if not drive.enabled:
-            return {}
-        try:
-            with drive.open("activity_stats.json", "r", touch=True) as f:
-                stats = json.load(f)
-            last_stats.clear()
-            last_stats.update(stats or {})
-        except json.JSONDecodeError:
-            stats = dict(last_stats)
-        return stats or {}
+        return read_activity_stats()
 
     @app.get("/api/ssim_data")
-    async def ssim_data(delayed: bool = False):
+    async def ssim_data(delayed: bool = False, feed: str = "web"):
         """Return the top 5 SSIM scene match scores from the CV daemon.
 
-        `delayed=true` lags them by the web stream delay to match the video.
+        `delayed=true` lags them to match the video: by the web stream delay,
+        or by the OBS feed delay with `feed=obs`.
         """
-        scores = sample(delayed)[1]
+        scores = sample(delayed, feed)[1]
         return {"scores": [{"scene": k, "score": float(v)} for k, v in scores[:5]]}
 
     @app.get("/api/inputs")
-    async def inputs(delayed: bool = False):
+    async def inputs(delayed: bool = False, feed: str = "web"):
         """Return the controller buttons macros are currently pressing.
 
-        `delayed=true` lags them by the web stream delay to match the video.
+        `delayed=true` lags them to match the video: by the web stream delay,
+        or by the OBS feed delay with `feed=obs`.
         """
-        return {"pressed": sample(delayed)[0]}
+        return {"pressed": sample(delayed, feed)[0]}
 
     @app.get("/api/viewers")
     async def viewer_count():
@@ -548,10 +620,26 @@ class CYStream(Daemon):
     def __init__(self, dman):
         """Create the web worker and attach compressed access logging."""
 
-        def loop(ns, uns, ring, audio_ring, drive, video_delay_ms, twitch_channel):
+        def loop(
+            ns,
+            uns,
+            ring,
+            audio_ring,
+            drive,
+            video_delay_ms,
+            twitch_channel,
+            obs_delay_ms,
+        ):
             """Serve the FastAPI app over the local HTTP interface."""
             app = create_app(
-                drive, ns, uns, ring, audio_ring, video_delay_ms, twitch_channel
+                drive,
+                ns,
+                uns,
+                ring,
+                audio_ring,
+                video_delay_ms,
+                twitch_channel,
+                obs_delay_ms,
             )
             ns.done = True
             config = uvicorn.Config(
@@ -579,6 +667,11 @@ class CYStream(Daemon):
                 int(dman.context.config.get("stream_delay_ms", DEFAULT_VIDEO_DELAY_MS)),
             ),
             dman.context.env.get("TWITCH_CHANNEL", None) or None,
+            max(
+                0,
+                int(dman.context.config.get("obs_feed_delay_ms", 0))
+                + int(dman.context.config.get("obs_overlay_lag_ms", 0)),
+            ),
             ring=True,
             audio_ring=True,
         )

@@ -1,0 +1,10 @@
+$encounter_proceed
+hold B <
+hold B <
+hold B <
+hold B <
+hold B >
+hold B >
+hold B <
+hold B <
+bdsp_run ? pause : run_up_down
