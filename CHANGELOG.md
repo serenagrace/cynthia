@@ -1,6 +1,13 @@
 # Changelog
 
-## 1.7.1 (pending)
+## 1.7.2 (pending)
+
+### Fixed
+- All `discord.*` loggers now start at INFO, muting the DEBUG chatter from the gateway, HTTP, client and state loggers.
+- Audio capture failures at startup (such as ALSA not finding the card yet) are logged quietly; a warning appears only after 3 consecutive failed attempts. A capture that drops out mid-stream still warns.
+- Restarting no longer logs `BrokenPipeError` tracebacks from the OBS cog: its poll stops and its unload finishes quietly once the daemon manager has shut down.
+
+## 1.7.1
 
 ### Fixed
 - Silence routine `discord.gateway` events below WARNING while keeping warnings and errors visible.

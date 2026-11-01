@@ -37,7 +37,8 @@ MODULE_COLOR = "\033[1;35m"
 OBJECT_COLOR = "\033[1;96m"
 OBJECT_RE = re.compile(r"`([^`\n]+)`")
 NOISY_LOGGERS = {
-    "discord.gateway": logging.WARNING,
+    # discord.py logs every gateway event and HTTP request at DEBUG
+    "discord": logging.INFO,
     "nxbt": logging.INFO,
     "httpcore": logging.INFO,
     "httpx": logging.INFO,

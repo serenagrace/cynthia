@@ -20,6 +20,9 @@ ASOUND_CARDS = Path("/proc/asound/cards")
 READ_BYTES = AUDIO_BYTES_PER_SEC // 100 // AUDIO_FRAME_BYTES * AUDIO_FRAME_BYTES
 STALL_SECONDS = 3
 RETRY_SECONDS = 2
+# The card often isn't ready the first time after boot or a mode switch;
+# only warn once capture has failed this many times in a row
+WARN_AFTER_FAILURES = 3
 
 
 def find_audio_device(env=None):
@@ -89,13 +92,13 @@ def audio_wanted(uns):
 
 
 def drain_stderr(proc, errors):
-    """Log capture errors as they happen; an unread pipe would block ffmpeg."""
+    """Collect capture errors; an unread pipe would block ffmpeg."""
     for line in iter(proc.stderr.readline, b""):
         text = line.decode(errors="replace").strip()
         if text:
             errors.append(text)
             del errors[:-20]
-            logger.warning("Audio capture: %s", text)
+            logger.debug("Audio capture: %s", text)
 
 
 class AudioDaemon(Daemon):
@@ -108,6 +111,7 @@ class AudioDaemon(Daemon):
             """Keep a capture running, restarting it if it fails or stalls."""
             if not device:
                 logger.warning("No audio capture device found; will keep looking.")
+            failures = 0
             while ns.run:
                 if not device:
                     # The card may enumerate after startup or be plugged in later
@@ -124,7 +128,9 @@ class AudioDaemon(Daemon):
                     stderr=subprocess.PIPE,
                     bufsize=0,
                 )
-                logger.info("Capturing audio from `%s`", device)
+                (logger.debug if failures else logger.info)(
+                    "Capturing audio from `%s`", device
+                )
                 errors = []
                 threading.Thread(
                     target=drain_stderr, args=(proc, errors), daemon=True
@@ -133,6 +139,7 @@ class AudioDaemon(Daemon):
                 last_data = time.monotonic()
                 carry = b""
                 partial_reads = 0
+                got_data = False
                 try:
                     while ns.run and audio_wanted(uns):
                         # The timeout lets us notice shutdown and a silent device
@@ -144,6 +151,11 @@ class AudioDaemon(Daemon):
                         if not data:
                             break
                         last_data = time.monotonic()
+                        if not got_data:
+                            got_data = True
+                            if failures >= WARN_AFTER_FAILURES:
+                                logger.info("Audio capture recovered.")
+                            failures = 0
                         # A pipe read can end mid-frame; the ring only takes whole
                         # frames, so keep the tail or later audio shifts by a
                         # sample and swaps channels, which sounds like a click.
@@ -165,10 +177,19 @@ class AudioDaemon(Daemon):
                 if not audio_wanted(uns):
                     logger.info("No audio consumers; capture stopped.")
                     continue
-                logger.warning(
-                    "Audio capture stopped; restarting: %s",
-                    "; ".join(errors[-3:]) or "no data",
-                )
+                reason = "; ".join(errors[-3:]) or "no data"
+                if got_data:
+                    # A running capture dropped out: always worth a warning
+                    logger.warning("Audio capture stopped; restarting: %s", reason)
+                    time.sleep(RETRY_SECONDS)
+                    continue
+                failures += 1
+                if failures == WARN_AFTER_FAILURES:
+                    logger.warning(
+                        "Audio capture keeps failing; still retrying: %s", reason
+                    )
+                elif failures < WARN_AFTER_FAILURES:
+                    logger.debug("Audio capture stopped; restarting: %s", reason)
                 time.sleep(RETRY_SECONDS)
 
         super().__init__(
