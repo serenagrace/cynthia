@@ -67,12 +67,14 @@ def test_cv_worker_preserves_encounter_state_and_releases_frames(monkeypatch, tm
     monkeypatch.setattr(cv.os, "nice", lambda value: None)
     monkeypatch.setattr(cv.UVC, "frame_to_buffer", lambda frame: io.BytesIO(b"png"))
     monkeypatch.setattr(cv.CV, "scrape_text", lambda *a, **k: "Pokémon Shining Pearl")
-    scores = iter(("home", "bdsp_tbox", "bdsp_tbox", "elgato_no_signal"))
+    scores = iter(("home", "home", "bdsp_tbox", "bdsp_tbox", "elgato_no_signal"))
     texts = iter(("A wild Pokémon appeared!", ""))
 
     def score(frame, stamp, **kwargs):
         """Feed deterministic scenes and the encounter-start OCR text."""
         scene = next(scores)
+        if scene == "home" and stamp == 6_000_000_000:
+            monkeypatch.setattr(cv.CV, "scrape_text", lambda *a, **k: " \t")
         if scene == "bdsp_tbox":
             text = next(texts)
             monkeypatch.setattr(cv.CV, "scrape_text", lambda *a, **k: text)
@@ -88,11 +90,11 @@ def test_cv_worker_preserves_encounter_state_and_releases_frames(monkeypatch, tm
     claims = []
 
     class Ring:
-        """Supply four accepted frames and then end the worker."""
+        """Supply five accepted frames and then end the worker."""
 
         def wait_frame(self, last_seq, timeout):
             """Return the next timestamped frame or request shutdown."""
-            if last_seq == 4:
+            if last_seq == 5:
                 daemon.ns.run = False
                 return None
             claim = SimpleNamespace(

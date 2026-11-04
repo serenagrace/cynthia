@@ -145,13 +145,10 @@ class StatusCog(commands.Cog):
         if ns is None:
             return bot_activity, user_activity
 
-        if ns.game is not None:
-            if not hasattr(self, "remembered_game") or self.remembered_game != ns.game:
-                self.remembered_game = ns.game
-
-        game = (
-            ns.game if ns.game is not None else getattr(self, "remembered_game", None)
-        )
+        detected_game = (ns.game or "").strip()
+        if detected_game:
+            self.remembered_game = detected_game
+        game = getattr(self, "remembered_game", None) or "Nintendo Switch"
 
         # A passing HOME screen (menu transitions, quick checks) keeps the game
         # as the activity; it only shows once HOME has been up for a while

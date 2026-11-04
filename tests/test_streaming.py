@@ -1,11 +1,12 @@
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 from fastapi.testclient import TestClient
 
 from cynthia.daemons.cystream import app_version, create_app
 from cynthia.daemons.frames import AUDIO_BYTES_PER_SEC
-from cynthia.daemons.obsfeed import audio_shortfall, audio_stretch
+from cynthia.daemons.obsfeed import Feed, audio_shortfall, audio_stretch
 from cynthia.utils.drive import Drive
 from cynthia.utils.obs import OBSControl
 from cynthia.utils.obslayout import LayoutError, load_layout, normalize, source_name
@@ -29,6 +30,162 @@ def uns(**values):
         obs_height=1080,
     )
     return SimpleNamespace(**{**state, **values})
+
+
+@pytest.mark.parametrize(
+    "fps, windows, restart",
+    [
+        (60, [(30, 30)] * 4, False),  # capture is slower than requested output
+        (30, [(60, 30)] * 4, False),  # intentional frame-rate reduction
+        (30, [(30, 6)] * 2, True),  # persistent backpressure
+        (30, [(30, 0)] * 2, True),  # a writer blocked inside stdin.write
+        (30, [(0, 0)] * 4, False),  # stopped capture is not an encoder failure
+        (30, [(30, 6), (30, 30), (30, 6)], False),  # transient slowness
+        (30, [(30, 6), (0, 0), (30, 6)], False),  # capture outage resets streak
+    ],
+)
+def test_feed_watchdog_recycles_only_sustained_encoder_backpressure(
+    monkeypatch, fps, windows, restart
+):
+    """Distinguish stuck encoders from normal throttling and capture interruptions."""
+    feed = Feed.__new__(Feed)
+    feed.frames_written = 0
+    feed.proc = Mock(pid=1234)
+    feed.proc.poll.return_value = None
+    source = SimpleNamespace(seq=0)
+    clock = 0
+    samples = iter([(0, 0), *windows])
+
+    def wait(_):
+        nonlocal clock
+        sample = next(samples, None)
+        if sample is None:
+            return True
+        capture_fps, written_fps = sample
+        clock += 15
+        source.seq += capture_fps * 15
+        feed.frames_written += written_fps * 15
+        return False
+
+    feed._stopped = Mock(wait=wait)
+    monkeypatch.setattr("cynthia.daemons.obsfeed.time.monotonic", lambda: clock)
+    feed._watch_video(source, fps)
+    assert feed.proc.kill.call_count == int(restart)
+
+
+def test_feed_stop_unblocks_raw_video_writer():
+    """A hung encoder cannot trap daemon cleanup in buffered stdin.close()."""
+    import os
+    import subprocess
+    import sys
+    import threading
+
+    import numpy
+
+    feed = Feed.__new__(Feed)
+    feed.proc = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import signal, sys, time; "
+            "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+            "print('ready', file=sys.stderr, flush=True); time.sleep(60)",
+        ],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    read_fd, feed._audio_fd = os.pipe()
+    feed._stopped = threading.Event()
+    feed._ready = threading.Condition()
+    feed._pump = Mock()
+    feed._relay = []
+    feed._watchdog = None
+    feed.delay = 0
+    feed.frames_written = 0
+    results = []
+    writer = threading.Thread(
+        target=lambda: results.append(
+            feed.write_frame(numpy.zeros(3_110_400, "uint8"))
+        ),
+        daemon=True,
+    )
+    try:
+        assert feed.proc.stderr.readline() == b"ready\n"
+        writer.start()
+        writer.join(timeout=0.1)
+        assert writer.is_alive()
+        feed.stop()
+        writer.join(timeout=1)
+        assert not writer.is_alive()
+        assert results == [False]
+        assert feed.proc.poll() is not None
+    finally:
+        if feed.proc.poll() is None:
+            feed.proc.kill()
+            feed.proc.wait()
+        writer.join(timeout=1)
+        os.close(read_fd)
+
+
+def test_feed_watchdog_kills_frozen_encoder_and_releases_writer(monkeypatch, caplog):
+    """Exercise the real constructor, watchdog thread, process and raw-video pipe."""
+    import os
+    import signal
+    import sys
+    import threading
+    import time
+
+    import numpy
+
+    monkeypatch.setattr("cynthia.daemons.obsfeed.FEED_WATCH_SECONDS", 0.2)
+    monkeypatch.setattr(
+        "cynthia.daemons.obsfeed.ffmpeg_command",
+        lambda *args, **kwargs: [
+            sys.executable,
+            "-c",
+            "import sys\nwhile sys.stdin.buffer.read(65536): pass",
+        ],
+    )
+
+    def read_audio(pos, *args, **kwargs):
+        time.sleep(0.01)
+        return bytes(1920), pos + 1920, 0, 0
+
+    audio = SimpleNamespace(live_position=lambda _: 0, read=read_audio)
+    source = SimpleNamespace(seq=0)
+    done = threading.Event()
+    feed = Feed(5000, 30, "8M", audio, source_ring=source)
+
+    def capture():
+        while not done.wait(0.01):
+            source.seq += 1
+
+    def write():
+        frame = numpy.zeros(230_400, "uint8")
+        while not done.is_set() and feed.write_frame(frame):
+            done.wait(1 / 30)
+
+    publisher = threading.Thread(target=capture, daemon=True)
+    writer = threading.Thread(target=write, daemon=True)
+    try:
+        publisher.start()
+        writer.start()
+        deadline = time.monotonic() + 2
+        while feed.frames_written < 3 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert feed.frames_written >= 3
+        os.kill(feed.proc.pid, signal.SIGSTOP)
+        feed.proc.wait(timeout=3)
+        writer.join(timeout=1)
+        assert not writer.is_alive()
+        assert feed.proc.returncode == -signal.SIGKILL
+        assert "recycling FFmpeg" in caplog.text
+    finally:
+        done.set()
+        feed.stop()
+        publisher.join(timeout=1)
+        writer.join(timeout=1)
 
 
 def test_capture_ignores_endpoints_that_are_not_running():

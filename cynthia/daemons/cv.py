@@ -363,8 +363,9 @@ class CVDaemon(Daemon):
                             game = game[1:].strip()
                         game = re.sub(r"^[a-zA-Z\-] ", "", game)
                         game = canonical_game_title(game)
-                        embed.add_field(name="Selected Game:", value=game)
-                        ns.game = game
+                        if game:
+                            embed.add_field(name="Selected Game:", value=game)
+                            ns.game = game
                         ns.home = True
                         ns.playing = False
                     if scene in ("elgato_no_signal"):

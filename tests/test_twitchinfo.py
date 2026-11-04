@@ -262,6 +262,9 @@ def test_cog_clips_a_new_shiny_once_it_reaches_the_live_stream(tmp_path):
         "twitch_clip_delay_seconds": 10,
     }
     assert cog.clip_delay() == 12.7
+    uns.obs_overlay_sync = {"delay_ms": 3400, "at": time.monotonic()}
+    assert cog.clip_delay() == 13.4
+    uns.obs_overlay_sync = None
     cog.bot.config = {"twitch_clip_delay_seconds": 0}
     cog.bot.obs = Mock(status=Mock(return_value={"streaming": True}))
     cog.bot.messenger = SimpleNamespace(msg_owner=AsyncMock())

@@ -147,6 +147,7 @@ class WebRTCDaemon(Daemon):
                     if wanted and feed is None:
                         feed_mode_now = requested
                         last_seq = 0  # each ring counts its own frames
+                        last_sent_ns = 0
                         fps, height, native = requested
                         feed = Feed(
                             ingest_port,
@@ -159,6 +160,7 @@ class WebRTCDaemon(Daemon):
                             gop_seconds=1,
                             vbv_seconds=0.25,
                             native=native,
+                            source_ring=native_ring if native else ring,
                         )
                         uns.webrtc_feeding = True
                         logger.info("WebRTC feed started at %sp%s", height, fps)

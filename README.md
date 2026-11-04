@@ -6,7 +6,7 @@
 [![discord.py](https://img.shields.io/badge/discord.py-bot-5865F2?logo=discord&logoColor=white)](https://github.com/Rapptz/discord.py)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![Platform: Linux](https://img.shields.io/badge/platform-linux-FCC624?logo=linux&logoColor=black)](#requirements)
-[![Version](https://img.shields.io/badge/version-1.7.3-success.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.7.4-success.svg)](CHANGELOG.md)
 
 **Customizable Internal Network Task Handler + Interactive Assistant**
 
@@ -16,7 +16,7 @@ Cynthia is a Python Discord bot with slash commands, permission-aware controls, 
 
 - **Nintendo Switch control and automation:** connect over Bluetooth, send controller inputs from Discord, and define, save, queue, pause, or loop macros. Macros support simultaneous buttons, custom timing, nested macros, and conditional branches based on detected scenes. Sample BDSP hunting macros include their helper dependencies.
 - **Computer vision and shiny hunting:** compare capture frames with reference scenes, read selected game titles with OCR, and track encounter timing for supported BDSP hunts. Possible shinies pause automation and alert the owner with a capture image. Encounter logs support hunt statistics, while watchdogs and encounter-reset logic help stalled macros recover. Other recognized game titles provide status information, not universal encounter detection.
-- **Live video and streaming:** watch the capture feed in a browser through WebRTC, with an MJPEG fallback, or send hardware-encoded video and capture-card audio to OBS. Discord commands control video modes, recordings, scene previews, and layouts. Overlay panes show inputs, scene scores, hunt statistics, Twitch chat, and the bot version.
+- **Live video and streaming:** watch the capture feed in a browser through WebRTC, with an MJPEG fallback, or send hardware-encoded video and capture-card audio to OBS. Discord commands control video modes, recordings, scene previews, and layouts. Overlay panes show inputs, scene scores, hunt statistics, Twitch chat, and the bot version. Feed watchdogs recycle persistently slow encoders, and measured OBS video age keeps input and scene overlays synchronized.
 - **Twitch integration:** start and stop broadcasts with button confirmation, check stream health, and share the channel link with live status. Optional authorization enables automatic hunt titles, game categories, and delayed clips for possible shinies. Configurable safeguards restart long broadcasts and stop streams after prolonged capture-card signal loss.
 - **Music in Discord voice channels:** play YouTube searches, direct links, playlists, and albums; manage playback and per-server queues; and pin preferred results. Search ranking favors relevant tracks over covers, remixes, and unrelated recordings unless requested.
 - **Server tools and permissions:** manage command allowlists and permissions by user, role, or guild; configure message-log channels; and change the bot's server nickname or avatar. Optional member screening provides interactive insights, greetings, and moderation actions, including automated kick/ban rules when the bot has the configured Bouncer role.
@@ -245,7 +245,23 @@ All of these are owner-only and DM-only:
 
 `/twitchurl` is open to everyone, anywhere: it posts the `TWITCH_CHANNEL` link and says whether the channel is live. Once `/twitch auth` has been run it asks Twitch, so a bandwidth test counts as offline; otherwise it goes by whether OBS is streaming.
 
-The OBS scene is built from `obs_layout.yaml` (copy `obs_layout.example.yaml`): panes for the video, input visualizer, SSIM scores, hunt statistics (titled by the current activity), Twitch chat (`TWITCH_CHANNEL`) and a small `Cynthia (version)` watermark in the top-right corner. The reverse proxy in front of the web viewer must allow `/api/sync`, `/api/stream_stats` and `/api/activity_stats`.
+The OBS scene is built from `obs_layout.yaml` (copy `obs_layout.example.yaml`): panes for the video, input visualizer, SSIM scores, hunt statistics (titled by the current activity), Twitch chat (`TWITCH_CHANNEL`) and a small `Cynthia (version)` watermark in the bottom-right corner. The reverse proxy in front of the web viewer must allow `/api/sync`, `/api/stream_stats` and `/api/activity_stats`.
+
+#### Feed recovery and overlay synchronization
+
+Both OBS and WebRTC feeds monitor fresh-frame throughput. After a 15-second startup grace period, two consecutive 15-second windows below half the available frame rate recycle only the affected FFmpeg encoder through its normal retry path. Static images, lower requested output rates, and stopped capture do not trigger recovery. This briefly interrupts that feed without restarting the bot or its macros.
+
+The `OverlaySyncCog` checks OBS's displayed video against a small history of capture thumbnails every five seconds while streaming or recording. Three consistent, unambiguous matches gradually adjust the input visualizer and scene-score delay, by at most 250 ms per check. It ignores timing differences below 100 ms and does not restart video or change WebRTC timing. Static or repeating scenes retain the last confirmed delay; disconnects and source restarts restore the configured fallback. Matching supports up to ten seconds of video age; a larger backlog cannot be corrected automatically.
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `obs_auto_sync` | `true` | Measure OBS video age and adjust overlay timing automatically. Set `false` for fixed timing. |
+| `obs_feed_delay_ms` | `1000` | Fixed holdback of the OBS video/audio feed. |
+| `obs_overlay_lag_ms` | `1700` | Additional overlay delay used with the feed delay as the fallback. |
+
+`/api/stream_stats` reports the effective `obs_overlay_delay_ms`. If the synchronization cog stops publishing for 30 seconds, overlays return to the configured fallback. Automatic synchronization adjusts overlay timing, not OBS's internal video buffer; adding a fixed OBS delay alone does not prevent buffer drift. A custom `?lag=<ms>` on the input pane URL adds a separate delay, so remove manual tuning when relying on measured synchronization.
+
+Restart Cynthia after upgrading to activate the new feed watchdogs and synchronization cog; reinstallation does not reload running daemon processes.
 
 #### Twitch title, category and clips
 
@@ -256,7 +272,7 @@ The bot can set the channel's category to the detected game and its title to the
 
 The channel changes only when the bot is sure and only when something new is detected. A game counts once it has been playing (not on the HOME screen) for `twitch_info_confirm_seconds` and it is one of the known titles. The category and title are then set once. They are not touched again, even if you edit them on Twitch, until a different game is detected or a different hunt is set. Clearing the hunt or returning to HOME never changes them. Without a hunt only the category is set. The last applied game and hunt are kept in `twitch_channel.json`, so a restart doesn't reapply them. If no Twitch category has exactly the game's name, the category is left alone; map it in `twitch_categories`.
 
-When the hunt stops for a possible shiny while the stream is live, the bot waits as long as the input visualizer's delay (`obs_feed_delay_ms` + `obs_overlay_lag_ms`) plus `twitch_clip_delay_seconds`, so the moment has reached Twitch, then creates a 30-second clip titled after the hunt, and DMs you its edit link. Clipping needs the `clips:edit` scope, so run `/twitch auth` again if you authorized before it was added.
+When the hunt stops for a possible shiny while the stream is live, the bot waits as long as the effective OBS overlay delay plus `twitch_clip_delay_seconds`, so the moment has reached Twitch, then creates a 30-second clip titled after the hunt, and DMs you its edit link. The overlay delay uses the measured value when available, otherwise `obs_feed_delay_ms + obs_overlay_lag_ms`; it excludes any custom browser-source `?lag=<ms>`. Clipping needs the `clips:edit` scope, so run `/twitch auth` again if you authorized before it was added.
 
 Two safeguards end or renew long streams: a stream restarts after `twitch_restart_hours`, and a stream that shows the capture card's no-signal screen for `twitch_no_signal_stop_minutes` is stopped. You get a DM either way.
 

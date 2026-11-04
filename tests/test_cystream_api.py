@@ -205,7 +205,7 @@ def test_cystream_obs_feed_inputs_use_the_obs_delay(tmp_path):
         Drive(tmp_path),
         SimpleNamespace(run=True),
         uns,
-        None,
+        SimpleNamespace(seq=0, dropped=0, last_time_ns=0),
         video_delay_ms=100,
         obs_delay_ms=600,
     )
@@ -218,10 +218,22 @@ def test_cystream_obs_feed_inputs_use_the_obs_delay(tmp_path):
         web = client.get("/api/inputs?delayed=true").json()
         obs = client.get("/api/inputs?delayed=true&feed=obs").json()
         obs_ssim = client.get("/api/ssim_data?delayed=true&feed=obs").json()
+        uns.obs_overlay_sync = {"delay_ms": 100, "at": time.monotonic()}
+        measured = client.get("/api/inputs?delayed=true&feed=obs").json()
+        measured_ssim = client.get("/api/ssim_data?delayed=true&feed=obs").json()
+        measured_delay = client.get("/api/stream_stats").json()["obs_overlay_delay_ms"]
+        web_after = client.get("/api/inputs?delayed=true").json()
+        uns.obs_overlay_sync["at"] -= 31
+        fallback = client.get("/api/inputs?delayed=true&feed=obs").json()
 
     assert web == {"pressed": ["B"]}
     assert obs == {"pressed": ["A"]}
     assert obs_ssim["scores"][0]["scene"] == "home"
+    assert measured == {"pressed": ["B"]}
+    assert measured_ssim["scores"][0]["scene"] == "map"
+    assert measured_delay == 100
+    assert web_after == web
+    assert fallback == obs
 
 
 def test_jpeg_cache_evicts_least_recently_used_over_budget():
