@@ -106,9 +106,11 @@ After changing the package version, refresh the installed metadata without
 changing dependencies, then restart the bot with `/restart`:
 
 ```bash
-env/bin/python -m pip install --no-deps -e .
-env/bin/python -c "from importlib.metadata import version; print(version('cynthia'))"
+bin/install.sh
 ```
+
+The script verifies that the installed version matches `pyproject.toml`. The
+restart is required before `/about` and the OBS watermark show the new version.
 
 The `nxbt` dependency installs directly from [serenagrace/nxbt](https://github.com/serenagrace/nxbt), branch `cynthia-patches`, as configured in `pyproject.toml`.
 

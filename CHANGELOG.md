@@ -7,6 +7,7 @@
 - `obs_auto_sync` (default `true`) enables automatic overlay synchronization. Disconnects, source restarts, or an unavailable synchronization cog restore the configured `obs_feed_delay_ms + obs_overlay_lag_ms` fallback. `/api/stream_stats` exposes the effective `obs_overlay_delay_ms`.
 
 ### Changed
+- `bin/install.sh` refreshes installed package metadata without changing dependencies and verifies the installed version.
 - Moved the OBS watermark to the bottom-right corner in the default layout and deployment examples.
 - Automatic shiny clips now use the effective measured OBS overlay delay, when available, plus `twitch_clip_delay_seconds`.
 
