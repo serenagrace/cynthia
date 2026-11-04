@@ -9,6 +9,7 @@ import aiohttp
 from discord.ext import commands, tasks
 
 from cynthia.daemons.cv import GAME_TITLES
+from cynthia.utils.obslayout import overlay_delay_ms
 from cynthia.utils.twitchapi import TwitchAPI, TwitchAPIError, TwitchAuthError
 
 logger = logging.getLogger(__name__)
@@ -210,6 +211,7 @@ class TwitchInfoCog(commands.Cog):
         overlay_ms = float(config.get("obs_feed_delay_ms", 0)) + float(
             config.get("obs_overlay_lag_ms", 0)
         )
+        overlay_ms = overlay_delay_ms(self.bot.dman.uns, overlay_ms)
         margin = float(
             config.get("twitch_clip_delay_seconds", DEFAULT_CLIP_DELAY_SECONDS)
         )

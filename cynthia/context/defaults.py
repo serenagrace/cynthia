@@ -77,6 +77,8 @@ class Defaults:
         "obs_feed_delay_ms": 1000,
         # extra lag for OBS overlay inputs/SSIM, covering encode, OBS buffer and decode
         "obs_overlay_lag_ms": 1700,
+        # measure OBS video age and adjust overlay timing when matches are unambiguous
+        "obs_auto_sync": True,
         # hold the web stream's video back this long so audio can buffer smoothly
         "stream_delay_ms": 1000,
     }

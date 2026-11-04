@@ -129,6 +129,30 @@ def test_status_without_hunt_reports_game_only(tmp_path):
     assert "details" not in user_activity
 
 
+@pytest.mark.parametrize("blank_game", [None, "", " \t"])
+def test_blank_game_keeps_remembered_title_and_hunt(tmp_path, blank_game):
+    cog, _ = make_status_cog(tmp_path, hunt="Cresselia")
+    asyncio.run(cog.get_status())
+    cog.bot.dman.running_daemons["CVDaemon"].ns.game = blank_game
+
+    _, activity = asyncio.run(cog.get_status())
+
+    assert activity["name"] == "Pokemon Brilliant Diamond"
+    assert activity["details"] == "Hunting shiny Cresselia"
+    assert activity["state"] == "2 encounters"
+
+
+def test_blank_game_without_remembered_title_still_publishes_hunt(tmp_path):
+    cog, _ = make_status_cog(tmp_path, hunt="Cresselia")
+    cog.bot.dman.running_daemons["CVDaemon"].ns.game = ""
+
+    _, activity = asyncio.run(cog.get_status())
+
+    assert activity["name"] == "Nintendo Switch"
+    assert activity["details"] == "Hunting shiny Cresselia"
+    assert activity["assets"]["large_image"] == "nintendo_switch"
+
+
 @pytest.mark.parametrize(
     "game,asset",
     [

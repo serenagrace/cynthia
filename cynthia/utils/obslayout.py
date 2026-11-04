@@ -10,6 +10,7 @@ order, later ones on top. `kind` picks what the pane shows:
 """
 
 import logging
+import time
 from pathlib import Path
 
 import yaml
@@ -19,6 +20,8 @@ logger = logging.getLogger(__name__)
 KINDS = ("video", "status", "inputs", "ssim", "stats", "chat", "watermark", "url")
 SOURCE_PREFIX = "Cynthia "
 VIDEO_SOURCE = "Cynthia Feed"
+OBS_SYNC_MAX_DELAY_MS = 10000
+OBS_SYNC_TTL_SECONDS = 30
 DEFAULT_CSS = (
     "body { background-color: rgba(0, 0, 0, 0); margin: 0; overflow: hidden; }"
 )
@@ -41,7 +44,7 @@ DEFAULT_LAYOUT = {
             "name": "watermark",
             "kind": "watermark",
             "x": 0.8,
-            "y": 0,
+            "y": 0.965,
             "w": 0.2,
             "h": 0.035,
         },
@@ -51,6 +54,18 @@ DEFAULT_LAYOUT = {
 
 class LayoutError(ValueError):
     """Raised when the layout file is malformed."""
+
+
+def overlay_delay_ms(uns, fallback):
+    """Use a fresh measured OBS delay, or the configured delay if its cog is unavailable."""
+    sync = getattr(uns, "obs_overlay_sync", None)
+    if (
+        sync
+        and 0 <= time.monotonic() - sync["at"] <= OBS_SYNC_TTL_SECONDS
+        and 0 <= sync["delay_ms"] <= OBS_SYNC_MAX_DELAY_MS
+    ):
+        return sync["delay_ms"]
+    return fallback
 
 
 def source_name(pane):

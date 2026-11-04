@@ -22,6 +22,11 @@ twitch_info_confirm_seconds: 60
 twitch_categories: {}
 # Positions and sizes of the OBS overlay panes
 obs_layout_file: obs_layout.yaml
+# Measure OBS video age and keep input/SSIM overlays in sync; false uses fixed delays
+obs_auto_sync: true
+# Fixed OBS feed holdback and additional overlay fallback when no measurement is available
+obs_feed_delay_ms: 1000
+obs_overlay_lag_ms: 1700
 # Optional: public hostnames or IPs offered to WebRTC viewers outside the LAN
 # (also forward UDP/TCP 8189 to this machine)
 # webrtc_hosts:

@@ -20,6 +20,7 @@ import uvicorn
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, PlainTextResponse, StreamingResponse
 
+from cynthia.utils.obslayout import OBS_SYNC_MAX_DELAY_MS, overlay_delay_ms
 from cynthia.utils.streamcfg import CV_FPS, setting, size_for
 from cynthia.utils.twitchchat import TwitchChat
 
@@ -188,7 +189,12 @@ def create_app(
     sync = {"video_latency_ms": 60.0}
     # Recent input and SSIM samples, so the web view can show them as late as its video
     history = deque(
-        maxlen=int(max(video_delay_ms, obs_delay_ms) / HISTORY_STEP_S / 1000) + 40
+        maxlen=int(
+            max(video_delay_ms, obs_delay_ms, OBS_SYNC_MAX_DELAY_MS)
+            / HISTORY_STEP_S
+            / 1000
+        )
+        + 40
     )
     # Cumulative counters; clients difference successive polls to get rates
     stream_stats = {"encoded": 0, "sent": 0, "encode_ms": 0.0, "jpeg_bytes": 0.0}
@@ -269,7 +275,9 @@ def create_app(
 
         `feed="obs"` uses the OBS feed delay; anything else the web stream's.
         """
-        delay_ms = obs_delay_ms if feed == "obs" else video_delay_ms
+        delay_ms = (
+            overlay_delay_ms(uns, obs_delay_ms) if feed == "obs" else video_delay_ms
+        )
         if delayed and delay_ms and history:
             cutoff = time.monotonic() - delay_ms / 1000
             for stamp, pressed, scores in reversed(history):
@@ -552,6 +560,7 @@ def create_app(
             "obs_height": setting(uns, "obs_height"),
             "cv_fps": CV_FPS,
             "video_delay_ms": video_delay_ms,
+            "obs_overlay_delay_ms": overlay_delay_ms(uns, obs_delay_ms),
             "video_latency_ms": round(sync["video_latency_ms"] + video_delay_ms, 1),
             "audio": {
                 **audio_stats,

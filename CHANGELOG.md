@@ -1,6 +1,21 @@
 # Changelog
 
-## 1.7.3 (pending)
+## 1.7.4
+
+### Added
+- Automatic OBS overlay synchronization: `OverlaySyncCog` checks displayed video age every five seconds against recent capture thumbnails while streaming or recording. Three consistent, unambiguous matches gradually adjust input and scene-score overlays, leaving video, macros, and WebRTC timing unchanged. Matching supports up to ten seconds of video age; static or repeating scenes do not steer the delay.
+- `obs_auto_sync` (default `true`) enables automatic overlay synchronization. Disconnects, source restarts, or an unavailable synchronization cog restore the configured `obs_feed_delay_ms + obs_overlay_lag_ms` fallback. `/api/stream_stats` exposes the effective `obs_overlay_delay_ms`.
+
+### Changed
+- Moved the OBS watermark to the bottom-right corner in the default layout and deployment examples.
+- Automatic shiny clips now use the effective measured OBS overlay delay, when available, plus `twitch_clip_delay_seconds`.
+
+### Fixed
+- OBS and WebRTC feeds automatically recycle only the affected FFmpeg encoder after a 15-second startup grace period and two consecutive 15-second windows below half the available frame rate. Normal frame-rate reduction and missing capture do not trigger recovery; the bot and macros keep running.
+- Encoder shutdown terminates FFmpeg before closing its pipes, preventing blocked raw-frame writes from hanging cleanup. Encoder recreation also resets the video timestamp gate.
+- Blank game-title OCR no longer erases the last detected game or clears cyclient's Rich Presence. Until a title is known, active hunts use Nintendo Switch as the activity name.
+
+## 1.7.3
 
 ### Added
 - `/twitch start` and `/twitch stop` ask you to confirm with a button before anything happens, so they can't be triggered by accident. Only the person who ran the command can press it, and the buttons expire after a minute, leaving the stream as it was. The result replaces the prompt.
@@ -25,7 +40,7 @@
 - Messages deleted on Twitch, and messages from users who are timed out or banned, now disappear from the chat pane; `/clear` empties it.
 - The OBS overlay's inputs and scene-match panes now lag by `obs_feed_delay_ms`, so button presses line up with the delayed OBS video instead of showing about a second early. `/api/inputs` and `/api/ssim_data` take `feed=obs` with `delayed=true` for this. The OBS video also trails by encode, OBS buffering and decode time (measured at about 2.7 s in total), so the new `obs_overlay_lag_ms` setting (default `1700`) adds that on top. For quick tuning, `?lag=<ms>` on the inputs pane's browser source URL adds a further delay.
 
-## 1.7.2 (pending)
+## 1.7.2
 
 ### Fixed
 - All `discord.*` loggers now start at INFO, muting the DEBUG chatter from the gateway, HTTP, client and state loggers.

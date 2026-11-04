@@ -173,7 +173,13 @@ class OBSControl:
         scene = self.call("get_current_program_scene").current_program_scene_name
         canvas_w, canvas_h, _ = self.canvas()
         height = max(1, round(width * canvas_h / canvas_w))
-        shot = self.call("get_source_screenshot", scene, "png", width, height, -1)
+        return self.source_screenshot(scene, width, height)
+
+    def source_screenshot(self, source, width, height, image_format="png"):
+        """Return an encoded image of one source, without scene transforms or overlays."""
+        shot = self.call(
+            "get_source_screenshot", source, image_format, width, height, -1
+        )
         return base64.b64decode(shot.image_data.split(",", 1)[1])
 
     def apply_layout(self, panes, web_port=8000, feed_port=5000):

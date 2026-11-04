@@ -32,6 +32,10 @@ AUDIO_LAG_KEEP = 0.03
 AUDIO_STRETCH_DEADBAND = 0.01
 AUDIO_STRETCH_MAX = 0.02
 OBS_PROCESS_NAMES = ("obs", "obs-studio")
+# Ignore startup, then require two slow windows before recycling an encoder.
+FEED_WATCH_SECONDS = 15
+FEED_SLOW_WINDOWS = 2
+FEED_MIN_RATIO = 0.5
 
 
 def obs_running(proc=Path("/proc")):
@@ -243,6 +247,7 @@ class Feed:
         gop_seconds=2,
         vbv_seconds=None,
         native=False,
+        source_ring=None,
     ):
         """Start ffmpeg reading video from stdin and PCM audio from a pipe.
 
@@ -250,6 +255,7 @@ class Feed:
         before it is sent, which smooths the feed without buffering raw frames.
         """
         self.audio_ring = audio_ring
+        self.frames_written = 0
         self.delay = delay_ms / 1000
         self._held = deque()
         self._ready = threading.Condition()
@@ -288,6 +294,55 @@ class Feed:
                 thread = threading.Thread(target=target, name="obs-delay", daemon=True)
                 thread.start()
                 self._relay.append(thread)
+        self._watchdog = None
+        if source_ring is not None:
+            self._watchdog = threading.Thread(
+                target=self._watch_video,
+                args=(source_ring, fps),
+                name="feed-watchdog",
+                daemon=True,
+            )
+            self._watchdog.start()
+
+    def _watch_video(self, source_ring, fps):
+        """Recycle an encoder that consumes too few fresh frames despite live capture.
+
+        Compare sequence numbers, not image hashes: a static game screen is still
+        healthy video. Cap the expectation at the output rate, so a 60 fps OBS
+        feed consuming a 30 fps capture is not mistaken for a stalled encoder.
+        """
+        if self._stopped.wait(FEED_WATCH_SECONDS):
+            return
+        last_seq = source_ring.seq
+        last_written = self.frames_written
+        last_time = time.monotonic()
+        slow_windows = 0
+        while not self._stopped.wait(FEED_WATCH_SECONDS):
+            if self.proc.poll() is not None:
+                return
+            now = time.monotonic()
+            seq, written = source_ring.seq, self.frames_written
+            elapsed = max(now - last_time, 0.001)
+            available_fps = (seq - last_seq) / elapsed
+            actual_fps = (written - last_written) / elapsed
+            expected_fps = min(fps, available_fps)
+            # Missing capture is the capture supervisor's responsibility, not FFmpeg's.
+            slow = expected_fps >= 5 and actual_fps < expected_fps * FEED_MIN_RATIO
+            slow_windows = slow_windows + 1 if slow else 0
+            if slow_windows >= FEED_SLOW_WINDOWS:
+                logger.warning(
+                    "Feed encoder consuming %.1f/%.1f fresh fps for %s seconds; "
+                    "recycling FFmpeg (pid %s).",
+                    actual_fps,
+                    expected_fps,
+                    FEED_WATCH_SECONDS * FEED_SLOW_WINDOWS,
+                    self.proc.pid,
+                )
+                # Kill only this encoder: its daemon handles the existing retry/backoff.
+                # This also releases a writer blocked inside a raw-frame pipe write.
+                self.proc.kill()
+                return
+            last_seq, last_written, last_time = seq, written, now
 
     def _hold_output(self):
         """Read the encoded stream and queue whole datagrams with arrival times."""
@@ -385,13 +440,23 @@ class Feed:
         """Send one raw video frame; returns False once ffmpeg has gone away."""
         try:
             self.proc.stdin.write(frame.data)
+            self.frames_written += 1
             return True
         except (BrokenPipeError, OSError):
             return False
 
     def stop(self):
-        """Close both inputs and wait briefly for ffmpeg to finish."""
+        """Stop the encoder before closing pipes so a blocked write cannot hang cleanup."""
         self._stopped.set()
+        with self._ready:
+            self._ready.notify_all()
+        if self.proc.poll() is None:
+            self.proc.terminate()
+        try:
+            self.proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            self.proc.kill()
+            self.proc.wait()
         for close in (self.proc.stdin.close, lambda: os.close(self._audio_fd)):
             try:
                 close()
@@ -400,11 +465,13 @@ class Feed:
         self._pump.join(timeout=1)
         for thread in self._relay:
             thread.join(timeout=1)
-        try:
-            self.proc.wait(timeout=3)
-        except subprocess.TimeoutExpired:
-            self.proc.kill()
-            self.proc.wait()
+        if self._watchdog is not None:
+            self._watchdog.join(timeout=1)
+        if self.delay > 0:
+            self._socket.close()
+        for pipe in (self.proc.stdout, self.proc.stderr):
+            if pipe is not None:
+                pipe.close()
 
 
 class OBSFeedDaemon(Daemon):
@@ -444,11 +511,20 @@ class OBSFeedDaemon(Daemon):
                 if wanted and feed is None:
                     feed_mode_now = requested
                     last_seq = 0  # each ring counts its own frames
+                    last_sent_ns = 0
                     fps, height, native = requested
                     feed = Feed(
-                        port, fps, bitrate, audio_ring, delay_ms, height, native=native
+                        port,
+                        fps,
+                        bitrate,
+                        audio_ring,
+                        delay_ms,
+                        height,
+                        native=native,
+                        source_ring=native_ring if native else ring,
                     )
                     uns.obs_feeding = True
+                    uns.obs_feed_generation = time.monotonic()
                     logger.notice(
                         "Streaming %sp%s %s video and audio to `udp://127.0.0.1:%s`",
                         height,
