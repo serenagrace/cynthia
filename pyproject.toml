@@ -29,7 +29,7 @@ dependencies = [
     "fastapi",
     "obsws-python>=1.8.1",
     "xxhash==4.0.2",
-    "numpy<2.0.0",
+    "numpy<3.0.0",
     "opencv-python-headless<4.10"
 ]
 
