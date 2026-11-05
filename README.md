@@ -83,6 +83,25 @@ sudo udevadm control --reload && sudo udevadm trigger
 
 - At startup the UVC daemon runs `usbreset` on the card named by `ELGATO_USB_ID`, which clears a wedged device. Leave the variable empty to skip the reset. The ID is the `vendor:product` pair from `lsusb` (for example `0fd9:009b`), not a GUID.
 
+### Dependency updates
+
+The OCR stack is upgraded manually as a compatible set. PaddleOCR 3.7.0 requires
+PaddleX 3.7.x, whose releases require exactly `PyYAML==6.0.2`; independently
+bumping PyYAML to 6.0.3 fails dependency resolution. OpenCV 4.9 wheels cannot
+import with NumPy 2, while OpenCV 4.12 and 5.0 require NumPy 2 on Python 3.11.
+The current `opencv-python-headless<5.1` range resolves to 4.11 with
+`numpy<2.0.0`. Keep the NumPy cap until the numerical-stack migration is
+reviewed together.
+
+`.github/dependabot.yml` ignores routine major, minor and patch updates for
+PyYAML, NumPy, OpenCV headless, PaddleOCR and both CPU/GPU PaddlePaddle packages.
+The Paddle packages are held for coordinated review, not because every newer
+release is known to fail. Before changing the pins or removing an ignore entry,
+check dependency resolution, the test suite and real OCR on the supported CPU
+and GPU installations. Security updates are not excluded by these semver rules,
+and Dependabot alerts, other Python packages (including setuptools) and GitHub
+Actions updates remain unaffected.
+
 ## Install
 
 ```bash
