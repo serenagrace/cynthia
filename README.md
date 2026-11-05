@@ -87,11 +87,10 @@ sudo udevadm control --reload && sudo udevadm trigger
 
 The OCR stack is upgraded manually as a compatible set. PaddleOCR 3.7.0 requires
 PaddleX 3.7.x, whose releases require exactly `PyYAML==6.0.2`; independently
-bumping PyYAML to 6.0.3 fails dependency resolution. The current
-`opencv-python-headless<4.10` wheels cannot import with NumPy 2, while OpenCV
-4.12 and 5.0 require NumPy 2 on Python 3.11. A wider OpenCV range can still
-resolve to 4.11 with NumPy 1, so widening the range is not itself a resolver
-failure. Keep the existing NumPy/OpenCV constraints until the migration is
+bumping PyYAML to 6.0.3 fails dependency resolution. OpenCV 4.9 wheels cannot
+import with NumPy 2, while OpenCV 4.12 and 5.0 require NumPy 2 on Python 3.11.
+The current `opencv-python-headless<5.1` range resolves to 4.11 with
+`numpy<2.0.0`. Keep the NumPy cap until the numerical-stack migration is
 reviewed together.
 
 `.github/dependabot.yml` ignores routine major, minor and patch updates for
