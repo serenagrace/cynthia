@@ -4,8 +4,40 @@ updates:
     directory: /
     schedule:
       interval: weekly
-    # Paddle, numpy and opencv are pinned for Python 3.11; review bumps before merging
     open-pull-requests-limit: 5
+    # Upgrade the coupled OCR stack manually; see README "Dependency updates".
+    # Semver ignores suppress routine bumps without suppressing security updates.
+    ignore:
+      - dependency-name: pyyaml
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+          - version-update:semver-patch
+      - dependency-name: numpy
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+          - version-update:semver-patch
+      - dependency-name: opencv-python-headless
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+          - version-update:semver-patch
+      - dependency-name: paddleocr
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+          - version-update:semver-patch
+      - dependency-name: paddlepaddle
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+          - version-update:semver-patch
+      - dependency-name: paddlepaddle-gpu
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+          - version-update:semver-patch
 
   - package-ecosystem: github-actions
     directory: /
