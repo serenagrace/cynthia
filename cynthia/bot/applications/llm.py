@@ -653,10 +653,11 @@ async def filtered(
 # -- switches ------------------------------------------------------------------
 
 SWITCHES = {
-    "all": "Everything at once (reading, learning, posting, voice, DMs)",
+    "all": "Everything at once (reading, learning, posting, events, voice, DMs)",
     "listen": "Reading Twitch chat",
     "learn": "Learning chatter memories",
     "speak": "Posting replies in Twitch chat",
+    "events": "Spontaneous event and idle comments",
     "voice": "Speaking replies on stream",
     "talk": "Talking with you in plain DMs",
 }
@@ -664,7 +665,7 @@ SWITCHES = {
 
 @llm.command(
     name="switch",
-    description="Turn the chat model on/off, or just its listening, learning, speaking, voice or DMs.",
+    description="Turn the chat model on/off, or switch reading, learning, replies, events, voice or DMs.",
 )
 @app_commands.describe(name="What to switch", enabled="On or off; leave empty to check")
 @app_commands.choices(

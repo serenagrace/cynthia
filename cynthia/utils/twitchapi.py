@@ -38,11 +38,10 @@ class TwitchAuthError(TwitchAPIError):
 class TwitchAPI:
     """Hold the channel's user token and make the few Helix calls the bot needs."""
 
-    def __init__(self, client_id, client_secret, drive, *, chat=False):
-        """Use the app's credentials and keep tokens in the drive's token file."""
+    def __init__(self, client_id, client_secret, *, chat=False):
+        """Use the app's credentials and keep tokens in the working directory."""
         self.client_id = client_id
         self.client_secret = client_secret or None
-        self.drive = drive
         self.token_file = CHAT_TOKEN_FILE if chat else TOKEN_FILE
         self.scopes = CHAT_SCOPE if chat else SCOPES
         self.auth_command = "/twitch botauth" if chat else "/twitch auth"
@@ -50,12 +49,12 @@ class TwitchAPI:
         self._lock = asyncio.Lock()
 
     @classmethod
-    def from_env(cls, env, drive, *, chat=False):
+    def from_env(cls, env, *, chat=False):
         """Build a client from `.env`, or return None without `TWITCH_CLIENT_ID`."""
         client_id = env.get("TWITCH_CLIENT_ID", None)
         if not client_id:
             return None
-        return cls(client_id, env.get("TWITCH_CLIENT_SECRET", None), drive, chat=chat)
+        return cls(client_id, env.get("TWITCH_CLIENT_SECRET", None), chat=chat)
 
     @property
     def authorized(self):
@@ -69,22 +68,20 @@ class TwitchAPI:
 
     def _load(self):
         """Read stored tokens, or start empty."""
-        if not self.drive.exists(self.token_file, is_file=True):
-            return {}
         try:
-            with self.drive.open(self.token_file, "r") as f:
+            with open(self.token_file, "r") as f:
                 return json.load(f)
+        except FileNotFoundError:
+            return {}
         except (OSError, json.JSONDecodeError) as e:
             logger.warning("Couldn't read the stored Twitch token: %s", e)
             return {}
 
     def _save(self):
         """Write the tokens, readable only by the bot's user."""
-        path = self.drive.path(self.token_file)
-        if path is None:
-            return
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        fd = os.open(self.token_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w") as f:
+            os.fchmod(f.fileno(), 0o600)
             json.dump(self.tokens, f)
 
     def _client_form(self, **fields):

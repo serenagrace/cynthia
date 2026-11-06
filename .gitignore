@@ -1,6 +1,8 @@
 env
 .env
 .env.test
+/twitch_token.json
+/twitch_chat_token.json
 __pycache__
 tags*
 build
@@ -14,6 +16,7 @@ dist/
 .github/*
 !.github/workflows/
 !.github/dependabot.yml
+!.github/copilot-instructions.md
 perms.yaml
 relic_data.json
 /cynthia/daemons/scenes/bdsp_boot.png

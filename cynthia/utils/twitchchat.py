@@ -24,6 +24,41 @@ CLEAR = re.compile(
 PUBLIC_FIELDS = ("user", "color", "text", "time")
 
 
+def pane_messages(state):
+    """Return visible pane messages, excluding local removals from shared state."""
+    cleared = getattr(state, "twitch_chat_cleared_at", 0)
+    users = getattr(state, "twitch_chat_user_clears", {})
+    hidden = set(getattr(state, "twitch_chat_hidden_ids", []))
+    return [
+        message
+        for message in getattr(state, "twitch_chat_messages", [])
+        if message["time"] > cleared
+        and message["time"] > users.get(message["login"], 0)
+        and message["id"] not in hidden
+    ][-15:]
+
+
+def clear_pane(state, *, message_id=None, login=None):
+    """Hide one message, a user's existing messages, or all existing pane chat."""
+    messages = getattr(state, "twitch_chat_messages", [])
+    if message_id is not None:
+        active = {message["id"] for message in messages}
+        hidden = set(getattr(state, "twitch_chat_hidden_ids", [])) & active
+        hidden.add(message_id)
+        state.twitch_chat_hidden_ids = list(hidden)
+    elif login is not None:
+        active = {message["login"] for message in messages}
+        users = {
+            user: cutoff
+            for user, cutoff in getattr(state, "twitch_chat_user_clears", {}).items()
+            if user in active
+        }
+        users[login] = time.time()
+        state.twitch_chat_user_clears = users
+    else:
+        state.twitch_chat_cleared_at = time.time()
+
+
 def parse_tags(tags):
     """Split an IRCv3 tag string into a dict."""
     return dict(part.split("=", 1) for part in (tags or "").split(";") if "=" in part)

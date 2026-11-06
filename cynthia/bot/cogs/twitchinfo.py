@@ -75,9 +75,9 @@ class TwitchInfoCog(commands.Cog):
     def __init__(self, bot):
         """Load the Twitch client and the last applied game and hunt."""
         self.bot = bot
-        self.api = TwitchAPI.from_env(bot.env, bot.drive)
+        self.api = TwitchAPI.from_env(bot.env)
         bot.twitch_api = self.api
-        bot.twitch_chat_api = TwitchAPI.from_env(bot.env, bot.drive, chat=True)
+        bot.twitch_chat_api = TwitchAPI.from_env(bot.env, chat=True)
         self.tracker = ChannelInfoTracker(
             float(bot.config.get("twitch_info_confirm_seconds", 60)),
             self._load_state(),

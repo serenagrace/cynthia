@@ -911,6 +911,86 @@ def test_all_switch_turns_every_switch_off_and_back(tmp_path):
     assert not any(cog.enabled(k) for k in ("all", "learn", "speak", "voice", "talk"))
     cog.set_enabled("all", True)
     assert cog.enabled("learn") and cog.enabled("speak") and not cog.enabled("voice")
+    cog.set_enabled("events", True)
+    cog.set_enabled("all", False)
+    assert not cog.enabled("events")
+    cog.set_enabled("all", True)
+    assert cog.enabled("events") and cog.enabled("speak")
+    cog.set_enabled("events", False)
+    assert cog.enabled("speak") and not cog.enabled("events")
+
+
+@pytest.mark.parametrize("events", [None, False, True])
+@pytest.mark.parametrize("kind", ["shiny", "watchdog", "failsafe", "encounter", "idle"])
+def test_spontaneous_events_need_their_own_switch(events, kind):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, Mock
+
+    from cynthia.bot.cogs.llmchat import LLMChatCog
+
+    config = {"llm_speak": True}
+    if events is not None:
+        config["llm_events"] = events
+    counts = dict(shiny=False, watchdog=0, failsafe=0, encounter=0)
+    cog = LLMChatCog.__new__(LLMChatCog)
+    cog.bot = SimpleNamespace(config=config)
+    cog.counters = counts.copy()
+    cog.last_activity = 0 if kind == "idle" else float("inf")
+    if kind != "idle":
+        counts[kind] = 1
+    cog.read_counters = Mock(return_value=counts)
+    cog.may_talk = AsyncMock(return_value=True)
+    cog.triggers = SimpleNamespace(
+        idle_seconds=lambda: 0, event=Mock(return_value=True)
+    )
+    cog.note = Mock()
+    cog.remark = AsyncMock(return_value={"reply": "hello"})
+    cog.deliver = AsyncMock()
+    cog.journal = SimpleNamespace(write=Mock())
+
+    asyncio.run(cog.watch_events())
+
+    assert cog.counters == counts
+    assert cog.enabled("speak")
+    if events:
+        cog.remark.assert_awaited_once_with(kind)
+        cog.deliver.assert_awaited_once_with("hello", event=True)
+    else:
+        cog.remark.assert_not_awaited()
+        cog.deliver.assert_not_awaited()
+        # Re-enabling does not replay events observed while disabled.
+        config["llm_events"] = True
+        cog.last_activity = float("inf")
+        asyncio.run(cog.watch_events())
+        cog.remark.assert_not_awaited()
+
+
+def test_disabling_events_discards_a_remark_still_generating():
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, Mock
+
+    from cynthia.bot.cogs.llmchat import LLMChatCog
+
+    config = {"llm_events": True, "llm_speak": True}
+    counts = dict(shiny=False, watchdog=0, failsafe=0, encounter=0)
+    cog = LLMChatCog.__new__(LLMChatCog)
+    cog.bot = SimpleNamespace(config=config)
+    cog.counters = counts.copy()
+    cog.read_counters = lambda: {**counts, "encounter": 1}
+    cog.last_activity = float("inf")
+    cog.may_talk = AsyncMock(return_value=True)
+    cog.triggers = SimpleNamespace(idle_seconds=lambda: 0, event=lambda kind: True)
+    cog.note = Mock()
+    cog.deliver = AsyncMock()
+    cog.journal = SimpleNamespace(write=Mock())
+
+    async def remark(kind):
+        config["llm_events"] = False
+        return {"reply": "too late"}
+
+    cog.remark = remark
+    asyncio.run(cog.watch_events())
+    cog.deliver.assert_not_awaited()
 
 
 def test_streamer_skips_cooldowns_but_not_the_chance():

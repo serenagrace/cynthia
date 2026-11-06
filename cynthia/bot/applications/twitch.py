@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 
 import aiohttp
 import discord
@@ -13,6 +14,7 @@ from cynthia.utils.obs import OBSError
 from cynthia.utils.obslayout import LayoutError
 from cynthia.utils.streamcfg import setting
 from cynthia.utils.twitchapi import TwitchAPIError
+from cynthia.utils.twitchchat import clear_pane, pane_messages
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +25,88 @@ BOT_AUTH_TASK = "_twitch_bot_auth_task"
 START_AUTH_WAIT_SECONDS = 300
 
 twitch = OwnerGroup(name="twitch", description="Stream to Twitch through OBS.")
+
+
+class ChatPaneView(discord.ui.View):
+    """Let the command's owner remove displayed messages without Twitch access."""
+
+    def __init__(self, user_id, state):
+        super().__init__(timeout=120)
+        self.user_id = user_id
+        self.state = state
+        options = [
+            discord.SelectOption(
+                label=f"{message['user']} · {time.strftime('%H:%M:%S', time.localtime(message['time']))}"[
+                    :100
+                ],
+                description=message["text"][:100],
+                value=message["id"],
+            )
+            for message in reversed(pane_messages(state))
+            if message["id"]
+        ]
+        self.messages = discord.ui.Select(
+            placeholder="Choose a message to remove",
+            options=options,
+            row=0,
+            disabled=not options,
+        )
+        if not options:
+            self.messages.options = [
+                discord.SelectOption(label="No messages", value="-")
+            ]
+        self.messages.callback = self.remove_message
+        self.add_item(self.messages)
+
+    async def interaction_check(self, interaction: discord.Interaction):
+        """Only the owner who opened this view may change the pane."""
+        if interaction.user.id == self.user_id:
+            return True
+        await interaction.response.send_message(
+            "Only whoever ran this command can use these controls.", ephemeral=True
+        )
+        return False
+
+    async def remove_message(self, interaction: discord.Interaction):
+        """Hide the selected message and refresh the available choices."""
+        clear_pane(self.state, message_id=self.messages.values[0])
+        await interaction.response.edit_message(
+            content="Message removed from the pane only. Twitch chat is unchanged.",
+            view=ChatPaneView(self.user_id, self.state),
+        )
+
+    @discord.ui.button(label="Clear pane", style=discord.ButtonStyle.danger, row=1)
+    async def clear_all(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        """Hide all existing pane messages, leaving future chat visible."""
+        clear_pane(self.state)
+        await interaction.response.edit_message(
+            content="Chat pane cleared. Twitch chat is unchanged.", view=None
+        )
+
+
+@twitch.command(
+    name="clearchat", description="Remove chat pane messages locally, not from Twitch."
+)
+@app_commands.describe(user="Remove this Twitch user's existing messages instead")
+async def clearchat(interaction: discord.Interaction, user: str = None):
+    """Open a message picker, or clear a user's existing pane messages."""
+    state = interaction.client.dman.uns
+    if user is not None:
+        login = user.strip().lstrip("@").lower()
+        if not login:
+            raise app_commands.CheckFailure("Enter a Twitch username.")
+        clear_pane(state, login=login)
+        await interaction.response.send_message(
+            f"Removed `{login}`'s existing pane messages. Twitch chat is unchanged.",
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+        return
+    await interaction.response.send_message(
+        "Remove one message or clear the whole pane. Twitch chat is unchanged.",
+        view=ChatPaneView(interaction.user.id, state),
+    )
 
 
 def obs_cog(interaction):

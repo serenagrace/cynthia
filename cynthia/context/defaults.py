@@ -110,6 +110,7 @@ class Defaults:
         "llm_listen": True,
         "llm_learn": True,
         "llm_speak": False,
+        "llm_events": False,
         "llm_voice": False,
         # also talk while the stream is offline
         "llm_speak_offline": False,
