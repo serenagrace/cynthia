@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.8.1
+
+### Added
+- `/llm switch name:events` controls spontaneous stream-event and idle comments separately from Twitch chat replies. `llm_events` defaults to `false`; manual `/llm event` tests remain available.
+- Owner-only `/twitch clearchat` offers a dropdown of current pane messages and a **Clear pane** button. Its optional `user` argument removes that user's existing pane messages. These controls do not change Twitch chat or LLM memory, and new messages still appear.
+
+### Changed
+- Spontaneous event and idle comments are off by default, without disabling replies to Twitch chat. Disabling events also discards a remark still being generated.
+
 ## 1.8.0
 
 ### Added

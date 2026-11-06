@@ -21,7 +21,7 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, StreamingResponse
 
 from cynthia.utils.obslayout import OBS_SYNC_MAX_DELAY_MS, overlay_delay_ms
 from cynthia.utils.streamcfg import CV_FPS, setting, size_for
-from cynthia.utils.twitchchat import TwitchChat
+from cynthia.utils.twitchchat import PUBLIC_FIELDS, TwitchChat, pane_messages
 from cynthia.utils.version import display_version
 
 from .daemon import Daemon
@@ -588,8 +588,14 @@ def create_app(
 
     @app.get("/api/twitch_chat")
     async def twitch_chat():
-        """Return the latest Twitch chat messages (empty without a channel)."""
-        return {"messages": chat.recent() if chat else []}
+        """Return the latest chat, honoring owner-only local pane removals."""
+        uns.twitch_chat_messages = list(chat.messages) if chat else []
+        return {
+            "messages": [
+                {key: message[key] for key in PUBLIC_FIELDS}
+                for message in pane_messages(uns)
+            ]
+        }
 
     @app.get("/api/stream_endpoint")
     async def video_feed():

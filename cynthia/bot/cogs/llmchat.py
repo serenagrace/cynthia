@@ -4,7 +4,7 @@ Listening stores every chat message and keeps the recent-chat buffer; learning
 turns stored messages into per-chatter notes; speaking posts replies in chat
 and the voice reads them on stream; owner DM talk is a plain conversation.
 Each is switched with `/llm switch` and saved in the config (`llm_listen`,
-`llm_learn`, `llm_speak`, `llm_voice`, `llm_owner_talk`); `llm_enabled` turns
+`llm_learn`, `llm_speak`, `llm_events`, `llm_voice`, `llm_owner_talk`); `llm_enabled` turns
 them all off at once.
 """
 
@@ -71,6 +71,7 @@ TOGGLES = {
     "listen": ("llm_listen", True),
     "learn": ("llm_learn", True),
     "speak": ("llm_speak", False),
+    "events": ("llm_events", False),
     "voice": ("llm_voice", False),
     "talk": ("llm_owner_talk", False),
 }
@@ -915,7 +916,7 @@ class LLMChatCog(commands.Cog):
         idle = time.monotonic() - self.last_activity > self.triggers.idle_seconds()
         if idle:
             happened.append("idle")
-        if not happened or not await self.may_talk():
+        if not self.enabled("events") or not happened or not await self.may_talk():
             return
         for kind in happened:
             if not self.triggers.event(kind):
@@ -930,7 +931,7 @@ class LLMChatCog(commands.Cog):
                 "reply": result["reply"],
                 "dropped": result.get("dropped"),
             }
-            if result["reply"]:
+            if result["reply"] and self.enabled("events"):
                 entry["posted"] = await self.deliver(result["reply"], event=True)
             else:
                 self.last_activity = time.monotonic()

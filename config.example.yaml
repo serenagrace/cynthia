@@ -38,6 +38,8 @@ llm_enabled: true
 llm_listen: true
 llm_learn: true
 llm_speak: false
+# Spontaneous event and idle comments; independent of replies to Twitch chat
+llm_events: false
 llm_voice: false
 # Chance to answer @mentions/"cynthia", questions, short lines and other messages
 llm_reply_mention_chance: 1.0

@@ -206,7 +206,9 @@ The drive directory holds runtime state:
 - `cynthia.log` (and `cynthia.log.1` … `.10`): the full bot log from every process, including macro steps; rotated at 20 MB
 - `pokemonDB_dataset.csv`: species data for `/pokemon`. Provide it yourself; `/pokemon` is disabled when it is missing.
 - `encounter_times.log`, `user_status.json`, `activity_stats.json`, `uvicorn_access.log.gz` and a gzipped message log
-- `twitch_token.json` (the Twitch authorization, readable only by the bot's user) and `twitch_channel.json` (the last game and hunt sent to Twitch)
+- `twitch_channel.json`: the last game and hunt sent to Twitch
+
+Secrets never belong on the drive. `.env`, `twitch_token.json` and `twitch_chat_token.json` stay in the bot's working directory and are ignored by Git. The token files are readable only by the bot's user.
 
 ## Run
 
@@ -271,6 +273,7 @@ All of these are owner-only and DM-only:
 
 - `/twitch start | stop | test | uptime | status`: stream to Twitch with `TWITCH_STREAM_KEY` (or `OBS_STREAM_KEY`). `test` uses Twitch's bandwidth-test mode, so nothing goes live. `start` and `stop` ask you to confirm with a button first, so they can't go off by accident. Only the person who ran the command can press it, and after a minute the buttons expire and nothing changes.
 - `/twitch auth`: let the bot set the channel's title and category and clip shinies (see below).
+- `/twitch clearchat`: choose a message from a dropdown to remove from the chat pane, or press **Clear pane** to remove them all. Add `user` to remove that Twitch user's existing messages instead. These owner-only controls affect the pane only, not Twitch chat or LLM memory; new messages still appear.
 - `/obs framerate | resolution | record | stop | layout | show`, `/webstream framerate | resolution`: web and OBS frame rate and resolution are set independently and apply live. CV is always limited to 30 fps. The capture card runs at the cheapest mode that covers every running endpoint (OBS counts only while streaming or recording, the web stream only while someone watches), never below 720p for CV.
 
 `/twitchurl` is open to everyone, anywhere: it posts the `TWITCH_CHANNEL` link and says whether the channel is live. Once `/twitch auth` has been run it asks Twitch, so a bandwidth test counts as offline; otherwise it goes by whether OBS is streaming.
@@ -298,7 +301,9 @@ Restart Cynthia after upgrading to activate the new feed watchdogs and synchroni
 The bot can set the channel's category to the detected game and its title to the hunt (for example "Hunting shiny Cresselia"):
 
 1. Register an application at [dev.twitch.tv/console](https://dev.twitch.tv/console) and put its `TWITCH_CLIENT_ID` (and `TWITCH_CLIENT_SECRET` for a confidential client) in `.env`. Restart the bot.
-2. Run `/twitch auth`, open the link it sends and approve the code. The token is kept in the drive's `twitch_token.json` and renewed automatically. Once you confirm, `/twitch start` asks for this itself when the token is missing, lacks a scope or has been revoked, and starts the stream once you approve (or after 5 minutes); otherwise it starts straight away. With a confidential client (`TWITCH_CLIENT_SECRET` set) the token doesn't lapse, so one approval lasts until you revoke it; a public client's token lapses after 30 days unused.
+2. Run `/twitch auth`, open the link it sends and approve the code. The token is kept in `twitch_token.json` in the bot's working directory and renewed automatically. Once you confirm, `/twitch start` asks for this itself when the token is missing, lacks a scope or has been revoked, and starts the stream once you approve (or after 5 minutes); otherwise it starts straight away. With a confidential client (`TWITCH_CLIENT_SECRET` set) the token doesn't lapse, so one approval lasts until you revoke it; a public client's token lapses after 30 days unused.
+
+When upgrading from a version that stored Twitch tokens on the drive, stop the bot first. Move `twitch_token.json` and `twitch_chat_token.json`, if present, from the drive into the bot's working directory. Do not overwrite existing token files; resolve any conflicts before restarting. Keep the files owned by the bot user with permissions `600`. The old version reads tokens from the drive, so moving them back is required before rolling back.
 
 The channel changes only when the bot is sure and only when something new is detected. A game counts once it has been playing (not on the HOME screen) for `twitch_info_confirm_seconds` and it is one of the known titles. The category and title are then set once. They are not touched again, even if you edit them on Twitch, until a different game is detected or a different hunt is set. Clearing the hunt or returning to HOME never changes them. Without a hunt only the category is set. The last applied game and hunt are kept in `twitch_channel.json`, so a restart doesn't reapply them. If no Twitch category has exactly the game's name, the category is left alone; map it in `twitch_categories`.
 
@@ -443,7 +448,7 @@ She reads the channel in `TWITCH_CHANNEL` and posts with the Twitch authorizatio
 2. Run `/twitch botauth` in an owner DM.
 3. Open its approval link in a private browser window and sign in as **the bot account**.
 
-The same developer application is used, so no second Client ID is needed. `/twitch auth` still authorizes your broadcaster account for titles, categories and clips. Bot tokens are stored separately in `twitch_chat_token.json` on the drive.
+The same developer application is used, so no second Client ID is needed. `/twitch auth` still authorizes your broadcaster account for titles, categories and clips. Bot tokens are stored separately in `twitch_chat_token.json` in the bot's working directory.
 
 Once the bot account is authorized, it is always used for chat, and replies still go to your channel. If its authorization lapses, posting fails visibly in `/llm log` instead of falling back to the broadcaster.
 
@@ -451,7 +456,7 @@ Once the bot account is authorized, it is always used for chat, and replies stil
 
 | Command | Purpose |
 | --- | --- |
-| `/llm switch [name] [enabled]` | Show or flip the switches: `listen` (read chat), `learn` (chatter memory), `speak` (post in chat), `voice` (speak on stream) and `talk` (plain owner DMs). `all` turns everything off in one go; turning it back on restores each switch's own setting |
+| `/llm switch [name] [enabled]` | Show or flip the switches: `listen` (read chat), `learn` (chatter memory), `speak` (post in chat), `events` (spontaneous event and idle comments, off by default), `voice` (speak on stream) and `talk` (plain owner DMs). `all` turns everything off in one go; turning it back on restores each switch's own setting |
 | `/llm say` / `event` / `trigger` / `moderate` | Test a chat message through the whole pipeline, have her remark on a stream event, check whether a message would get a reply, or check text against the filter |
 | `/llm state` / `chat` / `log` / `filtered` | Show her live readout, the recent chat she sees, her recent decisions, or replies the filters blocked |
 | `/llm prompt [default]` / `context` | Edit the persona (or restore the built-in one), or the notes added under it |
@@ -473,7 +478,7 @@ Each chat message has a chance of a reply, by kind:
 
 Mentions and followups that arrive during her pause between replies are answered when the pause ends. The streamer skips every cooldown, and her questions are always answered unless they're aimed at someone else. Messages aimed at someone else (an @name, a reply, or opening with a chatter's name) get no boosts.
 
-Hard caps limit how chatty she gets, whoever she's answering. Stream events (shiny, encounter, watchdog, failsafe) and long silences get remarks by their own chances.
+Hard caps limit how chatty she gets, whoever she's answering. With `/llm switch name:events enabled:true`, stream events (shiny, encounter, watchdog, failsafe) and long silences get remarks by their own chances. This switch defaults to off and does not change replies to Twitch chat. Event remarks still need `speak` or `voice` enabled; `/llm event` remains available for manual tests.
 
 Wrap a chat message in parentheses, like `(she's still learning)`, to talk without Cynthia hearing it. An unclosed `(…` or fullwidth `（…）` counts too. A parenthesized part inside a message, like `good bot (she's trying)`, is cut out before she reads it.
 

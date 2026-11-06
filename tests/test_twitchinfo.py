@@ -131,6 +131,7 @@ def test_cog_apply_uses_a_category_id_override(tmp_path):
 def test_twitch_api_refreshes_an_expired_token_and_updates_the_channel(
     tmp_path, monkeypatch
 ):
+    monkeypatch.chdir(tmp_path)
     seen = {}
 
     async def token(request):
@@ -186,7 +187,7 @@ def test_twitch_api_refreshes_an_expired_token_and_updates_the_channel(
         monkeypatch.setattr(twitchapi, "AUTH_URL", f"http://127.0.0.1:{port}/oauth2")
         monkeypatch.setattr(twitchapi, "HELIX_URL", f"http://127.0.0.1:{port}/helix")
         try:
-            api = TwitchAPI("client", "secret", Drive(tmp_path))
+            api = TwitchAPI("client", "secret")
             api.tokens = {
                 "access_token": "old-access",
                 "refresh_token": "old-refresh",
@@ -229,10 +230,13 @@ def test_twitch_api_refreshes_an_expired_token_and_updates_the_channel(
     assert os.stat(stored).st_mode & 0o777 == 0o600
 
 
-def test_clipping_needs_a_new_authorization_without_the_clip_scope(tmp_path):
+def test_clipping_needs_a_new_authorization_without_the_clip_scope(
+    tmp_path, monkeypatch
+):
     from cynthia.utils.twitchapi import TwitchAuthError
 
-    api = TwitchAPI("client", None, Drive(tmp_path))
+    monkeypatch.chdir(tmp_path)
+    api = TwitchAPI("client", None)
     api.tokens = {"refresh_token": "r", "user_id": "42"}
 
     try:
@@ -246,15 +250,15 @@ def test_clipping_needs_a_new_authorization_without_the_clip_scope(tmp_path):
 def test_bot_chat_tokens_and_identity_are_separate(tmp_path, monkeypatch):
     from unittest.mock import AsyncMock
 
-    drive = Drive(tmp_path)
-    broadcaster = TwitchAPI("client", None, drive)
+    monkeypatch.chdir(tmp_path)
+    broadcaster = TwitchAPI("client", None)
     broadcaster.tokens = {
         "refresh_token": "broadcaster-refresh",
         "user_id": "42",
         "login": "streamer",
     }
     broadcaster._save()
-    bot = TwitchAPI("client", None, drive, chat=True)
+    bot = TwitchAPI("client", None, chat=True)
     assert not bot.authorized
     bot.tokens = {
         "refresh_token": "bot-refresh",
@@ -283,18 +287,42 @@ def test_bot_chat_tokens_and_identity_are_separate(tmp_path, monkeypatch):
             "reply_parent_message_id": "parent-id",
         },
     )
-    assert TwitchAPI("client", None, drive).tokens == broadcaster.tokens
-    assert TwitchAPI("client", None, drive, chat=True).tokens == bot.tokens
+    assert TwitchAPI("client", None).tokens == broadcaster.tokens
+    assert TwitchAPI("client", None, chat=True).tokens == bot.tokens
     assert bot.scopes == twitchapi.CHAT_SCOPE
     assert os.stat(tmp_path / twitchapi.CHAT_TOKEN_FILE).st_mode & 0o777 == 0o600
 
 
-def test_bot_chat_without_scope_requests_bot_authorization(tmp_path):
+def test_tokens_use_working_directory_not_drive(tmp_path, monkeypatch):
+    drive = tmp_path / "drive"
+    drive.mkdir()
+    monkeypatch.chdir(tmp_path)
+    for name in (twitchapi.TOKEN_FILE, twitchapi.CHAT_TOKEN_FILE):
+        (drive / name).write_text('{"refresh_token": "old"}')
+
+    for chat, name in (
+        (False, twitchapi.TOKEN_FILE),
+        (True, twitchapi.CHAT_TOKEN_FILE),
+    ):
+        api = TwitchAPI.from_env({"TWITCH_CLIENT_ID": "client"}, chat=chat)
+        assert not api.authorized
+        token = tmp_path / name
+        token.write_text("{}")
+        token.chmod(0o644)
+        api.tokens = {"refresh_token": "new"}
+        api._save()
+        assert TwitchAPI("client", None, chat=chat).tokens == api.tokens
+        assert token.stat().st_mode & 0o777 == 0o600
+        assert json.loads((drive / name).read_text()) == {"refresh_token": "old"}
+
+
+def test_bot_chat_without_scope_requests_bot_authorization(tmp_path, monkeypatch):
     import pytest
 
     from cynthia.utils.twitchapi import TwitchAuthError
 
-    bot = TwitchAPI("client", None, Drive(tmp_path), chat=True)
+    monkeypatch.chdir(tmp_path)
+    bot = TwitchAPI("client", None, chat=True)
     with pytest.raises(TwitchAuthError, match="/twitch botauth"):
         asyncio.run(bot.send_chat_message("hi", broadcaster_id="42"))
 
@@ -349,10 +377,11 @@ def test_cog_clips_a_new_shiny_once_it_reaches_the_live_stream(tmp_path):
     assert text == "🎬 Clipped the shiny: https://twitch.tv/x/clip/c"
 
 
-def test_needs_authorization_for_missing_scopes_or_a_dead_token(tmp_path):
+def test_needs_authorization_for_missing_scopes_or_a_dead_token(tmp_path, monkeypatch):
     from cynthia.utils.twitchapi import TwitchAuthError
 
-    api = TwitchAPI("client", None, Drive(tmp_path))
+    monkeypatch.chdir(tmp_path)
+    api = TwitchAPI("client", None)
     assert asyncio.run(api.needs_authorization())
 
     api.tokens = {
@@ -379,6 +408,7 @@ def test_refresh_keeps_tokens_without_the_client_secret_and_identity_when_revoke
 ):
     from cynthia.utils.twitchapi import TwitchAuthError
 
+    monkeypatch.chdir(tmp_path)
     replies = []
 
     async def token(request):
@@ -393,7 +423,7 @@ def test_refresh_keeps_tokens_without_the_client_secret_and_identity_when_revoke
         await site.start()
         port = site._server.sockets[0].getsockname()[1]
         monkeypatch.setattr(twitchapi, "AUTH_URL", f"http://127.0.0.1:{port}/oauth2")
-        api = TwitchAPI("client", None, Drive(tmp_path), chat=True)
+        api = TwitchAPI("client", None, chat=True)
         api.tokens = {
             "refresh_token": "r",
             "expires_at": 0,

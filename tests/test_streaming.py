@@ -356,6 +356,94 @@ def test_overlay_panes_and_chat_endpoint(tmp_path):
     assert (stats["web_fps"], stats["obs_height"], stats["cv_fps"]) == (30, 1080, 30)
 
 
+def test_chat_pane_dropdown_user_and_full_clear_without_twitch_access(
+    tmp_path, monkeypatch
+):
+    import asyncio
+    from unittest.mock import AsyncMock
+
+    from cynthia.bot.applications import twitch
+    from cynthia.daemons.frames import FrameRing
+    from cynthia.utils import twitchchat
+
+    now = [1000.0]
+    monkeypatch.setattr(twitchchat.time, "time", lambda: now[0])
+    chat = TwitchChat("chan")
+    chat.run = AsyncMock()
+    monkeypatch.setattr("cynthia.daemons.cystream.TwitchChat", lambda channel: chat)
+
+    def say(login, message_id, text):
+        chat.handle(
+            f"@display-name={login};id={message_id} "
+            f":{login}!{login}@x PRIVMSG #chan :{text}"
+        )
+
+    say("ash", "a1", "hi")
+    say("gary", "g1", "hello")
+    say("ash", "a2", "remove me")
+    state = uns()
+    response = SimpleNamespace(send_message=AsyncMock(), edit_message=AsyncMock())
+    owner = SimpleNamespace(
+        client=SimpleNamespace(dman=SimpleNamespace(uns=state)),
+        user=SimpleNamespace(id=1),
+        response=response,
+    )
+
+    async def pick_message():
+        await twitch.clearchat.callback(owner)
+        view = response.send_message.call_args.kwargs["view"]
+        assert [option.value for option in view.messages.options] == ["a2", "g1", "a1"]
+        stranger = SimpleNamespace(user=SimpleNamespace(id=2), response=response)
+        assert not await view.interaction_check(stranger)
+        assert await view.interaction_check(owner)
+        view.messages._values = ["a2"]
+        await view.messages.callback(owner)
+
+    ring = FrameRing((72, 128, 3))
+    try:
+        app = create_app(
+            Drive(tmp_path),
+            SimpleNamespace(run=True),
+            state,
+            ring,
+            twitch_channel="chan",
+        )
+        with TestClient(app) as client:
+
+            def texts():
+                return [
+                    message["text"]
+                    for message in client.get("/api/twitch_chat").json()["messages"]
+                ]
+
+            assert texts() == ["hi", "hello", "remove me"]
+            asyncio.run(pick_message())
+            assert texts() == ["hi", "hello"]
+            # A reload cannot restore hidden messages.
+            assert texts() == ["hi", "hello"]
+            asyncio.run(twitch.clearchat.callback(owner, user=" @ASH "))
+            assert texts() == ["hello"]
+            now[0] += 1
+            say("ash", "a3", "new message")
+            assert texts() == ["hello", "new message"]
+
+            async def clear_all():
+                await twitch.clearchat.callback(owner)
+                view = response.send_message.call_args.kwargs["view"]
+                await view.clear_all.callback(owner)
+                assert response.edit_message.call_args.kwargs["view"] is None
+
+            asyncio.run(clear_all())
+            assert texts() == []
+            now[0] += 1
+            say("gary", "g2", "after clearing")
+            assert texts() == ["after clearing"]
+            # These controls never delete from the chat reader or LLM history.
+            assert len(chat.messages) == 5
+    finally:
+        ring.close(unlink=True)
+
+
 def test_vbv_args_spread_keyframes_over_the_buffer():
     from cynthia.daemons.obsfeed import vbv_args
 
