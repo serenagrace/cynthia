@@ -275,6 +275,31 @@ def test_cystream_encodes_ring_frames_for_viewers_and_reuses_cache(tmp_path):
         ring.close(unlink=True)
 
 
+def test_audio_encoder_emits_frames_before_input_closes():
+    import asyncio
+
+    from cynthia.daemons.cystream import AUDIO_ENCODER
+    from cynthia.daemons.frames import AUDIO_BYTES_PER_SEC
+
+    async def encode():
+        proc = await asyncio.create_subprocess_exec(
+            *AUDIO_ENCODER,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        try:
+            proc.stdin.write(bytes(AUDIO_BYTES_PER_SEC // 5))
+            await proc.stdin.drain()
+            return await asyncio.wait_for(proc.stdout.readexactly(1001), timeout=5)
+        finally:
+            if proc.returncode is None:
+                proc.kill()
+            await proc.communicate()
+
+    assert len(asyncio.run(encode())) > 1000
+
+
 def test_cystream_audio_stream_encodes_ring_pcm_and_reports_sync(tmp_path):
     import threading
 

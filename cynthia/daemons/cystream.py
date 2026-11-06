@@ -43,6 +43,9 @@ AUDIO_ENCODER = [
     "-nostdin",
     "-loglevel",
     "error",
+    # Raw PCM parameters are known; default probing delays FFmpeg 8 by seconds.
+    "-probesize",
+    "32",
     "-f",
     "s16le",
     "-ar",
