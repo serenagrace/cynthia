@@ -43,8 +43,6 @@ AUDIO_ENCODER = [
     "-nostdin",
     "-loglevel",
     "error",
-    "-fflags",
-    "nobuffer",
     "-f",
     "s16le",
     "-ar",
