@@ -3,7 +3,7 @@ requires = ["setuptools >= 84.2.1"]
 build-backend = "setuptools.build_meta"
 [project]
 name="cynthia"
-version="1.7.4"
+version="1.8.0"
 description="Discord bot with Nintendo Switch (NXBT) automation and shiny-hunting video capture"
 readme="README.md"
 license="GPL-3.0-or-later"
@@ -30,7 +30,9 @@ dependencies = [
     "obsws-python>=1.8.1",
     "xxhash==4.0.2",
     "numpy<2.0.0",
-    "opencv-python-headless<5.1"
+    "opencv-python-headless<5.1",
+    "better-profanity==0.7.0",
+    "piper-tts==1.8.0"
 ]
 
 [project.optional-dependencies]

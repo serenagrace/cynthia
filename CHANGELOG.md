@@ -1,5 +1,82 @@
 # Changelog
 
+## 1.8.0
+
+### Added
+
+#### Chat model
+- Cynthia can chat on Twitch through a local model (Ollama, Llama 3.2 3B, 4,096-token context, fully on the GPU). She reads chat and answers in chat, aloud on stream, or both. Her prompt includes:
+  - the messages before the one she answers, and the chatter's earlier messages this stream;
+  - memories of the chatter and anyone they name, and the names present in chat;
+  - game, hunt, stream, bot and controller state;
+  - Pokémon facts (legendaries, mythicals, types, regions, games) looked up from the game, the hunt target and chat.
+
+  Prompts are trimmed to fit the context window.
+- The stream readout spells out what each stat means: her own uptime versus the stream's and the total hunt time, and what a try is. It gives both odds (no shiny yet, and one found by now), how lucky that is, and the expected remaining tries.
+- Owner-only `/llm` commands cover testing, memory viewing and editing, teaching, status and blocked replies. `/llm sysprompt` attaches the full system prompt she'd get right now. In talk mode, plain DMs to the bot teach her.
+- `/llm switch` turns reading chat (`listen`), learning, posting (`speak`), `voice` and DM `talk` on and off; each is saved in the config. `all` (`llm_enabled`) turns everything off in one go, and turning it back on restores each switch's own setting.
+- When she replies:
+  - Replies are triggered by chance per message kind (mention, question, short, other) and per stream event (shiny, encounter, watchdog, failsafe, idle).
+  - A mention is naming Cynthia (including "Cynthia's", small typos and her full `@Cynthia__Bot` tag) or replying to her. Mentions and followups are always answered. A followup is a question from someone she answered in the last `llm_followup_seconds` (`90`).
+  - She waits a bell-curve pause between replies (about 9 s on average). Mentions and followups that arrive during it are answered when it ends.
+  - Chances for other messages rise towards certain the quieter chat is (`llm_quiet_window_seconds`, `llm_busy_chatters`) and the longer she has been silent (`llm_silence_boost_seconds`). Short messages (under 4 words) get no rise and default to `0.03`.
+  - Messages aimed at someone else get no boosts: an @name, a reply, or a message opening with a recent chatter's name.
+  - The streamer skips every cooldown, and her questions are always answered (`llm_streamer_question_chance`).
+  - Mentions past the first `llm_mention_spam_free` (`2`) in a minute are less likely to be answered, and so are repeats of chat she already answered.
+  - Hard caps: at most `llm_max_posts_per_minute` (`4`) and `llm_max_posts_per_10_minutes` (`20`) posts, including event and idle remarks. Shiny news is exempt.
+- Chat in parentheses, like `(she's still learning)`, is an aside she never hears. Unclosed `(…` and fullwidth `（…）` count too. Asides are stored and journaled, but never answered, used as context or learned from. Parenthesized parts inside a message are cut out before she reads it; pronouns like `(she/her)` are still noted.
+- The streamer is trusted:
+  - Her lines are marked `(streamer, mom)`, and Cynthia's own lines are marked `(you)`.
+  - Cynthia knows the streamer, her creator and "mom" are one person talking to her directly. She answers her as "you" and takes what she says as true.
+  - Viewers can't speak for the streamer: a viewer's "mom said…" is marked unverified, and things viewers say about the streamer are never shown to her as memory.
+  - The streamer's messages are never hidden by the profanity flag.
+- Moderation in and out: TOS, profanity, slurs, sexual content, personal info and links.
+  - A repetition filter catches looping phrases and replies close to recent ones.
+  - Blocked replies are retried with feedback, logged (`/llm filtered`) and DMed to the owner, with buttons to make a lesson or allow words.
+  - `llm_allowed_words` and `llm_blocked_words` accept a comma-separated string, so `/cset` can set them.
+- Replies are also checked for how they treat people, and regenerated (up to 3 tries, logged without a DM) when they:
+  - talk about the person being answered in the third person;
+  - say the streamer said, did or wants anything (even if true);
+  - doubt or snark at what the streamer said ("nice try");
+  - fuse a name with other text ("serenachannel").
+
+  Speaker labels copied from the transcript are stripped.
+- She recognizes her own chat posts and never answers them. Posts made as the broadcaster are matched by message ID or by normalized text.
+- Chatter memory:
+  - Notes come only from a chatter's own first-person statements, not opinions, questions or requests. Each fact must be backed by the chatter's exact words, which are kept when the model shortens it.
+  - New facts are added to existing notes (including owner-added ones) instead of rewriting them. Each chatter is described by real counts (streams, messages, since when).
+  - Facts about other chatters are asked about one message at a time, and kept as unconfirmed hearsay: 15% confidence per different person saying it, capped at 60%, and shown as possibly a joke.
+  - Pronouns come from fixed patterns only: the chatter stating them, or at least 3 messages from 2 or more people clearly about them, with 80% using one set. Everyone else is they/them.
+  - Nicknames are learned after 3 uses of a word that fuzzy-matches exactly one chatter in chat.
+  - A slow-moving sense of how a chatter treats her comes from fixed word lists, applied to mentions of her and replies to her only.
+- Chat journal: every Twitch chat message she reads is written to `chat_journal/YYYY-MM-DD.jsonl` on the drive. Each entry records the message kind, the reply odds and roll, or why she skipped it. For replies it also records the exact prompt, every draft (including blocked ones) and whether it was posted. Event remarks are journaled too.
+- Piper text to speech on stream through an OBS "Cynthia Voice" source. Every voice is normalized to `tts_loudness` (-20 dBFS) with a soft peak limit. Choose voices with `/llm voices` and `/llm setvoice`. Clips play even when Cynthia runs as root and OBS runs as another user.
+
+#### Twitch
+- Separate chat identity: `/twitch botauth` authorizes a bot account for chat without replacing the broadcaster's tokens. Once a bot account is set up it is always used. If its authorization lapses, posting fails visibly in `/llm log` instead of falling back to the broadcaster.
+- While streaming, `/restart` and `/reboot` post a fixed "be right back" message in Twitch chat (`twitch_reboot_message`). `/shutdown` posts a goodbye (`twitch_goodbye_message`), waits 5 seconds and ends the stream. Neither message comes from the chat model, and a blank message disables it.
+
+#### Other
+- Persistent log file: every process (the bot and its daemons) writes to `cynthia.log` on the drive, including macro steps, daemon crashes and uncaught errors. It rotates at 20 MB and keeps 10 old files.
+- Unreleased builds show their version as `-alpha` (for example `1.8.0-alpha`) in the about embed and the OBS watermark. A build is unreleased when it has uncommitted changes to `cynthia/` or `pyproject.toml`, or its commit isn't on `origin/master`.
+
+### Changed
+- `/twitch` commands and `/twitchurl` use Twitch purple (`#9146FF`) for every embed and panel, instead of red or grey for live or offline.
+- The default OBS watermark pane is wider (`x: 0.7, w: 0.3`), and its text shrinks to fit instead of being cut off.
+- The scene-score panes (OBS overlay and web viewer) poll every 250 ms instead of every second, so they trail the video by up to a second less.
+- Macro steps are shown on the console only with `-v`/`--verbose`. They made up nearly all of the console output and pushed errors out of the scrollback.
+
+### Fixed
+- The daemon monitor never ran. A second `setup_hook` replaced the one that started it, so dead or stalled capture and CV daemons were never restarted automatically. It now starts once commands are loaded.
+- A capture card that keeps delivering frames of one frozen picture is now detected. Before, only frames that stopped arriving were noticed, so a frozen picture ran on stream for 5 hours.
+  - When the picture is unchanged for `capture_freeze_seconds` (default `120`), ignoring the no-signal screen, the capture daemon restarts and resets the card.
+  - The owner gets a DM when this happens, again after 3 failed resets, and on recovery. Repeated resets back off.
+- OBS overlay synchronization now confirms measured delays during hunts. True matches against OBS's compressed video scored an error of 3–7, above the old limit of 6, and every ambiguous check cleared the confirmation streak. The overlays stayed on the 2.7 s fallback, about 0.9 s behind the 1.8 s video.
+- Audio pops are smoothed over on Twitch and every other feed. About twice a second the Elgato 4K X's audio splices a USB packet early, then sends one garbage frame and three silent ones. The capture daemon bridges the dropout and fades out the splice, adding 1.3 ms of latency. Sharp discontinuities in a 30 s capture fell from 82 to 15.
+- A refreshed Twitch token is saved as soon as Twitch issues it. Before, a failed validation or a stop in between left a spent refresh token, forcing `/twitch auth` again. Rejected refreshes are logged with Twitch's reason.
+- A Twitch token that can't be renewed because `TWITCH_CLIENT_SECRET` is missing is kept, and the error says to set the secret. Before, both tokens were deleted every few hours.
+- The scene matcher no longer crashes with `KeyError: None` when a macro clears its target scene during a check.
+
 ## 1.7.4
 
 ### Added

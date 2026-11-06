@@ -6,7 +6,7 @@
 [![discord.py](https://img.shields.io/badge/discord.py-bot-5865F2?logo=discord&logoColor=white)](https://github.com/Rapptz/discord.py)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![Platform: Linux](https://img.shields.io/badge/platform-linux-FCC624?logo=linux&logoColor=black)](#requirements)
-[![Version](https://img.shields.io/badge/version-1.7.4-success.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.8.0-success.svg)](CHANGELOG.md)
 
 **Customizable Internal Network Task Handler + Interactive Assistant**
 
@@ -22,6 +22,7 @@ Cynthia is a Python Discord bot with slash commands, permission-aware controls, 
 - **Server tools and permissions:** manage command allowlists and permissions by user, role, or guild; configure message-log channels; and change the bot's server nickname or avatar. Optional member screening provides interactive insights, greetings, and moderation actions, including automated kick/ban rules when the bot has the configured Bouncer role.
 - **Host administration and storage:** check configured services and network hosts, manage configuration, upload or download drive files, and run authorized shell commands. Reload commands, cogs, or daemons and control bot restarts, shutdowns, and host reboots from Discord. An enabled drive persists macros, logs, message-trigger rules, and integration state.
 - **Status and external integrations:** publish game, hunt, and custom activity status through the local web API; expose plain-text StreamElements commands; and mirror activity into desktop Discord Rich Presence with the optional `cyclient` script. A Pokémon lookup command is available when its species dataset is supplied.
+- **Twitch chat persona:** a local, GPU-hosted Ollama model reads Twitch chat and answers in chat or aloud on stream. It remembers chatters, remarks on hunt events, and is moderated, rate-capped and fully switchable from owner-only `/llm` commands.
 
 Integrations depend on the relevant hardware, credentials, datasets, and permissions.
 Command modules, cogs, and daemons are discovered automatically, so the bot can
@@ -130,6 +131,10 @@ bin/install.sh
 
 The script verifies that the installed version matches `pyproject.toml`. The
 restart is required before `/about` and the OBS watermark show the new version.
+Both add `-alpha` (for example `1.8.0-alpha`) when the running checkout has
+uncommitted changes to `cynthia/` or `pyproject.toml`, or its commit isn't on
+`origin/master`. This is checked once at startup against the local
+`origin/master` ref, so run `git fetch` after a release is merged elsewhere.
 
 The `nxbt` dependency installs directly from [serenagrace/nxbt](https://github.com/serenagrace/nxbt), branch `cynthia-patches`, as configured in `pyproject.toml`.
 
@@ -152,7 +157,7 @@ cp perms.example.yaml perms.yaml
 | `SYNC_GUILD_ID` | no | Guild that receives slash commands immediately after each sync. Global sync still happens. |
 | `OBS_WS_HOST` / `OBS_WS_PORT` / `OBS_WS_PASSWORD` | no | obs-websocket address (default `127.0.0.1:4455`) and password. |
 | `TWITCH_STREAM_KEY` / `OBS_STREAM_KEY` | no | Stream key for `/twitch`. The Twitch one wins. |
-| `TWITCH_CHANNEL` | no | Channel for the chat overlay and `/twitchurl`. |
+| `TWITCH_CHANNEL` | no | Channel for the chat overlay, `/twitchurl` and the chat model. |
 | `TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET` | no | Twitch application that sets the stream title and category after `/twitch auth`. The secret is only for confidential clients. |
 | `STATUS_HOSTS` | no | Comma-separated hostnames or IPs the owner's `/status` command pings. Defaults to `discord.com,github.com,google.com`. |
 
@@ -175,9 +180,12 @@ Values in the process environment win over `.env`.
 | `obs_layout_file` | OBS pane layout. Defaults to `obs_layout.yaml`. |
 | `twitch_bitrate_kbps` | Video bitrate for Twitch streams (OBS Simple output mode). Defaults to `6000`. |
 | `twitch_no_signal_stop_minutes` | Stop the stream once the capture card's no-signal screen has been up this long. Defaults to `10`; `0` disables it. |
+| `capture_freeze_seconds` | Reset the capture card (restart the capture daemon, with `usbreset` when `ELGATO_USB_ID` is set) when frames keep arriving but the picture has not changed for this many seconds, and DM the owner. The no-signal screen is ignored. Repeated failures wait twice as long each time, up to 16 times this value. Defaults to `120`; `0` disables it. |
 | `twitch_auto_clip` | Clip the stream when a shiny is found. Defaults to `true`; needs `/twitch auth`. |
 | `twitch_clip_delay_seconds` | Seconds to wait after the shiny shows on the input visualizer (`obs_feed_delay_ms` + `obs_overlay_lag_ms`) before clipping, so the moment has reached Twitch (Twitch clips the 30 seconds before the request). Defaults to `10`. |
 | `twitch_restart_hours` | Stop and restart a stream once it has run this long, since Twitch ends broadcasts at 48 hours. The owner gets a DM. Defaults to `24`; `0` disables it. |
+| `twitch_reboot_message` | Fixed Twitch chat message (not the chat model) posted on `/restart` and `/reboot` while OBS is streaming. Defaults to `be right back, rebooting real quick!`; `""` disables it. |
+| `twitch_goodbye_message` | Fixed Twitch chat message posted on `/shutdown`, which then ends the stream after 5 seconds so the message shows on it. Defaults to `that's all for now, thanks for hanging out! bye!`; `""` skips the message (the stream still ends). |
 | `twitch_auto_info` | Set the Twitch title and category from the detected game and hunt. Defaults to `true`; it does nothing until `/twitch auth` has been run. |
 | `twitch_info_confirm_seconds` | How long a new game or hunt must hold before the channel is changed. Defaults to `60`. |
 | `twitch_categories` | Map a detected game title to a Twitch category name or id when Twitch names it differently. Defaults to `{}`. |
@@ -195,6 +203,7 @@ The drive directory holds runtime state:
 
 - `macros.json`: saved Switch macros
 - `cynthia.db`: Discord logging and OnMessage rules
+- `cynthia.log` (and `cynthia.log.1` … `.10`): the full bot log from every process, including macro steps; rotated at 20 MB
 - `pokemonDB_dataset.csv`: species data for `/pokemon`. Provide it yourself; `/pokemon` is disabled when it is missing.
 - `encounter_times.log`, `user_status.json`, `activity_stats.json`, `uvicorn_access.log.gz` and a gzipped message log
 - `twitch_token.json` (the Twitch authorization, readable only by the bot's user) and `twitch_channel.json` (the last game and hunt sent to Twitch)
@@ -205,7 +214,7 @@ The drive directory holds runtime state:
 bin/run.sh --config config.yaml --perms perms.yaml
 ```
 
-`bin/run.sh` runs `sudo env/bin/cynthia` in a loop: exit codes 0 and 1 stop it, anything else restarts the bot. The user needs passwordless `sudo`. Both options default to the filenames above. The bot loads slash commands and cogs at startup and writes updated configuration and permissions back to their files when it exits.
+`bin/run.sh` runs `sudo env/bin/cynthia` in a loop: exit codes 0 and 1 stop it, anything else restarts the bot. The user needs passwordless `sudo`. Both options default to the filenames above. Add `-v` (`--verbose`) to also show every macro step on the console; `cynthia.log` on the drive always has them. The bot loads slash commands and cogs at startup and writes updated configuration and permissions back to their files when it exits.
 
 The bot also serves a local FastAPI app on `127.0.0.1:8000` (the video feed page and `/api/*` endpoints). Put a reverse proxy such as nginx in front of it to publish it.
 
@@ -272,7 +281,7 @@ The OBS scene is built from `obs_layout.yaml` (copy `obs_layout.example.yaml`): 
 
 Both OBS and WebRTC feeds monitor fresh-frame throughput. After a 15-second startup grace period, two consecutive 15-second windows below half the available frame rate recycle only the affected FFmpeg encoder through its normal retry path. Static images, lower requested output rates, and stopped capture do not trigger recovery. This briefly interrupts that feed without restarting the bot or its macros.
 
-The `OverlaySyncCog` checks OBS's displayed video against a small history of capture thumbnails every five seconds while streaming or recording. Three consistent, unambiguous matches gradually adjust the input visualizer and scene-score delay, by at most 250 ms per check. It ignores timing differences below 100 ms and does not restart video or change WebRTC timing. Static or repeating scenes retain the last confirmed delay; disconnects and source restarts restore the configured fallback. Matching supports up to ten seconds of video age; a larger backlog cannot be corrected automatically.
+The `OverlaySyncCog` checks OBS's displayed video against a small history of capture thumbnails every five seconds while streaming or recording. Three consistent, unambiguous matches among the last five (within a minute) gradually adjust the input visualizer and scene-score delay, by at most 250 ms per check. Ambiguous checks don't discard earlier matches, and one outlier is outvoted. It ignores timing differences below 100 ms and does not restart video or change WebRTC timing. Static or repeating scenes retain the last confirmed delay; disconnects and source restarts restore the configured fallback. Matching supports up to ten seconds of video age; a larger backlog cannot be corrected automatically.
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
@@ -406,6 +415,129 @@ The script uses the project's public application ID and its art assets by defaul
 | Other detected games or the Switch home screen | `nintendo_switch` |
 
 On the Switch home screen, CV reads the selected game title and corrects recognized OCR variations before publishing status; this is game-title matching, not game-specific encounter detection.
+
+## Local chat model
+
+Cynthia can chat on Twitch through a local language model served by [Ollama](https://ollama.com). She reads chat, answers in chat or aloud on stream, remembers chatters and remarks on hunt events. The bot owner controls and tests her with the owner-only `/llm` commands.
+
+### Setup
+
+Install Ollama with the script from ollama.com, then pull the default model. Llama 3.2 3B uses about 2.5 GB of VRAM with the default 4,096-token context and runs fully on a 6 GB GPU next to OBS:
+
+```bash
+ollama pull llama3.2:3b
+```
+
+To keep only one model loaded and one request running at a time, add a systemd override with `sudo systemctl edit ollama`:
+
+```ini
+[Service]
+Environment="OLLAMA_MAX_LOADED_MODELS=1"
+Environment="OLLAMA_NUM_PARALLEL=1"
+Environment="OLLAMA_KEEP_ALIVE=30m"
+```
+
+She reads the channel in `TWITCH_CHANNEL` and posts with the Twitch authorization. To post under a separate bot username:
+
+1. Create a Twitch account for the bot.
+2. Run `/twitch botauth` in an owner DM.
+3. Open its approval link in a private browser window and sign in as **the bot account**.
+
+The same developer application is used, so no second Client ID is needed. `/twitch auth` still authorizes your broadcaster account for titles, categories and clips. Bot tokens are stored separately in `twitch_chat_token.json` on the drive.
+
+Once the bot account is authorized, it is always used for chat, and replies still go to your channel. If its authorization lapses, posting fails visibly in `/llm log` instead of falling back to the broadcaster.
+
+### Commands
+
+| Command | Purpose |
+| --- | --- |
+| `/llm switch [name] [enabled]` | Show or flip the switches: `listen` (read chat), `learn` (chatter memory), `speak` (post in chat), `voice` (speak on stream) and `talk` (plain owner DMs). `all` turns everything off in one go; turning it back on restores each switch's own setting |
+| `/llm say` / `event` / `trigger` / `moderate` | Test a chat message through the whole pipeline, have her remark on a stream event, check whether a message would get a reply, or check text against the filter |
+| `/llm state` / `chat` / `log` / `filtered` | Show her live readout, the recent chat she sees, her recent decisions, or replies the filters blocked |
+| `/llm prompt [default]` / `context` | Edit the persona (or restore the built-in one), or the notes added under it |
+| `/llm show` / `sysprompt` | Show the persona, notes and switches, or attach the full system prompt she'd get right now |
+| `/llm memory` / `memories` / `learn` | View and edit what she remembers about a chatter, list remembered chatters, or update a chatter's notes now |
+| `/llm teach` / `lessons` / `unlearn` | Teach her lessons in conversation, list them, or remove one |
+| `/llm tts` / `voices` / `setvoice` | Hear text in her voice, list Piper voices, or pick one |
+| `/llm reset` / `status` | Clear the `/llm say` test conversation, or check Ollama and its GPU memory |
+
+Prompt and note edits are saved to `config.yaml` when the bot shuts down.
+
+### When she replies
+
+Each chat message has a chance of a reply, by kind:
+
+- **Mention:** naming Cynthia (including "Cynthia's", small typos and her full `@Cynthia__Bot` tag) or replying to her. Mentions are always answered.
+- **Followup:** a question from someone she answered in the last `llm_followup_seconds`. Followups are always answered too.
+- **Question, short message or other message:** answered by chance.
+
+Mentions and followups that arrive during her pause between replies are answered when the pause ends. The streamer skips every cooldown, and her questions are always answered unless they're aimed at someone else. Messages aimed at someone else (an @name, a reply, or opening with a chatter's name) get no boosts.
+
+Hard caps limit how chatty she gets, whoever she's answering. Stream events (shiny, encounter, watchdog, failsafe) and long silences get remarks by their own chances.
+
+Wrap a chat message in parentheses, like `(she's still learning)`, to talk without Cynthia hearing it. An unclosed `(…` or fullwidth `（…）` counts too. A parenthesized part inside a message, like `good bot (she's trying)`, is cut out before she reads it.
+
+Replies are moderated (TOS, profanity, slurs, sexual content, personal info, links and repetition), run one at a time, and are trimmed to Twitch's 500-character limit. A reply is regenerated (up to 3 tries) if it:
+
+- breaks a filter;
+- talks about the person she's answering in the third person;
+- says the streamer said, did or wants anything;
+- doubts what the streamer said;
+- fuses a name with other text.
+
+The owner is DMed about safety blocks, with buttons to allow words or make a lesson.
+
+### Who she knows
+
+- **The streamer is trusted.** The streamer's lines are marked `(streamer, mom)`, and Cynthia knows the streamer, her creator and "mom" are one person talking to her directly. She answers her as "you" and takes what she says as true, and the profanity flag never hides her messages. A viewer's "mom said…" is marked unverified.
+- **Chatter memory.** Notes about a chatter come only from their own first-person statements (not opinions, questions or requests), backed by their exact words. Things a chatter says about someone else are kept as unconfirmed hearsay: 15% confidence per different person saying it, capped at 60%, and shown to her as possibly a joke.
+- **Pronouns.** She uses they/them unless a chatter states their pronouns ("my pronouns are she/her", "(he/him)"), or at least 3 messages from 2 or more people clearly about them agree.
+- **Nicknames.** Nicknames chat uses ("fishy" for fish_vtuber) are learned after 3 uses.
+- **Tone.** She keeps a slow-moving sense of how a chatter treats her.
+
+`/llm memory` shows everything she knows about a chatter, including each pronoun clue.
+
+Her stream readout spells out what each stat means. It separates her own uptime from the stream's and the total hunt time, defines a try, and gives both odds (no shiny yet, and one found by now) with how lucky that is.
+
+### Chat journal
+
+Every chat message she reads is journaled to `chat_journal/YYYY-MM-DD.jsonl` on the drive, one JSON object per line. Each entry records why she answered or skipped the message: its kind, the odds and roll, or the skip reason. Answered messages also record the exact prompt, every draft (including blocked ones) and the reply. Use the journal to tune the prompt and chances.
+
+### Settings
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `llm_url` / `llm_model` | `http://127.0.0.1:11434` / `llama3.2:3b` | Ollama server and model |
+| `llm_enabled` | `true` | Master switch; `false` turns every switch below off |
+| `llm_listen` / `llm_learn` / `llm_speak` / `llm_voice` / `llm_owner_talk` | `true` / `true` / `false` / `false` / `false` | The `/llm switch` switches |
+| `llm_speak_offline` | `false` | Also talk while the stream is offline |
+| `llm_system_prompt` / `llm_context` | empty | Persona (empty uses the built-in one) and notes added under it |
+| `llm_context_messages` | `8` | Chat lines before the message being answered |
+| `llm_bot_names` | `[cynthia]` | Names that count as talking to her (her account's login also counts) |
+| `llm_ignored_chatters` | StreamElements, Nightbot, Streamlabs, Moobot | Chatters never read or answered |
+| `llm_reply_<kind>_chance` | mention `1.0`, followup `1.0`, question `0.5`, short `0.03`, random `0.05` | Chance to answer each kind of message |
+| `llm_followup_seconds` | `90` | How long after she answers someone their questions count as followups |
+| `llm_quiet_window_seconds` / `llm_busy_chatters` | `180` / `5` | Chances rise towards certain the fewer people chatted in the window: fully with one, not at all with `llm_busy_chatters` or more. Short messages (under 4 words) get no rise |
+| `llm_silence_boost_seconds` | `900` | Chances also rise the longer she has been silent, fully after this long; `0` turns it off |
+| `llm_streamer_question_chance` | `1.0` | Chance of answering the streamer's questions, even without her name |
+| `llm_streamer_boost` | `0.15` | Small extra lift for the streamer's longer messages |
+| `llm_reply_min_seconds` / `llm_reply_jitter_seconds` | `9` / `2.5` | Pause between any two replies, drawn from a bell curve with this mean and spread (kept within ⅓–3× the mean) |
+| `llm_reply_cooldown_seconds` | `30` | Cooldown before answering messages that don't name her |
+| `llm_user_cooldown_seconds` / `llm_mention_cooldown_seconds` | `20` / `5` | Per-chatter cooldown, shorter when they name her |
+| `llm_max_posts_per_minute` / `llm_max_posts_per_10_minutes` | `4` / `20` | Hard caps on her posts, including event and idle remarks (shiny news is exempt); `0` turns a cap off |
+| `llm_mention_window_seconds` / `llm_mention_spam_free` / `llm_mention_spam_factor` | `60` / `2` / `0.5` | Each mention in the window past the first `llm_mention_spam_free` multiplies the chance of answering the next one; the streamer's don't count |
+| `llm_repeat_similarity` | `0.8` | How alike (0–1) two messages must be to count as a repeat |
+| `llm_repeat_input_factor` | `0.3` | Answer chance kept per repeat of a chat message she already answered |
+| `llm_repeat_allow_chance` | `0.2` | Chance a reply close to one said lately still goes out (per repeat); phrase loops are always blocked |
+| `llm_event_<kind>_chance` / `llm_event_cooldown_seconds` | shiny `1.0`, watchdog `0.75`, failsafe `0.5`, encounter `0.05`, idle `1.0` / `60` | Chance to remark on each stream event, and the cooldown between remarks |
+| `llm_idle_minutes` | `20` | Minutes of silence before an idle remark |
+| `llm_allowed_words` / `llm_blocked_words` | `[]` | Words to let through or add to the profanity list, for chat and Cynthia alike; a list or a comma-separated `/cset` value |
+| `llm_notify_filtered` / `llm_notify_seconds` | `true` / `60` | DM the owner about blocked replies, at most this often |
+| `llm_memory_batch` / `llm_memory_idle_minutes` | `6` / `15` | Update a chatter's notes after this many new messages, or once they go quiet |
+| `llm_max_tokens` / `llm_temperature` / `llm_num_ctx` | `80` / `0.85` / `4096` | Reply length limit, variety, and context window (larger uses more VRAM) |
+| `tts_voice` / `tts_loudness` | `en_US-amy-medium` / `-20` | Piper voice, and the level in dBFS every voice is normalized to |
+
+The voice plays through an OBS "Cynthia Voice" source, so it's on stream but not in the WebRTC viewer.
 
 ## Tools
 

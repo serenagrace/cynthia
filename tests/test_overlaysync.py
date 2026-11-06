@@ -68,24 +68,30 @@ def test_matching_ignores_static_repeating_unrelated_and_out_of_range_images():
 
 def test_correction_requires_consistent_matches_and_is_bounded():
     sync = cog()
-    sync.observe(3500)
-    sync.observe(3500)
+    sync.observe(3500, now=0)
+    sync.observe(3500, now=5)
     assert sync.delay_ms is None
-    sync.observe(None)  # ambiguous frames break the confirmation streak
-    sync.observe(3500)
-    sync.observe(3500)
-    assert sync.delay_ms is None
-    sync.observe(3500)
+    sync.observe(None, now=10)  # ambiguous still frames add no evidence
+    sync.observe(3500, now=15)
     assert sync.delay_ms == 2950  # slew 250 ms, don't jump 800 ms at once
-    sync.observe(3500)
+    sync.observe(5200, now=20)  # a lone outlier is outvoted
     assert sync.delay_ms == 3200
-    for _ in range(4):
-        sync.observe(2000)
-    assert sync.delay_ms == 2700  # correcting in the opposite direction
     sync.estimates.clear()
-    for _ in range(3):
-        sync.observe(2750)
-    assert sync.delay_ms == 2700  # ignore sub-100 ms jitter
+    for i in range(3):
+        sync.observe(2000, now=25 + i * 5)
+    assert sync.delay_ms == 2950  # correcting in the opposite direction
+    sync.estimates.clear()
+    for i in range(3):
+        sync.observe(2900, now=40 + i * 5)
+    assert sync.delay_ms == 2950  # ignore sub-100 ms jitter
+
+
+def test_old_matches_expire_before_confirming():
+    sync = cog()
+    sync.observe(3500, now=0)
+    sync.observe(3500, now=5)
+    sync.observe(3500, now=70)
+    assert sync.delay_ms is None
 
 
 def test_capture_releases_ring_claim_and_preserves_capture_time():

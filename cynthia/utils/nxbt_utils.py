@@ -380,10 +380,12 @@ class Ternary:
 
     async def play(self, nx, controller, uns=None):
         """Play the true or false macro based on the SSIM match."""
-        if await self._evaluate(uns=uns):
-            return Macro.get(self.true_macro)
-        else:
-            return Macro.get(self.false_macro)
+        branch = self.true_macro if await self._evaluate(uns=uns) else self.false_macro
+        if uns is not None and branch in (getattr(uns, "failsafe_macros", None) or ()):
+            uns.failsafe_count = getattr(uns, "failsafe_count", 0) + 1
+            uns.failsafe_at = time.time()
+            uns.failsafe_macro = branch
+        return Macro.get(branch)
 
     def __str__(self):
         """Serialize the ternary as a macro definition."""

@@ -145,10 +145,24 @@
         async function tick() {
             try { await run(); } catch (e) { /* keep the last frame on transient failures */ }
         }
-        if (pane === "watermark") $("watermark").hidden = false;
-        else if (run) {
+        // Shrink the watermark rather than crop it when a pane is too narrow
+        function fitWatermark() {
+            const mark = $("watermark");
+            mark.style.fontSize = "";
+            const width = mark.getBoundingClientRect().width;
+            if (width > window.innerWidth) {
+                const size = parseFloat(getComputedStyle(mark).fontSize);
+                mark.style.fontSize = `${Math.floor(size * window.innerWidth / width)}px`;
+            }
+        }
+        if (pane === "watermark") {
+            $("watermark").hidden = false;
+            fitWatermark();
+            document.fonts.ready.then(fitWatermark);
+            window.addEventListener("resize", fitWatermark);
+        } else if (run) {
             tick();
-            setInterval(tick, pane === "inputs" ? 100 : 1000);
+            setInterval(tick, pane === "inputs" ? 100 : pane === "ssim" ? 250 : 1000);
         }
         </script>
     </body>

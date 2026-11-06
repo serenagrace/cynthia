@@ -7,6 +7,7 @@ records propagate to the root handler installed by ``setup_logging``.
 """
 
 import logging
+import logging.handlers
 import os
 import re
 import sys
@@ -48,15 +49,22 @@ NOISY_LOGGERS = {
     "PIL": logging.WARNING,
 }
 QUIET_OCR_LOGGERS = ("ppocr", "paddle", "paddlex", "paddleocr", "PIL")
+# Per-step chatter: always in the log file, on the console only with `cynthia -v`
+VERBOSE_ENV = "CYNTHIA_VERBOSE"
+VERBOSE_LOGGERS = ("cynthia.daemons.nxbt.steps",)
+LOG_FILE = "cynthia.log"
+LOG_FILE_MAX_BYTES = 20 * 1024 * 1024
+LOG_FILE_BACKUPS = 10
 
 
 class ColorFormatter(logging.Formatter):
     """Dim timestamp and boilerplate; highlight module name and message."""
 
-    def __init__(self, color=True):
-        """Set whether terminal records include ANSI colors."""
+    def __init__(self, color=True, time_format="%H:%M:%S"):
+        """Set whether records include ANSI colors and how times are shown."""
         super().__init__()
         self.color = color
+        self.time_format = time_format
 
     def format(self, record):
         """Format a record, preserving exception and stack details."""
@@ -67,7 +75,7 @@ class ColorFormatter(logging.Formatter):
             message = f"{message}\n{record.exc_text}"
         if record.stack_info:
             message = f"{message}\n{self.formatStack(record.stack_info)}"
-        time = self.formatTime(record, "%H:%M:%S")
+        time = self.formatTime(record, self.time_format)
         name = record.name.removeprefix("cynthia.")
         if record.levelno >= logging.WARNING and record.funcName not in (
             "<module>",
@@ -120,6 +128,17 @@ def quiet_ocr():
             quiet.addFilter(_MinLevel())
 
 
+class _HideVerbose(logging.Filter):
+    """Drop per-step DEBUG records from the console; the log file keeps them."""
+
+    def filter(self, record):
+        """Accept everything except DEBUG records from the verbose loggers."""
+        return record.levelno >= logging.INFO or not any(
+            record.name == name or record.name.startswith(f"{name}.")
+            for name in VERBOSE_LOGGERS
+        )
+
+
 def setup_logging(level=logging.DEBUG):
     """Install the colorized root handler (idempotent)."""
     root = logging.getLogger()
@@ -131,11 +150,79 @@ def setup_logging(level=logging.DEBUG):
     handler.setFormatter(
         ColorFormatter(sys.stderr.isatty() and "NO_COLOR" not in os.environ)
     )
+    if os.environ.get(VERBOSE_ENV, "") in ("", "0"):
+        handler.addFilter(_HideVerbose())
     root.addHandler(handler)
     root.setLevel(level)
     for name, lvl in NOISY_LOGGERS.items():
         logging.getLogger(name).setLevel(lvl)
+    for name in VERBOSE_LOGGERS:
+        logging.getLogger(name).setLevel(logging.DEBUG)
     quiet_ocr()
+
+
+class SharedLogFileHandler(logging.handlers.WatchedFileHandler):
+    """Append to one log file from every Cynthia process.
+
+    Daemon processes fork with this handler and append to the file directly;
+    there is no shared lock, so a terminated daemon can't block the others.
+    Only the creating process rotates, and the others reopen the file when its
+    inode changes.
+    """
+
+    def __init__(self, filename, max_bytes, backup_count):
+        """Open ``filename`` for appending and remember the rotating process."""
+        super().__init__(filename, mode="a", encoding="utf-8")
+        self.max_bytes = max_bytes
+        self.backup_count = backup_count
+        self.owner = os.getpid()
+
+    def emit(self, record):
+        """Rotate first when this process owns the file and it is full."""
+        if os.getpid() == self.owner:
+            try:
+                if os.stat(self.baseFilename).st_size >= self.max_bytes:
+                    self._rotate()
+            except FileNotFoundError:
+                pass
+            except Exception:
+                self.handleError(record)
+        super().emit(record)
+
+    def _rotate(self):
+        """Shift ``name.N`` backups up by one and move the live file to ``.1``."""
+        if self.stream is not None:
+            self.stream.close()
+            self.stream = None
+        for index in range(self.backup_count - 1, 0, -1):
+            older = f"{self.baseFilename}.{index}"
+            if os.path.exists(older):
+                os.replace(older, f"{self.baseFilename}.{index + 1}")
+        if self.backup_count > 0:
+            os.replace(self.baseFilename, f"{self.baseFilename}.1")
+        else:
+            os.remove(self.baseFilename)
+
+
+def log_to_file(directory, max_bytes=LOG_FILE_MAX_BYTES, backups=LOG_FILE_BACKUPS):
+    """Also write every record, including verbose ones, to ``directory/cynthia.log``.
+
+    Call before daemons start so their processes inherit the handler. Returns
+    the log path, or None when ``directory`` isn't an existing directory.
+    """
+    if directory is None or not os.path.isdir(directory):
+        return None
+    root = logging.getLogger()
+    for handler in list(root.handlers):
+        if getattr(handler, "_cynthia_file", False):
+            root.removeHandler(handler)
+            handler.close()
+    path = os.path.join(directory, LOG_FILE)
+    handler = SharedLogFileHandler(path, max_bytes, backups)
+    handler._cynthia_file = True
+    handler.setFormatter(ColorFormatter(False, "%Y-%m-%d %H:%M:%S"))
+    root.addHandler(handler)
+    return path
 
 
 def get_logger(name, level=None):

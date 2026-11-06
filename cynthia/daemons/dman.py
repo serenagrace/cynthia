@@ -13,13 +13,82 @@ from discord import app_commands
 
 from cynthia.utils.drive import Drive
 from cynthia.utils.namespace import Namespace
-from cynthia.utils.streamcfg import init_settings
+from cynthia.utils.streamcfg import init_settings, shows_no_signal
 
 from .daemon import Daemon
 from .frames import AudioRing, FrameRing
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
+
+DEFAULT_FREEZE_SECONDS = 120
+# Each failed repair doubles the wait before the next, up to this many times
+FREEZE_MAX_DOUBLINGS = 4
+# Picture changes needed after a repair before the capture counts as recovered;
+# a reset card shows a few black or no-signal frames before any frozen picture
+FREEZE_RECOVER_CHANGES = 5
+# DM the owner again when this many repairs in a row have not helped
+FREEZE_ESCALATE_ATTEMPTS = 3
+# Frames older than this are a stall, not a freeze
+FREEZE_FRESH_SECONDS = 5
+
+
+def describe_seconds(seconds):
+    """Format a duration for an owner DM, e.g. "45 s" or "12 min"."""
+    if seconds < 120:
+        return f"{seconds:.0f} s"
+    return f"{seconds / 60:.0f} min"
+
+
+class FreezeWatch:
+    """Notice a capture that keeps publishing one identical picture.
+
+    The stall check only sees frames stop arriving. A hung capture card can
+    keep delivering frames whose content never changes; their hash then stays
+    the same while their timestamps advance.
+    """
+
+    def __init__(self):
+        """Start with no picture seen."""
+        self.hash = None
+        self.since = None
+        self.frozen_at = None
+        self.attempts = 0
+        self.changes = 0
+
+    def update(self, frame_hash, now, timeout, excused=False):
+        """Feed the newest frame hash; return "frozen", "recovered" or None.
+
+        `excused` marks moments a static picture is expected (the card's
+        no-signal screen, or no fresh frames, which the stall check handles).
+        "frozen" means a repair is due now; waits double after each failure.
+        """
+        if timeout <= 0 or not frame_hash:
+            self.__init__()
+            return None
+        if frame_hash != self.hash:
+            self.hash, self.since = frame_hash, now
+            if self.frozen_at is None:
+                return None
+            self.changes += 1
+            if self.changes < FREEZE_RECOVER_CHANGES:
+                return None
+            self.frozen_at = None
+            self.attempts = 0
+            self.changes = 0
+            return "recovered"
+        if excused or self.since is None:
+            self.since = now
+            return None
+        wait = timeout * 2 ** min(self.attempts, FREEZE_MAX_DOUBLINGS)
+        if now - self.since < wait:
+            return None
+        if self.frozen_at is None:
+            self.frozen_at = self.since
+        self.attempts += 1
+        self.changes = 0
+        self.since = now
+        return "frozen"
 
 
 class FB0:
@@ -69,6 +138,9 @@ class DMan:
         self.pending_state = {}
         self._last_restart = {}
         self._needs_restart = set()
+        self.freeze_watch = FreezeWatch()
+        # Bot sets this to an `async (text, alert)` that DMs the owner
+        self.notify = None
         self.manager = Manager()
         self.uns = self.manager.Namespace()
         init_settings(self.uns, self.context.config)
@@ -288,9 +360,73 @@ class DMan:
                     logger.error(f"Daemon `{name}` dead or stalled; restarting.")
                     if await self.restart_daemon(name):
                         self._needs_restart.discard(name)
+                if "UVCDaemon" not in self._needs_restart:
+                    await self.watch_capture_freeze()
             except Exception:
                 logger.exception("Daemon monitor error.")
             await asyncio.sleep(1)
+
+    async def watch_capture_freeze(self, now=None):
+        """Reset the capture card when its picture stops changing, and tell the owner.
+
+        Returns the `FreezeWatch` event ("frozen", "recovered" or None).
+        """
+        now = time.time() if now is None else now
+        uvc = self.__running_daemons.get("UVCDaemon", None)
+        if uvc is None or not uvc.process.is_alive():
+            return None
+        timeout = float(
+            self.context.config.get("capture_freeze_seconds", DEFAULT_FREEZE_SECONDS)
+        )
+        watch = self.freeze_watch
+        frozen_at = watch.frozen_at
+        # Stale frames are the stall check's job; only a moving clock counts here
+        stale = now - self.ring.last_time_ns / 1e9 > FREEZE_FRESH_SECONDS
+        event = watch.update(
+            self.ring.last_hash,
+            now,
+            timeout,
+            excused=stale or shows_no_signal(self.uns),
+        )
+        if event == "frozen":
+            frozen_for = describe_seconds(now - watch.frozen_at)
+            logger.error(
+                "Capture picture unchanged for %s while frames keep arriving; "
+                "resetting the capture card (attempt %d).",
+                frozen_for,
+                watch.attempts,
+            )
+            if watch.attempts == 1:
+                await self._notify(
+                    f"🧊 The capture picture has been frozen for {frozen_for} "
+                    "while frames kept arriving. Resetting the capture card.",
+                    alert=True,
+                )
+            elif watch.attempts == FREEZE_ESCALATE_ATTEMPTS:
+                await self._notify(
+                    f"🧊 The capture is still frozen after {watch.attempts} card "
+                    f"resets ({frozen_for}). Check the Switch and the HDMI cable; "
+                    "resets will continue, less often.",
+                    alert=True,
+                )
+            self._last_restart["UVCDaemon"] = time.monotonic()
+            await self.restart_daemon("UVCDaemon")
+        elif event == "recovered":
+            logger.info("Capture picture is moving again.")
+            await self._notify(
+                "✅ The capture picture is moving again after "
+                f"{describe_seconds(now - frozen_at)}."
+            )
+        return event
+
+    async def _notify(self, text, alert=False):
+        """DM the owner through the bot, never letting a Discord error escape."""
+        if self.notify is None:
+            return
+        try:
+            await self.notify(text, alert)
+        except Exception:
+            logger.exception("Couldn't notify the owner.")
 
     async def reload_daemon(self, name):
         """Stop one daemon, reload its module from disk and start it again."""

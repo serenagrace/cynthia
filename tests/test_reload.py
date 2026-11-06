@@ -52,6 +52,34 @@ def test_test_mode_syncs_only_the_designated_guild():
     tree.sync.assert_awaited_once_with(guild=discord.Object(id=123))
 
 
+def test_setup_loads_commands_then_starts_the_daemon_monitor():
+    async def run():
+        bot = object.__new__(Bot)
+        calls = []
+        bot.test_mode = False
+        bot.get_all_guilds = AsyncMock(return_value=[])
+        bot.permsloader = Mock(return_value={})
+        bot.load_cogs = AsyncMock(side_effect=lambda: calls.append("cogs"))
+        bot.reload_tree = AsyncMock(side_effect=lambda: calls.append("tree"))
+        bot.messenger = SimpleNamespace(msg_owner=AsyncMock())
+        monitor = asyncio.Event()
+
+        async def monitor_daemons():
+            calls.append("monitor")
+            monitor.set()
+
+        bot.dman = SimpleNamespace(monitor_daemons=monitor_daemons)
+
+        await Bot.setup_hook(bot)
+        await asyncio.wait_for(monitor.wait(), 1)
+
+        assert calls == ["cogs", "tree", "monitor"]
+        await bot.dman.notify("frozen", alert=True)
+        bot.messenger.msg_owner.assert_awaited_once_with("frozen", alert=True)
+
+    asyncio.run(run())
+
+
 def test_daemon_reload_replaces_class_and_restarts_one_daemon(monkeypatch):
     class OldDaemon:
         pass

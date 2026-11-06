@@ -1,5 +1,6 @@
 """Base process wrapper used by bot daemons."""
 
+import logging
 import signal
 import time
 from multiprocessing import Manager, Process
@@ -12,7 +13,15 @@ def _run_loop(loop, args):
     KeyboardInterrupt and the monitor treats that as a crash and restarts them.
     """
     signal.signal(signal.SIGINT, signal.SIG_IGN)
-    loop(*args)
+    try:
+        loop(*args)
+    except Exception:
+        # multiprocessing would print this to stderr only; log it for the file.
+        # Exit code 1 matches an uncaught exception, so the monitor restarts it
+        logging.getLogger(__name__).exception(
+            f"`{getattr(loop, '__qualname__', loop)}` crashed"
+        )
+        raise SystemExit(1)
 
 
 class Daemon:

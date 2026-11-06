@@ -20,6 +20,21 @@ CV_FPS = 30
 CV_MIN_HEIGHT = 720
 # The capture card is only ever driven at one of these rates
 CAPTURE_FPS_CHOICES = (30, 60)
+# CV scene for the capture card's own no-signal screen, and the score that counts
+NO_SIGNAL_SCENE = "elgato_no_signal"
+NO_SIGNAL_SCORE = 0.9
+
+
+def shows_no_signal(uns):
+    """Whether CV's best scene match is the capture card's no-signal screen."""
+    try:
+        scores = list(getattr(uns, "ssim_scores", None) or [])
+    except (EOFError, OSError):
+        return False
+    if not scores:
+        return False
+    scene, score = scores[0]
+    return scene == NO_SIGNAL_SCENE and score > NO_SIGNAL_SCORE
 
 
 def parse_height(value):

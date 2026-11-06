@@ -333,6 +333,7 @@ class CVDaemon(Daemon):
                         f.write(f"{datetime.now()},{game},{encounter_time:0f}\n")
                     logger.notice(f"Encounter time: {encounter_time:.0f}ms")
                     uns.last_encounter_time = time.time()
+                    uns.encounter_count = getattr(uns, "encounter_count", 0) + 1
 
                     if encounter_time > 2000:
                         return True
@@ -418,10 +419,10 @@ class CVDaemon(Daemon):
                     if sorted_scores[0][1] > 0.9:
                         score_text[0] = f"**{score_text[0]}**"
                     embed.add_field(name="Scenes:", value="\n".join(score_text))
-                    if uns.match_scene_id is not None:
-                        if uns.match_scene_id in scores:
-                            if scores[uns.match_scene_id] > 0.98:
-                                uns.scene_matched = True
+                    # Read once: the macro process may clear it between proxy reads
+                    match_scene_id = uns.match_scene_id
+                    if scores.get(match_scene_id, 0) > 0.98:
+                        uns.scene_matched = True
                     if sorted_scores[0][1] > 0.9:
                         update_scene(sorted_scores[0][0], frame, uns_time, embed)
                     else:

@@ -24,7 +24,6 @@ def test_scrape_text_crops_columns_as_well_as_rows(monkeypatch):
 
 
 def test_fast_ssim_matches_skimage():
-    import cv2
     from skimage.metrics import structural_similarity
 
     from cynthia.daemons.cv import _window_stats, fast_ssim

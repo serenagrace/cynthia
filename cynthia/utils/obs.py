@@ -3,6 +3,7 @@
 import base64
 import logging
 import threading
+import time
 
 import obsws_python as obsws
 from obsws_python.error import OBSSDKError, OBSSDKRequestError
@@ -27,6 +28,12 @@ OUTPUT_RUNNING = 501  # obs-websocket: the request needs the output stopped
 TWITCH_SERVICE = {"service": "Twitch", "server": "auto"}
 BANDWIDTH_TEST_SUFFIX = "?bandwidthtest=true"
 MANAGED_KINDS = ("browser_source", "ffmpeg_source")
+# Audio-only source the chat model's voice plays through; not a layout pane
+VOICE_SOURCE = "Cynthia Voice"
+RESTART_MEDIA = "OBS_WEBSOCKET_MEDIA_INPUT_ACTION_RESTART"
+PLAYING = "OBS_MEDIA_STATE_PLAYING"
+# Seconds to keep trying to start a voice clip
+PLAY_TIMEOUT = 2.0
 
 
 class OBSError(RuntimeError):
@@ -182,6 +189,42 @@ class OBSControl:
         )
         return base64.b64decode(shot.image_data.split(",", 1)[1])
 
+    def play_audio(self, path, volume=1.0):
+        """Play the audio file `path` on stream through the voice source.
+
+        Returns whether OBS started playing it.
+        """
+        settings = {
+            "local_file": path,
+            "is_local_file": True,
+            "looping": False,
+            "restart_on_activate": False,
+            "close_when_inactive": True,
+            "clear_on_media_end": True,
+        }
+        inputs = {i["inputName"] for i in self.call("get_input_list").inputs}
+        if VOICE_SOURCE in inputs:
+            self.call("set_input_settings", VOICE_SOURCE, settings, True)
+        else:
+            self.call(
+                "create_input",
+                self.scene,
+                VOICE_SOURCE,
+                "ffmpeg_source",
+                settings,
+                True,
+            )
+        self.call("set_input_volume", VOICE_SOURCE, vol_mul=float(volume))
+        # A restart sent while OBS is still reopening the new file is lost, so
+        # keep nudging until it reports playing
+        deadline = time.monotonic() + PLAY_TIMEOUT
+        while True:
+            self.call("trigger_media_input_action", VOICE_SOURCE, RESTART_MEDIA)
+            time.sleep(0.15)
+            state = self.call("get_media_input_status", VOICE_SOURCE).media_state
+            if state == PLAYING or time.monotonic() > deadline:
+                return state == PLAYING
+
     def apply_layout(self, panes, web_port=8000, feed_port=5000):
         """Create, update, and order the scene's sources to match `panes`."""
         scene = self.scene
@@ -262,6 +305,7 @@ class OBSControl:
                 kind in MANAGED_KINDS
                 and (name.startswith(SOURCE_PREFIX) or name == VIDEO_SOURCE)
                 and name not in wanted
+                and name != VOICE_SOURCE
             ):
                 self.call("remove_input", name)
         return len(panes)

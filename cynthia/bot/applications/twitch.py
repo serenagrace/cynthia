@@ -8,7 +8,7 @@ import discord
 from discord import app_commands
 
 from cynthia.utils.auth import OwnerGroup
-from cynthia.utils.embeds import LIVE, OFFLINE, TWITCH, make_embed
+from cynthia.utils.embeds import TWITCH, make_embed
 from cynthia.utils.obs import OBSError
 from cynthia.utils.obslayout import LayoutError
 from cynthia.utils.streamcfg import setting
@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 TEST_TASK = "_twitch_test_task"
 AUTH_TASK = "_twitch_auth_task"
+BOT_AUTH_TASK = "_twitch_bot_auth_task"
 # How long /twitch start waits for a Twitch approval before streaming anyway
 START_AUTH_WAIT_SECONDS = 300
 
@@ -233,11 +234,11 @@ async def start_stream(interaction):
     try:
         mode = await begin(interaction, bandwidth_test=False)
     except (OBSError, LayoutError) as e:
-        return f"❌ {e}", [], OFFLINE
+        return f"❌ {e}", [], TWITCH
     lines = [f"**Video mode:** {mode}"]
     if channel(interaction):
         lines.append(f"**Channel:** {twitch_url(interaction)}")
-    return "**🔴 Streaming to Twitch**", lines, LIVE
+    return "**🔴 Streaming to Twitch**", lines, TWITCH
 
 
 async def authorize_before_start(interaction):
@@ -283,7 +284,7 @@ async def stop(interaction: discord.Interaction):
         interaction,
         "**⏹️ Stop the Twitch stream?**",
         health_lines(status),
-        LIVE,
+        TWITCH,
         "Stop stream",
         stop_stream,
         "the stream is still running.",
@@ -299,11 +300,11 @@ async def stop_stream(interaction):
     try:
         status = await asyncio.to_thread(cog.obs.status)
         if not status["streaming"]:
-            return "OBS had already stopped streaming.", [], OFFLINE
+            return "OBS had already stopped streaming.", [], TWITCH
         await asyncio.to_thread(cog.obs.stop_stream)
     except OBSError as e:
-        return f"❌ {e}", [], LIVE
-    return "**⏹️ Stream stopped**", health_lines(status), OFFLINE
+        return f"❌ {e}", [], TWITCH
+    return "**⏹️ Stream stopped**", health_lines(status), TWITCH
 
 
 @twitch.command(name="test", description="Run Twitch's bandwidth test through OBS.")
@@ -333,7 +334,9 @@ async def finish_test(interaction, minutes):
         await asyncio.sleep(minutes * 60)
         status = await asyncio.to_thread(cog.obs.status)
         await asyncio.to_thread(cog.obs.stop_stream)
-        embed = make_embed("📶 Bandwidth test finished", fields=health_fields(status))
+        embed = make_embed(
+            "📶 Bandwidth test finished", color=TWITCH, fields=health_fields(status)
+        )
         await interaction.user.send(embed=embed)
     except asyncio.CancelledError:
         return
@@ -393,15 +396,14 @@ async def twitchurl(interaction: discord.Interaction):
         return
     await interaction.response.defer(thinking=True)
     live, fields = await live_state(interaction)
-    state, color = {
-        True: ("🔴 **Live now**", LIVE),
-        False: ("⚫ Offline right now", OFFLINE),
-    }.get(live, ("Couldn't check whether the channel is live.", TWITCH))
+    state = {True: "🔴 **Live now**", False: "⚫ Offline right now"}.get(
+        live, "Couldn't check whether the channel is live."
+    )
     link = twitch_url(interaction)
     embed = make_embed(
         f"{channel(interaction)} on Twitch",
         f"{state}\n{link}",
-        color=color,
+        color=TWITCH,
         url=link,
         fields=fields,
     )
@@ -413,7 +415,19 @@ async def twitchurl(interaction: discord.Interaction):
 )
 async def auth(interaction: discord.Interaction):
     """Authorize the bot on Twitch with a device code."""
-    api = getattr(interaction.client, "twitch_api", None)
+    await authorize(interaction)
+
+
+@twitch.command(
+    name="botauth", description="Authorize a separate Twitch bot account for chat."
+)
+async def botauth(interaction: discord.Interaction):
+    """Keep the bot's chat authorization separate from the broadcaster's."""
+    await authorize(interaction, chat=True)
+
+
+async def authorize(interaction, chat=False):
+    api = getattr(interaction.client, "twitch_chat_api" if chat else "twitch_api", None)
     if api is None:
         await interaction.response.send_message(
             "Set `TWITCH_CLIENT_ID` in `.env` and restart first.", ephemeral=True
@@ -426,19 +440,27 @@ async def auth(interaction: discord.Interaction):
         await interaction.followup.send(f"❌ {e}")
         return
     note = "I'll confirm here once Twitch accepts it."
+    if chat:
+        note += (
+            "\nOpen the approval link in a private browser window and sign in as "
+            "the **bot account**, not your broadcaster account. "
+            "This won't replace your broadcaster authorization."
+        )
     await interaction.followup.send(embed=approval_embed(flow, note))
-    task = getattr(interaction.client, AUTH_TASK, None)
+    task_key = BOT_AUTH_TASK if chat else AUTH_TASK
+    task = getattr(interaction.client, task_key, None)
     if task is not None and not task.done():
         task.cancel()
     task = asyncio.create_task(finish_auth(interaction, api, flow))
-    setattr(interaction.client, AUTH_TASK, task)
+    setattr(interaction.client, task_key, task)
 
 
 async def finish_auth(interaction, api, flow):
     """Wait for the owner to approve the code, then report the result."""
     try:
         login = await api.finish_device_flow(flow)
-        message = f"✅ Twitch authorized for **{login}**."
+        role = "Chat bot" if api.auth_command == "/twitch botauth" else "Broadcaster"
+        message = f"✅ {role} authorized for **{login}**."
     except asyncio.CancelledError:
         return
     except (TwitchAPIError, aiohttp.ClientError, asyncio.TimeoutError) as e:
@@ -479,13 +501,13 @@ def status_embed(interaction, info):
     mode = f"{setting(uns, 'obs_height')}p{setting(uns, 'obs_fps')}"
     fields = [("Video mode", mode)]
     if info["streaming"]:
-        title, color = "🔴 Live", LIVE
+        title = "🔴 Live"
         fields += health_fields(info)
     else:
-        title, color = "⚫ Not streaming", OFFLINE
+        title = "⚫ Not streaming"
     if info["recording"]:
         fields.append(("⏺️ Recording", duration(info["record_seconds"])))
-    return make_embed(title, color=color, fields=fields)
+    return make_embed(title, color=TWITCH, fields=fields)
 
 
 # /twitch is owner-only and DM-only; /twitchurl is open to everyone

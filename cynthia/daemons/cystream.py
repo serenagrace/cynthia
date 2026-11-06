@@ -12,7 +12,6 @@ import zlib
 from collections import OrderedDict, deque
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
-from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 import cv2
@@ -23,6 +22,7 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, StreamingResponse
 from cynthia.utils.obslayout import OBS_SYNC_MAX_DELAY_MS, overlay_delay_ms
 from cynthia.utils.streamcfg import CV_FPS, setting, size_for
 from cynthia.utils.twitchchat import TwitchChat
+from cynthia.utils.version import display_version
 
 from .daemon import Daemon
 from .frames import AUDIO_BYTES_PER_SEC
@@ -43,8 +43,9 @@ AUDIO_ENCODER = [
     "-nostdin",
     "-loglevel",
     "error",
-    "-fflags",
-    "nobuffer",
+    # Raw PCM parameters are known; default probing delays FFmpeg 8 by seconds.
+    "-probesize",
+    "32",
     "-f",
     "s16le",
     "-ar",
@@ -119,11 +120,8 @@ PANES = ("status", "ssim", "stats", "chat", "inputs", "watermark")
 
 
 def app_version():
-    """The installed Cynthia version, or "dev" when it isn't installed."""
-    try:
-        return version("cynthia")
-    except PackageNotFoundError:
-        return "dev"
+    """The running Cynthia version (`-alpha` when unreleased), or "dev"."""
+    return display_version()
 
 
 def render_page(name):

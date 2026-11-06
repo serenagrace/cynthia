@@ -13,6 +13,8 @@ encounter_reset: true
 # Twitch automation (all durations are independent; set stop/restart to 0 to disable)
 twitch_restart_hours: 24
 twitch_no_signal_stop_minutes: 10
+# Reset the capture card when its picture is frozen this many seconds; 0 disables
+capture_freeze_seconds: 120
 twitch_auto_clip: true
 # Added to the input visualizer delay before making a shiny clip
 twitch_clip_delay_seconds: 10
@@ -27,6 +29,58 @@ obs_auto_sync: true
 # Fixed OBS feed holdback and additional overlay fallback when no measurement is available
 obs_feed_delay_ms: 1000
 obs_overlay_lag_ms: 1700
+# Local chat model served by Ollama; control and test it in the owner's DMs with /llm
+llm_model: llama3.2:3b
+llm_temperature: 0.85
+# llm_enabled: false turns every switch below off at once (/llm switch all)
+llm_enabled: true
+# Read chat and learn about chatters; posting (speak) and the stream voice stay off
+llm_listen: true
+llm_learn: true
+llm_speak: false
+llm_voice: false
+# Chance to answer @mentions/"cynthia", questions, short lines and other messages
+llm_reply_mention_chance: 1.0
+llm_reply_question_chance: 0.5
+llm_reply_short_chance: 0.03
+llm_reply_random_chance: 0.05
+# The streamer's own questions (not aimed at someone else) are always answered
+llm_streamer_question_chance: 1.0
+# Average seconds between any two replies; naming Cynthia (or replying to her) skips
+# the longer llm_reply_cooldown_seconds and waits only this long per chatter
+llm_reply_min_seconds: 9
+# The overall cooldown varies on a bell curve; most pauses are 4-14 s
+llm_reply_jitter_seconds: 2.5
+llm_mention_cooldown_seconds: 5
+# Past the first 2 mentions in the last minute, each halves the chance of
+# answering the next (the streamer's don't count)
+llm_mention_window_seconds: 60
+llm_mention_spam_free: 2
+llm_mention_spam_factor: 0.5
+# Hard caps on her posts, including event remarks (shiny news exempt); 0 = off
+llm_max_posts_per_minute: 4
+llm_max_posts_per_10_minutes: 20
+# Repeats: similarity (0-1), reply chance kept per repeated chat message,
+# chance a reply close to one said lately still goes out (per repeat)
+llm_repeat_similarity: 0.8
+llm_repeat_input_factor: 0.3
+llm_repeat_allow_chance: 0.2
+# DM the owner when a reply is blocked (at most once a minute)
+llm_notify_filtered: true
+# Chance to remark on events; idle fires after llm_idle_minutes of silence
+llm_event_shiny_chance: 1.0
+llm_event_watchdog_chance: 0.75
+llm_event_failsafe_chance: 0.5
+llm_event_encounter_chance: 0.05
+llm_event_idle_chance: 1.0
+llm_idle_minutes: 20
+llm_ignored_chatters: [streamelements, nightbot, streamlabs, moobot]
+# Macros a ternary falls back to when the hunt macro gets lost
+failsafe_macros: [screen_record]
+# Piper voice for speaking on stream (list them with /llm voices)
+tts_voice: en_US-amy-medium
+# Speech level (dBFS) every voice is normalized to; game audio is about -29
+tts_loudness: -20
 # Optional: public hostnames or IPs offered to WebRTC viewers outside the LAN
 # (also forward UDP/TCP 8189 to this machine)
 # webrtc_hosts:

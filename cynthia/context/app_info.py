@@ -2,7 +2,8 @@
 
 import subprocess
 from datetime import datetime
-from importlib.metadata import version
+
+from cynthia.utils.version import display_version
 
 
 def get_app_info():
@@ -27,7 +28,7 @@ def get_app_info():
         pass
     tstamp = datetime.fromtimestamp(int(latest_commit)).strftime("%Y-%m-%d %H:%M:%S")
     metadata = {
-        "version": version("cynthia"),
+        "version": display_version(),
         "git_hash": githash,
         "git_timestamp": tstamp,
         "run_timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),

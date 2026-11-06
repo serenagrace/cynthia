@@ -1,6 +1,7 @@
 """Owner commands for bot lifecycle and message-log channel management."""
 
 import asyncio
+import logging
 
 import discord
 from discord import app_commands
@@ -9,13 +10,55 @@ from cynthia.exceptions import ExitCynthia
 from cynthia.utils.auth import is_owner
 from cynthia.utils.onmessage import OnMessage
 
+logger = logging.getLogger(__name__)
+
+
+# Time for the goodbye to show in the stream's chat pane before it ends
+GOODBYE_SECONDS = 5
+
+
+def cog(client, name):
+    """A loaded cog, or None (also for clients without cogs)."""
+    get_cog = getattr(client, "get_cog", None)
+    return get_cog(name) if get_cog else None
+
+
+async def announce(client, key):
+    """Post a fixed Twitch chat message; returns whether it went out.
+
+    Never raises or blocks the exit for long.
+    """
+    chat = cog(client, "LLMChatCog")
+    if chat is None:
+        return False
+    try:
+        return await asyncio.wait_for(chat.announce(key), timeout=5)
+    except Exception:
+        logger.warning("Couldn't post %s to Twitch.", key, exc_info=True)
+        return False
+
+
+async def announce_reboot(client):
+    """Tell Twitch chat Cynthia will be right back."""
+    await announce(client, "twitch_reboot_message")
+
+
+async def end_stream(client):
+    """Say goodbye in Twitch chat, let it show on stream, then end the stream."""
+    if await announce(client, "twitch_goodbye_message"):
+        await asyncio.sleep(GOODBYE_SECONDS)
+    obs = cog(client, "OBSCog")
+    if obs is not None:
+        await obs.end_stream()
+
 
 @app_commands.command()
 @is_owner()
 @app_commands.dm_only()
 async def shutdown(interaction: discord.Interaction):
-    """Shut down the bot cleanly."""
+    """End the Twitch stream with a goodbye, then shut down the bot cleanly."""
     await interaction.response.send_message("Shutting down...")
+    await end_stream(interaction.client)
     try:
         raise ExitCynthia("Shutdown")
     except ExitCynthia as e:
@@ -28,6 +71,7 @@ async def shutdown(interaction: discord.Interaction):
 async def restart(interaction: discord.Interaction):
     """Shut down the bot and request a process restart."""
     await interaction.response.send_message("Restarting...")
+    await announce_reboot(interaction.client)
     try:
         raise ExitCynthia("Restart")
     except ExitCynthia as e:
@@ -46,12 +90,14 @@ async def reboot(interaction: discord.Interaction, graceful: bool = False):
         await interaction.response.send_message(
             "Shutting down cleanly, then rebooting the host..."
         )
+        await announce_reboot(interaction.client)
         try:
             raise ExitCynthia("Reboot")
         except ExitCynthia as e:
             await interaction.client.__aexit__(type(e), e, e.__traceback__)
         return
     await interaction.response.send_message("Rebooting the host now...")
+    await announce_reboot(interaction.client)
     # Let the reply go out before the system is killed
     await asyncio.sleep(1)
     await asyncio.create_subprocess_exec("sudo", "-n", "reboot", "-f", "now")
