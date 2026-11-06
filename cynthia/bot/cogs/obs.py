@@ -9,7 +9,7 @@ from discord.ext import commands, tasks
 
 from cynthia.utils.obs import OBSControl, OBSError
 from cynthia.utils.obslayout import LayoutError, load_layout
-from cynthia.utils.streamcfg import setting
+from cynthia.utils.streamcfg import setting, shows_no_signal
 
 logger = logging.getLogger(__name__)
 
@@ -20,8 +20,6 @@ DEFAULT_RESTART_HOURS = 24
 STOP_TIMEOUT_SECONDS = 60
 # Stop a stream that has shown the capture card's no-signal screen this long
 DEFAULT_NO_SIGNAL_STOP_MINUTES = 10
-NO_SIGNAL_SCENE = "elgato_no_signal"
-NO_SIGNAL_SCORE = 0.9
 
 
 class OBSCog(commands.Cog):
@@ -136,13 +134,10 @@ class OBSCog(commands.Cog):
     def no_signal(self):
         """Whether CV's best scene match is the capture card's no-signal screen."""
         try:
-            scores = list(getattr(self.bot.dman.uns, "ssim_scores", None) or [])
-        except (EOFError, OSError):
+            uns = self.bot.dman.uns
+        except (AttributeError, EOFError, OSError):
             return False
-        if not scores:
-            return False
-        scene, score = scores[0]
-        return scene == NO_SIGNAL_SCENE and score > NO_SIGNAL_SCORE
+        return shows_no_signal(uns)
 
     def no_signal_due(self, status, now):
         """Whether the stream has shown no signal for too long."""
@@ -181,6 +176,19 @@ class OBSCog(commands.Cog):
             f"⏹️ Stopped the stream: no capture signal for {minutes:.0f} minutes.",
             alert=True,
         )
+
+    async def end_stream(self):
+        """Stop the stream if OBS is live; returns whether it was stopped."""
+        status = self.last_status or {}
+        if not status.get("streaming"):
+            return False
+        try:
+            await asyncio.to_thread(self.obs.stop_stream)
+        except OBSError as e:
+            logger.warning("Couldn't stop the stream: %s", e)
+            return False
+        logger.info("Stopped the stream for shutdown.")
+        return True
 
     async def tell_owner(self, text, alert=False):
         """DM the owner, without letting a Discord error break the restart."""

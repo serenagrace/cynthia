@@ -74,6 +74,7 @@ class NXBTDaemon(Daemon):
         def loop(ns, uns, tqueue, macro_tree, drive):
             """Run the NXBT worker process until its shared run flag clears."""
             logger = logging.getLogger(__name__)
+            steps_logger = logging.getLogger(f"{__name__}.steps")
             setup_logging()
             nx = nxbt.Nxbt()
             controller = None
@@ -199,6 +200,9 @@ class NXBTDaemon(Daemon):
                         logger.warning("Watchdog triggered, restarting macro.")
                         playing_gen = playing.walk()
                         uns.watchdog_triggered = True
+                        # The flag above is cleared once reported; these persist
+                        uns.watchdog_count = getattr(uns, "watchdog_count", 0) + 1
+                        uns.watchdog_at = now
                         watchdog_since = now
                 else:
                     watchdog_since = None
@@ -236,7 +240,7 @@ class NXBTDaemon(Daemon):
                     if playing_gen is not None:
                         try:
                             _input = next(playing_gen)
-                            logger.debug(f"Playing {str(_input)}")
+                            steps_logger.debug(f"Playing {str(_input)}")
                             next_step = await _input.play(nx, controller, uns=uns)
                             if next_step is not None:
                                 playing_gen = next_step.walk()
@@ -333,6 +337,15 @@ class NXBTDaemon(Daemon):
         self.uns.nxbt_connection_lost = False
         self.uns.nxbt_connect_failed = False
         self.uns.watchdog_triggered = False
+        self.uns.watchdog_count = 0
+        self.uns.watchdog_at = None
+        # Ternary branches that mean the macro got lost and is recovering
+        self.uns.failsafe_macros = [
+            str(name).replace("-", "_")
+            for name in dman.context.config.get("failsafe_macros", None) or []
+        ]
+        self.uns.failsafe_count = 0
+        self.uns.failsafe_at = None
         self.uns.encounter_reset = bool(
             dman.context.config.get("encounter_reset", True)
         )

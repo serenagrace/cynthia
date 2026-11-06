@@ -18,10 +18,14 @@ logger = logging.getLogger(__name__)
 SAMPLE_SECONDS = 1 / 30
 CHECK_SECONDS = 5
 THUMB_SIZE = (96, 54)
-MATCH_ERROR = 6.0
+# OBS screenshots carry H.264 and JPEG error: true matches measure 3-7
+MATCH_ERROR = 8.0
 MATCH_MARGIN = 0.75
 MATCH_SPREAD_SECONDS = 0.25
 CONFIRM_SAMPLES = 3
+# Recent matches kept for confirmation, so one outlier among them is outvoted
+ESTIMATE_WINDOW = 5
+ESTIMATE_TTL_SECONDS = 60
 DEADBAND_MS = 100
 MAX_STEP_MS = 250
 
@@ -69,7 +73,7 @@ class OverlaySyncCog(commands.Cog):
         self.frames = deque(
             maxlen=int(OBS_SYNC_MAX_DELAY_MS / 1000 / SAMPLE_SECONDS) + 20
         )
-        self.estimates = deque(maxlen=CONFIRM_SAMPLES)
+        self.estimates = deque(maxlen=ESTIMATE_WINDOW)
         self.last_seq = 0
         self.last_cursor = None
         self.generation = None
@@ -128,17 +132,29 @@ class OverlaySyncCog(commands.Cog):
         except Exception:
             logger.exception("Couldn't sample capture for OBS overlay synchronization.")
 
-    def observe(self, delay_ms):
-        """Confirm stable measurements and slew toward them without timing jitter."""
+    def observe(self, delay_ms, now=None):
+        """Confirm stable measurements and slew toward them without timing jitter.
+
+        Ambiguous checks (`None`) add no evidence but keep earlier matches:
+        hunts are full of still scenes, and discarding matches on each one kept
+        the delay from ever being confirmed. Matches expire after a minute.
+        """
+        now = time.monotonic() if now is None else now
+        while self.estimates and now - self.estimates[0][0] > ESTIMATE_TTL_SECONDS:
+            self.estimates.popleft()
         if delay_ms is None:
-            self.estimates.clear()
             return
-        self.estimates.append(delay_ms)
-        if len(self.estimates) < CONFIRM_SAMPLES:
+        self.estimates.append((now, delay_ms))
+        values = [value for _, value in self.estimates]
+        middle = median(values)
+        agreeing = [
+            value
+            for value in values
+            if abs(value - middle) <= MATCH_SPREAD_SECONDS * 1000 / 2
+        ]
+        if len(agreeing) < CONFIRM_SAMPLES:
             return
-        if max(self.estimates) - min(self.estimates) > MATCH_SPREAD_SECONDS * 1000:
-            return
-        target = median(self.estimates)
+        target = median(agreeing)
         current = self.delay_ms
         if current is None:
             current = max(

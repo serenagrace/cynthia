@@ -114,7 +114,6 @@ def test_nxbt_worker_preserves_connection_queue_and_cleanup(monkeypatch, tmp_pat
 
 def test_home_tap_closes_quick_settings_and_retries(monkeypatch):
     import asyncio
-    from types import SimpleNamespace
 
     import nxbt
 

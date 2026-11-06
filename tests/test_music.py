@@ -1,10 +1,8 @@
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
 
 import discord
 import pytest
-import yaml
 from discord import app_commands
 
 from cynthia.bot.applications import music as music_app

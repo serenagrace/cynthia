@@ -2,7 +2,6 @@ import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
-import discord
 import pytest
 import yaml
 from discord import app_commands
@@ -235,7 +234,7 @@ def test_simulated_forced_reboot_never_calls_host_command(monkeypatch):
         monkeypatch.setattr(control.asyncio, "sleep", sleep)
         monkeypatch.setattr(control.asyncio, "create_subprocess_exec", subprocess)
         interaction = SimpleNamespace(
-            response=SimpleNamespace(send_message=send_message)
+            response=SimpleNamespace(send_message=send_message), client=None
         )
 
         await control.reboot.callback(interaction, graceful=False)
@@ -309,5 +308,38 @@ def test_simulated_switch_and_queue_macro_only_queue_mocked_daemon():
             assert "Queued" in interaction.followup.send.await_args.args[0]
         finally:
             Macro._macro_tree = old_tree
+
+    asyncio.run(run())
+
+
+def test_simulated_shutdown_says_goodbye_then_ends_the_stream(monkeypatch):
+    async def run():
+        events = []
+
+        class Chat:
+            async def announce(self, key):
+                events.append(("chat", key))
+                return True
+
+        class OBS:
+            async def end_stream(self):
+                events.append(("end", None))
+                return True
+
+        async def sleep(seconds):
+            events.append(("delay", seconds))
+
+        cogs = {"LLMChatCog": Chat(), "OBSCog": OBS()}
+        monkeypatch.setattr(control.asyncio, "sleep", sleep)
+
+        await control.end_stream(SimpleNamespace(get_cog=cogs.get))
+        await control.announce_reboot(SimpleNamespace(get_cog=cogs.get))
+
+        assert events == [
+            ("chat", "twitch_goodbye_message"),
+            ("delay", control.GOODBYE_SECONDS),
+            ("end", None),
+            ("chat", "twitch_reboot_message"),
+        ]
 
     asyncio.run(run())

@@ -43,9 +43,9 @@ DEFAULT_LAYOUT = {
         {
             "name": "watermark",
             "kind": "watermark",
-            "x": 0.8,
+            "x": 0.7,
             "y": 0.965,
-            "w": 0.2,
+            "w": 0.3,
             "h": 0.035,
         },
     ]

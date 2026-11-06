@@ -29,6 +29,11 @@ class CommandTree(discord.app_commands.CommandTree):
 
     async def on_error(self, interaction, error):
         """Send a safe interaction error and log unexpected failures."""
+        # Commands may raise a CheckFailure themselves when a service is missing
+        if isinstance(error, discord.app_commands.CommandInvokeError) and isinstance(
+            error.original, discord.app_commands.CheckFailure
+        ):
+            error = error.original
         if isinstance(error, discord.app_commands.CheckFailure):
             message = str(error) or "You do not have permission to use this command."
             message = f"❌ {message}"

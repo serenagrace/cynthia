@@ -43,16 +43,33 @@ def parse_privmsg(line):
         "id": tags.get("id"),
         "login": match.group("nick").lower(),
         "user_id": tags.get("user-id"),
+        # login of the chatter this message replies to, if it's a reply
+        "reply_to": (tags.get("reply-parent-user-login") or "").lower() or None,
     }
 
 
 class TwitchChat:
     """Keep the latest chat messages of one channel, connecting anonymously."""
 
-    def __init__(self, channel):
-        """Remember the channel (without `#`) to read."""
+    def __init__(self, channel, listener=None):
+        """Remember the channel (without `#`) to read.
+
+        `listener(kind, data)`, if given, hears each `"message"` (the message
+        dict) and `"delete"` (`{"id"}`, `{"login", "user_id"}`, or `{}` for a
+        full clear).
+        """
         self.channel = channel.lstrip("#").lower()
         self.messages = deque(maxlen=MAX_MESSAGES)
+        self.listener = listener
+
+    def notify(self, kind, data):
+        """Tell the listener about a chat event without letting it break reading."""
+        if self.listener is None:
+            return
+        try:
+            self.listener(kind, data)
+        except Exception:
+            logger.exception("Twitch chat listener failed.")
 
     def recent(self, count=15):
         """Return the newest `count` messages, oldest first."""
@@ -66,6 +83,7 @@ class TwitchChat:
         message = parse_privmsg(line)
         if message is not None:
             self.messages.append(message)
+            self.notify("message", message)
             return
         match = CLEAR.match(line)
         if match is None:
@@ -73,6 +91,7 @@ class TwitchChat:
         tags = parse_tags(match.group("tags"))
         if match.group("command") == "CLEARMSG":
             target = tags.get("target-msg-id")
+            self.notify("delete", {"id": target})
 
             def deleted(m):
                 """Match the single message removed by its IRC message ID."""
@@ -81,6 +100,7 @@ class TwitchChat:
         elif match.group("target"):
             user_id = tags.get("target-user-id")
             login = match.group("target").strip().lower()
+            self.notify("delete", {"login": login, "user_id": user_id})
 
             def deleted(m):
                 """Match messages from the banned or timed-out user."""
@@ -90,6 +110,7 @@ class TwitchChat:
 
         else:
             self.messages.clear()
+            self.notify("delete", {})
             return
         kept = [m for m in self.messages if not deleted(m)]
         self.messages.clear()

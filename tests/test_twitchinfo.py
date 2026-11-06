@@ -145,10 +145,8 @@ def test_twitch_api_refreshes_an_expired_token_and_updates_the_channel(
         )
 
     async def validate(request):
-        assert request.headers["Authorization"] == "OAuth new-access"
-        return web.json_response(
-            {"user_id": "42", "login": "serena", "scopes": ["clips:edit"]}
-        )
+        # A refresh must not depend on this: the old refresh token is spent
+        return web.json_response({"message": "unavailable"}, status=503)
 
     async def games(request):
         names = {"Pokémon Shining Pearl": [{"id": "999"}]}
@@ -194,6 +192,7 @@ def test_twitch_api_refreshes_an_expired_token_and_updates_the_channel(
                 "refresh_token": "old-refresh",
                 "expires_at": time.time() - 1,
                 "user_id": "42",
+                "scopes": ["clips:edit"],
             }
             found = await api.find_category("Pokémon Shining Pearl")
             missing = await api.find_category("Pokemon Shinning Pearl")
@@ -223,7 +222,10 @@ def test_twitch_api_refreshes_an_expired_token_and_updates_the_channel(
     assert seen["broadcaster"] == "42"
     assert seen["body"] == {"game_id": "999", "title": "x" * 140}
     stored = tmp_path / "twitch_token.json"
-    assert json.loads(stored.read_text())["refresh_token"] == "new-refresh"
+    saved = json.loads(stored.read_text())
+    assert saved["refresh_token"] == "new-refresh"
+    assert saved["user_id"] == "42"
+    assert saved["scopes"] == ["clips:edit"]
     assert os.stat(stored).st_mode & 0o777 == 0o600
 
 
@@ -239,6 +241,62 @@ def test_clipping_needs_a_new_authorization_without_the_clip_scope(tmp_path):
         assert "/twitch auth" in str(e)
     else:
         raise AssertionError("expected TwitchAuthError")
+
+
+def test_bot_chat_tokens_and_identity_are_separate(tmp_path, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    drive = Drive(tmp_path)
+    broadcaster = TwitchAPI("client", None, drive)
+    broadcaster.tokens = {
+        "refresh_token": "broadcaster-refresh",
+        "user_id": "42",
+        "login": "streamer",
+    }
+    broadcaster._save()
+    bot = TwitchAPI("client", None, drive, chat=True)
+    assert not bot.authorized
+    bot.tokens = {
+        "refresh_token": "bot-refresh",
+        "user_id": "99",
+        "login": "cynthiabot",
+        "scopes": [twitchapi.CHAT_SCOPE],
+    }
+    bot._save()
+    helix = AsyncMock(
+        return_value={"data": [{"is_sent": True, "message_id": "reply-id"}]}
+    )
+    monkeypatch.setattr(bot, "_helix", helix)
+
+    result = asyncio.run(
+        bot.send_chat_message("hi", reply_to="parent-id", broadcaster_id="42")
+    )
+
+    assert result == "reply-id"
+    helix.assert_awaited_once_with(
+        "POST",
+        "chat/messages",
+        json={
+            "broadcaster_id": "42",
+            "sender_id": "99",
+            "message": "hi",
+            "reply_parent_message_id": "parent-id",
+        },
+    )
+    assert TwitchAPI("client", None, drive).tokens == broadcaster.tokens
+    assert TwitchAPI("client", None, drive, chat=True).tokens == bot.tokens
+    assert bot.scopes == twitchapi.CHAT_SCOPE
+    assert os.stat(tmp_path / twitchapi.CHAT_TOKEN_FILE).st_mode & 0o777 == 0o600
+
+
+def test_bot_chat_without_scope_requests_bot_authorization(tmp_path):
+    import pytest
+
+    from cynthia.utils.twitchapi import TwitchAuthError
+
+    bot = TwitchAPI("client", None, Drive(tmp_path), chat=True)
+    with pytest.raises(TwitchAuthError, match="/twitch botauth"):
+        asyncio.run(bot.send_chat_message("hi", broadcaster_id="42"))
 
 
 def test_cog_clips_a_new_shiny_once_it_reaches_the_live_stream(tmp_path):
@@ -314,3 +372,52 @@ def test_needs_authorization_for_missing_scopes_or_a_dead_token(tmp_path):
 
     api._access_token = dead
     assert asyncio.run(api.needs_authorization())
+
+
+def test_refresh_keeps_tokens_without_the_client_secret_and_identity_when_revoked(
+    tmp_path, monkeypatch
+):
+    from cynthia.utils.twitchapi import TwitchAuthError
+
+    replies = []
+
+    async def token(request):
+        return web.json_response(replies.pop(0), status=400)
+
+    async def run():
+        app = web.Application()
+        app.router.add_post("/oauth2/token", token)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, "127.0.0.1", 0)
+        await site.start()
+        port = site._server.sockets[0].getsockname()[1]
+        monkeypatch.setattr(twitchapi, "AUTH_URL", f"http://127.0.0.1:{port}/oauth2")
+        api = TwitchAPI("client", None, Drive(tmp_path), chat=True)
+        api.tokens = {
+            "refresh_token": "r",
+            "expires_at": 0,
+            "user_id": "99",
+            "login": "cynthiabot",
+        }
+        errors = []
+        try:
+            for reply in (
+                {"status": 400, "message": "missing client secret"},
+                {"status": 400, "message": "Invalid refresh token"},
+            ):
+                replies.append(reply)
+                try:
+                    await api._helix("GET", "users")
+                except TwitchAuthError as e:
+                    errors.append((str(e), dict(api.tokens)))
+        finally:
+            await runner.cleanup()
+        return errors
+
+    (secret, kept), (revoked, identity) = asyncio.run(run())
+    assert "TWITCH_CLIENT_SECRET" in secret and kept["refresh_token"] == "r"
+    assert "/twitch botauth" in revoked
+    assert identity == {"user_id": "99", "login": "cynthiabot"}
+    saved = json.loads((tmp_path / twitchapi.CHAT_TOKEN_FILE).read_text())
+    assert saved == identity

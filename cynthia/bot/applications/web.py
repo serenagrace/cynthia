@@ -295,7 +295,7 @@ class STS(Compendium):
                         self.message = await interaction.original_response()
 
                 view = SmithView(self, card_info)
-                message = await interaction.response.send_message(
+                await interaction.response.send_message(
                     embed=embed,
                     view=view,
                 )

@@ -51,3 +51,50 @@ def test_audio_capture_only_runs_for_listeners_or_the_obs_feed():
     assert audio_wanted(SimpleNamespace(audio_listeners=1))
     assert audio_wanted(SimpleNamespace(obs_feeding=True))
     assert not audio_wanted(SimpleNamespace(audio_listeners=0, obs_feeding=False))
+
+
+def _sine(frames, phase=0):
+    import numpy
+
+    t = numpy.arange(frames) + phase
+    wave = 3000 * numpy.sin(2 * numpy.pi * 440 * t / 48000)
+    return numpy.stack([wave, -wave], axis=1).round().astype(numpy.int16)
+
+
+def _repair_in_chunks(audio, chunk_frames):
+    from cynthia.daemons.audio import DropoutRepair
+
+    repair = DropoutRepair()
+    raw = audio.tobytes()
+    step = chunk_frames * 4
+    out = b"".join(repair.process(raw[i : i + step]) for i in range(0, len(raw), step))
+    return repair, out
+
+
+def test_dropout_repair_passes_clean_audio_through_unchanged():
+    audio = _sine(4800)
+    audio[1000:1003] = 0  # a zero run in only some frames is not a dropout
+    audio[1000:1003, 1] = 7
+    repair, out = _repair_in_chunks(audio, 333)
+    assert repair.repaired == 0
+    assert out == audio[: -repair.HOLD].tobytes()
+
+
+def test_dropout_repair_bridges_card_dropouts_split_across_reads():
+    import numpy
+
+    clean = _sine(4800)
+    audio = clean.copy()
+    # The card splices a packet early, then writes garbage and three zero frames
+    audio[2000:2049] = _sine(49, phase=2000 + 300)
+    audio[2049] = (30000, -30000)
+    audio[2050:2053] = 0
+    audio[2053:] = _sine(len(audio) - 2053, phase=2053 + 300)
+    repair, out = _repair_in_chunks(audio, 2051)  # read ends inside the zeros
+    fixed = numpy.frombuffer(out, numpy.int16).reshape(-1, 2).astype(int)
+    assert repair.repaired == 1
+    assert not (fixed[2040:2060] == 0).all(axis=1).any()
+    jumps = numpy.abs(numpy.diff(fixed[1990:2070], 2, axis=0)).max()
+    assert (
+        jumps < numpy.abs(numpy.diff(audio[1990:2070].astype(int), 2, axis=0)).max() / 4
+    )

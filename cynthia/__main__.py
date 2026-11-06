@@ -1,9 +1,11 @@
 """Command-line entry point for the Cynthia bot."""
 
 import argparse
+import os
 import subprocess
+import sys
 
-from .utils.log import get_logger, setup_logging
+from .utils.log import VERBOSE_ENV, get_logger, log_to_file, setup_logging
 
 setup_logging()
 
@@ -24,10 +26,25 @@ def main():
         "--perms", default="perms.yaml", help="Override permissions file"
     )
     parser.add_argument("--hunt", type=str, default=None)
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Also log every macro step",
+    )
 
     args = parser.parse_args()
+    if args.verbose:
+        os.environ[VERBOSE_ENV] = "1"
+        setup_logging()
 
     _context = Context(args)
+    log_path = log_to_file(_context.drive_path)
+    if log_path is None:
+        logger.warning("No drive configured; logging to the console only.")
+    else:
+        logger.notice(f"Logging to `{log_path}`.")
+    sys.excepthook = _log_uncaught
     bot = None
     try:
         bot = Bot(_context)
@@ -62,6 +79,14 @@ def main():
         logger.notice("Rebooting host...")
         subprocess.run(["sudo", "-n", "reboot"])
     exit(0)
+
+
+def _log_uncaught(exc_type, exc, tb):
+    """Send a crash's traceback through logging so the log file keeps it."""
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc, tb)
+        return
+    logger.critical("Uncaught exception", exc_info=(exc_type, exc, tb))
 
 
 def _exit_action(bot):

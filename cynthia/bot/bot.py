@@ -1,11 +1,9 @@
 """Discord bot implementation and lifecycle management."""
 
 import asyncio
-import gzip
 import importlib.resources
 import logging
 import time
-from pathlib import Path
 
 import discord
 from discord.ext import commands
@@ -16,10 +14,10 @@ from cynthia.utils.about import build_about_embed
 from cynthia.utils.db import Database
 from cynthia.utils.drive import Drive
 from cynthia.utils.logger import Logger
-from cynthia.utils.nxbt_utils import load_macros, save_macros
+from cynthia.utils.nxbt_utils import load_macros
 from cynthia.utils.onmessage import OnMessage, load_onmessage, save_onmessage
 
-from .applications import CommandTree, TreeLoadError
+from .applications import CommandTree
 from .messenger import Messenger
 
 _logger = logging.getLogger(__name__)
@@ -92,12 +90,6 @@ class Bot(commands.Bot):
         self.discovered_cogs = list()
         self.loaded_command_count = 0
         self.loaded_cog_count = 0
-
-    async def setup_hook(self):
-        """Start daemon monitoring after the Discord event loop is ready."""
-        await super().setup_hook()
-        if not self.test_mode:
-            self._dman_monitor_task = asyncio.create_task(self.dman.monitor_daemons())
 
     async def reload_tree(self, interaction=None):
         """Load command modules, sync commands, and report reload results."""
@@ -213,13 +205,26 @@ class Bot(commands.Bot):
         return None
 
     async def setup_hook(self):
-        """Load permissions, cogs, and application commands during startup."""
+        """Load permissions, cogs and commands, then start the daemon monitor."""
+        await super().setup_hook()
         guilds = [] if self.test_mode else await self.get_all_guilds()
         _logger.notice(f"Member of {len(guilds)} guilds.")
         self.perms = Namespace(self.permsloader(self))
         self.perms_check = self.permsloader.check
         await self.load_cogs()
         await self.reload_tree()
+        if not self.test_mode:
+            self.start_daemon_monitor()
+
+    def start_daemon_monitor(self):
+        """Restart dead, stalled or frozen daemons, DMing the owner about them."""
+
+        async def notify(text, alert=False):
+            """DM the owner about daemon problems the monitor finds."""
+            await self.messenger.msg_owner(text, alert=alert)
+
+        self.dman.notify = notify
+        self._dman_monitor_task = asyncio.create_task(self.dman.monitor_daemons())
 
     async def on_ready(self):
         """Load message handlers and mark the bot as online."""

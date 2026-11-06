@@ -66,12 +66,18 @@ class FrameRing:
         self._latest = mp.RawValue("i", -1)
         self._seq = mp.RawValue("q", 0)
         self._last_time = mp.RawValue("q", 0)
+        self._last_hash = mp.RawValue("Q", 0)
         self._dropped = mp.RawValue("q", 0)
 
     @property
     def last_time_ns(self):
         """Capture time of the newest published frame (0 before the first)."""
         return self._last_time.value
+
+    @property
+    def last_hash(self):
+        """Content hash of the newest published frame (0 before the first)."""
+        return self._last_hash.value
 
     @property
     def seq(self):
@@ -106,6 +112,7 @@ class FrameRing:
             self._latest.value = slot
             self._seq.value += 1
             self._last_time.value = time_ns
+            self._last_hash.value = frame_hash
             self.cond.notify_all()
 
     def abort_write(self, slot):
