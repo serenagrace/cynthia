@@ -30,45 +30,77 @@ WARN_AFTER_FAILURES = 3
 class DropoutRepair:
     """Smooth over the dropouts the Elgato 4K X puts in its audio.
 
-    A couple of times a second the card splices its audio about a millisecond
-    (one USB packet) early, then replaces four frames with one garbage frame
-    and three all-zero frames; both are heard as pops. Real audio practically
-    never has exactly three digital-zero frames in both channels between
-    non-zero ones, so each such run and the garbage frame are replaced by a
-    straight line between the good neighbours. The splice before it is found
-    as the outstanding jump in that window and faded out. The last
-    `HOLD` frames are held back so a dropout split across reads is still caught.
+    Captured faults have a discontinuity about a millisecond (one USB packet)
+    before one garbage frame and three all-zero frames; both are heard as pops.
+    Quiet quantized audio can also have three-zero runs, so require an abrupt
+    preceding frame or packet discontinuity. Reconstruct the whole damaged
+    packet, not just its edges, from forward and backward predictions of the
+    good neighbouring audio.
+    Hold enough audio for both prediction windows so repair does not depend on
+    where a pipe read ends.
     """
 
     ZEROS = 3
-    SPLICE_NEAR = 36
-    SPLICE_FAR = 60
-    SPLICE_MIN = 6  # times the window's median prediction error
-    FADE = 24
-    CONTEXT = 2
-    HOLD = SPLICE_FAR + ZEROS + 1
+    PACKET = 208 // AUDIO_FRAME_BYTES  # maximum Elgato USB audio packet
+    ORDER = 16
+    CONTEXT = 128
+    HOLD = PACKET + CONTEXT + ZEROS + 2
 
     def __init__(self):
         """Start with no held-back audio."""
         self._held = numpy.zeros((0, 2), numpy.int16)
         self._context = numpy.zeros((0, 2), numpy.int16)
+        self._emitted = 0
+        self._repaired_until = -1
         self.repaired = 0
 
+    @classmethod
+    def _predict(cls, context, count):
+        """Extrapolate a short gap, bounding ill-conditioned audio predictions."""
+        mean = context.mean()
+        signal = context - mean
+        order = min(cls.ORDER, len(signal) // 4)
+        if not order or numpy.mean(signal**2) < 1:
+            return numpy.full(count, context[-1])
+        windows = numpy.lib.stride_tricks.sliding_window_view(signal, order + 1)
+        design = windows[:, :order][:, ::-1]
+        gram = design.T @ design
+        regularization = max(1, numpy.trace(gram) / order * 1e-5)
+        try:
+            coefficients = numpy.linalg.solve(
+                gram + numpy.eye(order) * regularization,
+                design.T @ windows[:, order],
+            )
+        except numpy.linalg.LinAlgError:
+            return numpy.full(count, context[-1])
+        history = list(signal[-order:])
+        predicted = []
+        limit = max(1, 2 * numpy.abs(context).max())
+        for _ in range(count):
+            sample = float(numpy.dot(coefficients, history[-order:][::-1]))
+            if not numpy.isfinite(sample) or abs(sample + mean) > limit:
+                return numpy.full(count, context[-1])
+            history.append(sample)
+            predicted.append(sample + mean)
+        return numpy.asarray(predicted)
+
     def _repair(self, frames, garbage, after):
-        """Bridge the garbage and zero frames, then fade out the splice before."""
-        left, right = frames[garbage - 1], frames[after]
-        steps = numpy.arange(1, after - garbage + 1)[:, None] / (after - garbage + 1)
-        frames[garbage:after] = left + (right - left) * steps
-        first = garbage - self.SPLICE_FAR
-        if first < 2:
-            return
-        jumps = frames[first:] - 2 * frames[first - 1 : -1] + frames[first - 2 : -2]
-        jumps = jumps[: self.SPLICE_FAR - self.SPLICE_NEAR]
-        size = numpy.abs(jumps).sum(axis=1)
-        k = int(size.argmax())
-        if size[k] > self.SPLICE_MIN * numpy.median(size) and size[k] > 64:
-            fade = 1 - numpy.arange(self.FADE)[:, None] / self.FADE
-            frames[first + k : first + k + self.FADE] -= jumps[k] * fade
+        """Reconstruct the corrupt USB packet without introducing short ramps."""
+        splice = max(1, garbage - self.PACKET)
+        count = after - splice
+        blend = (0.5 - 0.5 * numpy.cos(numpy.linspace(0, numpy.pi, count)))[:, None]
+        before = frames[max(0, splice - self.CONTEXT) : splice]
+        following = frames[after : after + self.CONTEXT]
+        forward = numpy.column_stack(
+            [self._predict(before[:, channel], count) for channel in range(2)]
+        )
+        backward = numpy.column_stack(
+            [
+                self._predict(following[::-1, channel], count)[::-1]
+                for channel in range(2)
+            ]
+        )
+        frames[splice:after] = forward * (1 - blend) + backward * blend
 
     def process(self, data):
         """Return repaired whole frames from `data`, keeping a short tail back."""
@@ -81,18 +113,35 @@ class DropoutRepair:
         ends = numpy.flatnonzero(edges == -1)
         work = None
         for start, end in zip(starts, ends):
+            absolute_end = self._emitted - context + end
             # Needs a good frame on each side of the garbage frame and zeros
-            if end - start != self.ZEROS or start < 2 or end >= len(frames):
+            if (
+                end - start != self.ZEROS
+                or start < 2
+                or end + self.CONTEXT > len(frames)
+                or absolute_end <= self._repaired_until
+            ):
                 continue
+            if not ((frames[start - 1] > 16) | (frames[start - 1] < -16)).any():
+                packet = frames[
+                    max(0, start - self.PACKET - 12) : max(0, start - 32)
+                ].astype(float)
+                if (
+                    len(packet) < 3
+                    or numpy.abs(numpy.diff(packet, 2, axis=0)).max() <= 64
+                ):
+                    continue
             if work is None:
                 work = frames.astype(float)
             self._repair(work, start - 1, end)
+            self._repaired_until = absolute_end
             self.repaired += 1
         if work is not None:
             frames = numpy.clip(numpy.round(work), -32768, 32767).astype(numpy.int16)
         cut = max(context, len(frames) - self.HOLD)
         out, self._held = frames[context:cut], frames[cut:]
         self._context = frames[:cut][-self.CONTEXT :]
+        self._emitted += len(out)
         return out.tobytes()
 
 

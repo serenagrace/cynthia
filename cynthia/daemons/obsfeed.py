@@ -27,10 +27,10 @@ DATAGRAM_BYTES = 1316  # seven MPEG-TS packets
 # never recovers by itself and drags the video down to a few frames a second.
 AUDIO_LAG_LIMIT = 0.15
 AUDIO_LAG_KEEP = 0.03
-# Smaller lags are absorbed by stretching the audio a little, which keeps video
-# from being throttled and is too slight to hear
+# Recover clock drift slowly; pipe scheduling jitter must not modulate pitch.
 AUDIO_STRETCH_DEADBAND = 0.01
-AUDIO_STRETCH_MAX = 0.02
+AUDIO_STRETCH_MAX = 0.005
+AUDIO_STRETCH_SLEW = 0.0002
 OBS_PROCESS_NAMES = ("obs", "obs-studio")
 # Ignore startup, then require two slow windows before recycling an encoder.
 FEED_WATCH_SECONDS = 15
@@ -93,6 +93,8 @@ def ffmpeg_command(
     audio_output = []
     if audio_fd is not None:
         audio_input = [
+            "-probesize",
+            "32",
             "-f",
             "s16le",
             "-ar",
@@ -206,28 +208,92 @@ def audio_shortfall(elapsed, delivered):
     return int(behind) - int(behind) % AUDIO_FRAME_BYTES
 
 
-def audio_stretch(chunk, elapsed, delivered):
-    """Return `chunk` stretched to pull delivered audio level with real time.
+class AudioClock:
+    """Continuous stereo resampling with slow, bounded clock recovery.
 
-    Audio from the capture card runs a fraction of a percent slow, and ffmpeg
-    throttles the video to match once that lag builds up. Each chunk is
-    resampled slightly longer, by at most `AUDIO_STRETCH_MAX`, until the lag is
-    inside `AUDIO_STRETCH_DEADBAND`.
+    Keep fractional phase and filter history across pipe reads. A windowed-sinc
+    interpolator avoids the treble loss of linear interpolation, while a slew
+    limit prevents arrival-time jitter from becoming audible pitch modulation.
     """
-    frames = len(chunk) // AUDIO_FRAME_BYTES
-    behind = elapsed * AUDIO_BYTES_PER_SEC - delivered
-    if frames < 2 or behind <= AUDIO_STRETCH_DEADBAND * AUDIO_BYTES_PER_SEC:
-        return chunk
-    extra = min(int(behind / AUDIO_FRAME_BYTES / 10), int(frames * AUDIO_STRETCH_MAX))
-    if extra < 1:
-        return chunk
-    samples = numpy.frombuffer(chunk, numpy.int16, frames * 2).reshape(frames, 2)
-    source = numpy.arange(frames)
-    target = numpy.linspace(0, frames - 1, frames + extra)
-    stretched = numpy.empty((frames + extra, 2), numpy.int16)
-    for channel in range(2):
-        stretched[:, channel] = numpy.interp(target, source, samples[:, channel])
-    return stretched.tobytes()
+
+    RADIUS = 16
+    FADE = 240  # 5 ms at 48 kHz
+
+    def __init__(self):
+        """Start at the capture rate with a short filter history."""
+        self._samples = numpy.zeros((self.RADIUS, 2), dtype=float)
+        self._position = float(self.RADIUS)
+        self._ratio = 1.0
+        self._elapsed = 0.0
+        self._last = numpy.zeros(2)
+        self._fade_from = self._last.copy()
+        self._fade_pos = 0
+
+    def process(self, chunk, elapsed, delivered):
+        """Resample whole PCM frames without resetting phase at read boundaries."""
+        duration = max(0, min(elapsed - self._elapsed, 0.1))
+        self._elapsed = elapsed
+        behind = elapsed - (delivered + len(chunk)) / AUDIO_BYTES_PER_SEC
+        target = 1 + min(
+            AUDIO_STRETCH_MAX, max(0, behind - AUDIO_STRETCH_DEADBAND) / 10
+        )
+        change = AUDIO_STRETCH_SLEW * duration
+        self._ratio += numpy.clip(target - self._ratio, -change, change)
+        samples = numpy.frombuffer(chunk, numpy.int16).reshape(-1, 2)
+        self._samples = numpy.concatenate((self._samples, samples))
+        stop = len(self._samples) - self.RADIUS
+        positions = numpy.arange(self._position, stop, 1 / self._ratio)
+        if not len(positions):
+            return b""
+        # Bound temporary arrays even when a reader catches up after a stall.
+        output = []
+        offsets = numpy.arange(-self.RADIUS + 1, self.RADIUS + 1)
+        for start in range(0, len(positions), 4096):
+            position = positions[start : start + 4096]
+            indices = numpy.floor(position).astype(int)[:, None] + offsets
+            distance = position[:, None] - indices
+            weights = numpy.sinc(distance) * numpy.sinc(distance / self.RADIUS)
+            weights /= weights.sum(axis=1, keepdims=True)
+            output.append(numpy.einsum("ij,ijk->ik", weights, self._samples[indices]))
+        self._position = positions[-1] + 1 / self._ratio
+        discard = int(self._position) - self.RADIUS
+        self._samples = self._samples[discard:]
+        self._position -= discard
+        return (
+            numpy.clip(numpy.rint(numpy.concatenate(output)), -32768, 32767)
+            .astype(numpy.int16)
+            .tobytes()
+        )
+
+    def transition(self):
+        """Bridge a known jump or outage from the last delivered sample."""
+        self._fade_from = self._last.copy()
+        self._fade_pos = 0
+
+    def smooth(self, chunk):
+        """Fade only starts and known discontinuities, not ordinary pipe reads."""
+        samples = numpy.frombuffer(chunk, numpy.int16).reshape(-1, 2).astype(float)
+        count = min(len(samples), self.FADE - self._fade_pos)
+        if count:
+            phase = (numpy.arange(count) + self._fade_pos + 1) / self.FADE
+            weight = (0.5 - 0.5 * numpy.cos(numpy.pi * phase))[:, None]
+            samples[:count] = self._fade_from * (1 - weight) + samples[:count] * weight
+            self._fade_pos += count
+        if len(samples):
+            self._last = samples[-1].copy()
+        return (
+            numpy.clip(numpy.rint(samples), -32768, 32767).astype(numpy.int16).tobytes()
+        )
+
+
+def write_audio(fd, chunk):
+    """Write all PCM bytes, including when a signal interrupts a pipe write."""
+    remaining = memoryview(chunk)
+    while remaining:
+        written = os.write(fd, remaining)
+        if written <= 0:
+            raise BrokenPipeError("Audio pipe closed")
+        remaining = remaining[written:]
 
 
 class Feed:
@@ -385,30 +451,36 @@ class Feed:
     def _pump_audio(self):
         """Copy ring audio to ffmpeg, keeping its timeline level with real time.
 
-        Silence fills gaps so muxing never stalls, small lags are stretched
-        away, and a large shortfall is padded; see `audio_stretch` and
+        Silence fills gaps so muxing never stalls, clock drift is resampled
+        continuously, and a large shortfall is padded; see `AudioClock` and
         `AUDIO_LAG_LIMIT`.
         """
         pos = self.audio_ring.live_position(60)
         started = time.monotonic()
         delivered = 0
+        clock = AudioClock()
+        in_gap = False
         gaps = skips = pads = 0
         report_at = started + 30
         while not self._stopped.is_set():
             data, pos, _, skipped = self.audio_ring.read(pos, 0.1, max_lag_ms=500)
             gaps += not data
             skips += bool(skipped)
-            chunk = audio_stretch(
-                data or self.SILENCE, time.monotonic() - started, delivered
-            )
+            elapsed = time.monotonic() - started
+            if skipped or bool(data) == in_gap:
+                clock.transition()
+            in_gap = not data
+            chunk = clock.process(data or self.SILENCE, elapsed, delivered)
             try:
-                os.write(self._audio_fd, chunk)
+                write_audio(self._audio_fd, clock.smooth(chunk))
                 delivered += len(chunk)
                 pad = audio_shortfall(time.monotonic() - started, delivered)
                 if pad:
-                    os.write(self._audio_fd, bytes(pad))
+                    clock.transition()
+                    write_audio(self._audio_fd, clock.smooth(bytes(pad)))
                     delivered += pad
                     pads += 1
+                    clock.transition()
             except OSError:
                 return
             if time.monotonic() >= report_at:
