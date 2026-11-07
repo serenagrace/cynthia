@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from cynthia.daemons.cystream import app_version, create_app
 from cynthia.daemons.frames import AUDIO_BYTES_PER_SEC
-from cynthia.daemons.obsfeed import Feed, audio_shortfall, audio_stretch
+from cynthia.daemons.obsfeed import AudioClock, Feed, audio_shortfall, write_audio
 from cynthia.utils.drive import Drive
 from cynthia.utils.obs import OBSControl
 from cynthia.utils.obslayout import LayoutError, load_layout, normalize, source_name
@@ -501,17 +501,148 @@ def test_audio_shortfall_ignores_jitter_and_pads_lasting_lag():
     assert 0 < behind < 0.05
 
 
-def test_audio_stretch_lengthens_chunks_only_when_behind():
-    chunk = bytes(4 * 1000)
-    on_time = 10.0 * AUDIO_BYTES_PER_SEC
+@pytest.mark.parametrize("chunk_frames", [1, 48, 480, 4096])
+def test_audio_clock_preserves_clean_pcm_across_arbitrary_reads(chunk_frames):
+    import numpy
 
-    assert audio_stretch(chunk, 10.0, on_time) == chunk
-    assert audio_stretch(chunk, 10.0, on_time + 5) == chunk
+    wave = numpy.rint(
+        20000 * numpy.sin(2 * numpy.pi * 13001 * numpy.arange(9600) / 48000)
+    ).astype(numpy.int16)
+    stereo = numpy.column_stack((wave, -wave))
+    clock = AudioClock()
+    output = []
+    delivered = 0
+    for pos in range(0, len(stereo), chunk_frames):
+        chunk = stereo[pos : pos + chunk_frames].tobytes()
+        # A healthy source may already have buffered audio at reader startup.
+        elapsed = max(0, (pos + len(chunk) // 4) / 48000 - 0.06)
+        converted = clock.process(chunk, elapsed, delivered)
+        output.append(converted)
+        delivered += len(converted)
+    assert b"".join(output) == stereo[: -clock.RADIUS].tobytes()
 
-    stretched = audio_stretch(chunk, 10.0, on_time - 0.1 * AUDIO_BYTES_PER_SEC)
 
-    assert len(stretched) % 4 == 0
-    assert len(chunk) < len(stretched) <= len(chunk) * 1.02
+def test_audio_clock_rejects_jitter_and_slowly_recovers_capture_drift():
+    import numpy
+
+    clock = AudioClock()
+    delivered = 0
+    previous_ratio = 1.0
+    elapsed = 0
+    for read in range(6000):
+        # Alternating pipe-read sizes and delays must not impose 2% pitch steps.
+        count = (48, 480, 912)[read % 3]
+        elapsed += count / 48000 * 1.002
+        arrival = elapsed + (0.025 if read % 2 else 0)
+        out = clock.process(bytes(count * 4), arrival, delivered)
+        delivered += len(out)
+        assert abs(clock._ratio - previous_ratio) <= 0.00002 + 1e-12
+        previous_ratio = clock._ratio
+    assert 1.001 < clock._ratio < 1.004
+    assert abs(elapsed - delivered / AUDIO_BYTES_PER_SEC) < 0.1
+    assert numpy.frombuffer(out, numpy.int16).max() == 0
+
+
+def test_audio_clock_retains_fractional_phase_and_treble_across_reads():
+    import numpy
+
+    ratio = 1.003
+    phase = 2 * numpy.pi * 13001 / 48000
+    wave = numpy.rint(12000 * numpy.sin(phase * numpy.arange(9600))).astype(numpy.int16)
+    stereo = numpy.column_stack((wave, -wave))
+    clock = AudioClock()
+    clock._ratio = ratio
+    parts = [
+        clock.process(stereo[pos : pos + 333].tobytes(), 0, 0)
+        for pos in range(0, len(stereo), 333)
+    ]
+    whole = AudioClock()
+    whole._ratio = ratio
+    assert b"".join(parts) == whole.process(stereo.tobytes(), 0, 0)
+    actual = numpy.frombuffer(b"".join(parts), numpy.int16).reshape(-1, 2)
+    expected = 12000 * numpy.sin(phase * numpy.arange(len(actual)) / ratio)
+    assert numpy.max(numpy.abs(actual[32:-32, 0] - expected[32:-32])) < 12
+    assert numpy.max(numpy.abs(actual[:, 0].astype(int) + actual[:, 1])) == 0
+
+
+def test_audio_clock_fades_outages_across_short_reads_without_touching_clean_audio():
+    import numpy
+
+    clock = AudioClock()
+    positive = numpy.full((480, 2), 20000, numpy.int16).tobytes()
+    clock.smooth(positive)
+    assert clock.smooth(positive) == positive
+    clock.transition()
+    pieces = [clock.smooth(bytes(48 * 4)) for _ in range(5)]
+    fade = numpy.frombuffer(b"".join(pieces), numpy.int16).reshape(-1, 2)
+    assert fade[0, 0] > 19990
+    assert fade[-1, 0] == 0
+    assert numpy.abs(numpy.diff(fade[:, 0].astype(int))).max() < 150
+    clock.transition()
+    resumed = numpy.frombuffer(clock.smooth(positive), numpy.int16).reshape(-1, 2)
+    assert resumed[0, 0] < 10
+    assert resumed[239, 0] == 20000
+
+
+def test_audio_pipe_retries_short_writes_without_losing_or_swapping_samples(
+    monkeypatch,
+):
+    written = bytearray()
+
+    def short_write(fd, data):
+        assert fd == 123
+        count = min(7, len(data))
+        written.extend(data[:count])
+        return count
+
+    monkeypatch.setattr("cynthia.daemons.obsfeed.os.write", short_write)
+    chunk = bytes(range(256)) * 4
+    write_audio(123, chunk)
+    assert written == chunk
+
+
+def test_audio_pump_bridges_ring_skips_capture_outages_and_recovery(monkeypatch):
+    import threading
+
+    import numpy
+
+    positive = numpy.tile(numpy.array([20000, -20000], numpy.int16), (480, 1))
+    negative = -positive
+    reads = iter(
+        [
+            (positive.tobytes(), 0, 0.01),
+            (negative.tobytes(), 1920, 0.01),
+            (b"", 0, 0.1),
+            (positive.tobytes(), 0, 0.01),
+        ]
+    )
+    feed = Feed.__new__(Feed)
+    feed._audio_fd = 123
+    feed._stopped = threading.Event()
+    now = 0.0
+    count = 0
+
+    def read(pos, *args, **kwargs):
+        nonlocal now, count
+        data, skipped, duration = next(reads)
+        now += duration
+        count += 1
+        if count == 4:
+            feed._stopped.set()
+        return data, pos + len(data) + skipped, 0, skipped
+
+    feed.audio_ring = SimpleNamespace(live_position=lambda _: 0, read=read)
+    monkeypatch.setattr("cynthia.daemons.obsfeed.time.monotonic", lambda: now)
+    output = []
+    monkeypatch.setattr(
+        "cynthia.daemons.obsfeed.os.write",
+        lambda fd, data: output.append(bytes(data)) or len(data),
+    )
+    feed._pump_audio()
+    assert len(output) == 4
+    samples = numpy.frombuffer(b"".join(output), numpy.int16).reshape(-1, 2)
+    assert numpy.max(numpy.abs(numpy.diff(samples.astype(int), axis=0))) < 1000
+    assert numpy.all(samples[-1] == positive[-1])
 
 
 def test_obs_cog_unload_tolerates_stopped_daemon_manager():
