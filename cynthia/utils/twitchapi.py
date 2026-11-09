@@ -25,6 +25,8 @@ REFRESH_MARGIN_S = 300
 MAX_TITLE = 140
 MAX_CHAT = 500
 TIMEOUT = aiohttp.ClientTimeout(total=15)
+CLIP_TIMEOUT_SECONDS = 60
+CLIP_POLL_SECONDS = 2
 
 
 class TwitchAPIError(Exception):
@@ -249,7 +251,7 @@ class TwitchAPI:
         return scope in self.tokens.get("scopes", [])
 
     async def create_clip(self, title=None, duration=None):
-        """Clip the live stream; returns `{"id", "edit_url"}`.
+        """Clip the live stream and return its confirmed metadata and edit URL.
 
         Twitch keeps the 90 seconds up to the call and publishes the last
         `duration` seconds (30 by default) of them.
@@ -264,7 +266,21 @@ class TwitchAPI:
         if duration:
             params["duration"] = f"{min(max(float(duration), 5), 60):.1f}"
         body = await self._helix("POST", "clips", params=params)
-        return body["data"][0]
+        clip = body["data"][0]
+        clip_id = clip["id"]
+        logger.info("Twitch accepted clip %s; waiting for publication.", clip_id)
+        deadline = time.monotonic() + CLIP_TIMEOUT_SECONDS
+        while True:
+            body = await self._helix("GET", "clips", params={"id": clip_id})
+            if body.get("data"):
+                return {**clip, **body["data"][0]}
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TwitchAPIError(
+                    f"Twitch clip {clip_id}: publication not confirmed within "
+                    f"{CLIP_TIMEOUT_SECONDS} seconds."
+                )
+            await asyncio.sleep(min(CLIP_POLL_SECONDS, remaining))
 
     async def live_stream(self, login):
         """`login`'s live stream (title, game_name, viewer_count…), else None.

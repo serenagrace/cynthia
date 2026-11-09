@@ -233,8 +233,8 @@ class TwitchInfoCog(commands.Cog):
             logger.warning("Couldn't clip the shiny: %s", e)
             await self.tell_owner(f"❌ Couldn't clip the shiny: {e}")
             return
-        logger.info("Clipped the shiny: %s", clip.get("edit_url"))
-        await self.tell_owner(f"🎬 Clipped the shiny: {clip.get('edit_url')}")
+        logger.info("Clipped the shiny: %s", clip["url"])
+        await self.tell_owner(f"🎬 Clipped the shiny: {clip['url']}")
 
     async def tell_owner(self, text):
         """DM the owner, without letting a Discord error escape."""
