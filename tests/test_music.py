@@ -7,6 +7,7 @@ from discord import app_commands
 
 from cynthia.bot.applications import music as music_app
 from cynthia.bot.applications.tree import CommandTree
+from cynthia.bot.cogs.music import IDLE_SECONDS, MusicCog
 from cynthia.context.perms import PermsLoader
 from cynthia.utils import music
 from cynthia.utils.music import GuildPlayer, MusicError, Track, best_match, find_track
@@ -77,9 +78,14 @@ class FakeVoice:
         self.playing = None
         self.after = None
         self.paused = False
+        self.connected = True
+        self.channel = SimpleNamespace(members=[SimpleNamespace(bot=False)])
 
     def is_connected(self):
-        return True
+        return self.connected
+
+    async def disconnect(self):
+        self.connected = False
 
     def is_playing(self):
         return self.playing is not None and not self.paused
@@ -104,7 +110,7 @@ class FakeVoice:
 
 def make_player(monkeypatch, failing=()):
     voice = FakeVoice()
-    guild = SimpleNamespace(voice_client=voice)
+    guild = SimpleNamespace(id=1, voice_client=voice)
     monkeypatch.setattr(
         music,
         "_extract_stream",
@@ -192,6 +198,118 @@ def test_player_refuses_a_full_queue(monkeypatch):
             player.add(song(str(n)))
         with pytest.raises(MusicError, match="full"):
             player.add(song("extra"))
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("playing", [False, True])
+def test_music_leaves_when_only_bots_remain(monkeypatch, playing):
+    async def run():
+        player, voice = make_player(monkeypatch)
+        manager = music.MusicManager()
+        manager.players[player.guild.id] = player
+        cog = MusicCog(SimpleNamespace(music=manager))
+        if playing:
+            player.add(song("a"))
+            player.add(song("b"))
+            await settle()
+        voice.channel.members = [SimpleNamespace(bot=True)]
+        member = SimpleNamespace(guild=player.guild)
+
+        await cog.on_voice_state_update(
+            member,
+            SimpleNamespace(channel=voice.channel),
+            SimpleNamespace(channel=None),
+        )
+        await settle()
+
+        assert not voice.connected
+        assert not player.queue
+        assert player.current is None
+        assert manager.players == {}
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("paused", [False, True])
+def test_music_leaves_after_30_minutes_idle(monkeypatch, paused):
+    async def run():
+        player, voice = make_player(monkeypatch)
+        manager = music.MusicManager()
+        manager.players[player.guild.id] = player
+        cog = MusicCog(SimpleNamespace(music=manager))
+        if paused:
+            player.add(song("a"))
+            await settle()
+            player.pause()
+        now = player.loop.time()
+        monkeypatch.setattr(player.loop, "time", lambda: now)
+        player.idle_since = now - IDLE_SECONDS + 1
+        await cog.check_player(player)
+        assert voice.connected
+        player.idle_since -= 1
+        await cog.check_player(player)
+        assert not voice.connected
+        assert manager.players == {}
+
+    asyncio.run(run())
+
+
+def test_music_idle_clock_resets_with_playback(monkeypatch):
+    async def run():
+        player, voice = make_player(monkeypatch)
+        player.idle_since -= IDLE_SECONDS
+        player.add(song("a"))
+        assert player.idle_since is None
+        await settle()
+        player.pause()
+        assert player.idle_since is not None
+        player.resume()
+        assert player.idle_since is None
+        voice.stop()
+        await settle()
+        assert player.idle_since is not None
+        assert player.loop.time() - player.idle_since < 1
+        player.add(song("b"))
+        assert player.idle_since is None
+        await settle()
+        player.stop()
+        assert player.idle_since is not None
+
+    asyncio.run(run())
+
+
+def test_music_keeps_playing_with_listeners(monkeypatch):
+    async def run():
+        player, voice = make_player(monkeypatch)
+        manager = music.MusicManager()
+        manager.players[player.guild.id] = player
+        cog = MusicCog(SimpleNamespace(music=manager))
+        player.add(song("a"))
+        await settle()
+        await cog.check_player(player)
+        assert voice.connected
+        assert voice.is_playing()
+        player.stop()
+        await settle()
+
+    asyncio.run(run())
+
+
+def test_music_join_without_playback_creates_an_idle_player():
+    from unittest.mock import AsyncMock
+
+    async def run():
+        voice = FakeVoice()
+        channel = SimpleNamespace(
+            connect=AsyncMock(return_value=voice),
+            permissions_for=lambda member: SimpleNamespace(connect=True, speak=True),
+        )
+        guild = SimpleNamespace(id=1, voice_client=None, me=None)
+        manager = music.MusicManager()
+
+        assert await manager.connect(guild, channel) is voice
+        assert manager.players[guild.id].idle_since is not None
 
     asyncio.run(run())
 

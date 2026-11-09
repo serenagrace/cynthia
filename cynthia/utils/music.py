@@ -447,6 +447,7 @@ class GuildPlayer:
         self.queue: deque[Track] = deque()
         self.current: Track | None = None
         self.text_channel = None
+        self.idle_since: float | None = self.loop.time()
         # Set while the next track's stream URL is being resolved
         self._task: asyncio.Task | None = None
 
@@ -481,6 +482,7 @@ class GuildPlayer:
         """Pause the playing track; return whether anything was paused."""
         if self.voice and self.voice.is_playing():
             self.voice.pause()
+            self.idle_since = self.loop.time()
             return True
         return False
 
@@ -488,6 +490,7 @@ class GuildPlayer:
         """Resume a paused track; return whether anything was resumed."""
         if self.paused:
             self.voice.resume()
+            self.idle_since = None
             return True
         return False
 
@@ -514,6 +517,8 @@ class GuildPlayer:
     def stop(self) -> None:
         """Clear the queue and stop the current track."""
         self.clear()
+        if self.idle_since is None:
+            self.idle_since = self.loop.time()
         if self._task is not None:
             self._cancel_pending()
             self.current = None
@@ -539,7 +544,10 @@ class GuildPlayer:
             return
         if not self.queue:
             self.current = None
+            if self.idle_since is None:
+                self.idle_since = self.loop.time()
             return
+        self.idle_since = None
         self.current = self.queue.popleft()
         self._task = self.loop.create_task(self._play(self.current, announce))
 
@@ -632,11 +640,15 @@ class MusicManager:
             )
         voice = guild.voice_client
         if voice is None:
-            return await channel.connect(self_deaf=True)
+            voice = await channel.connect(self_deaf=True)
+            self.player(guild).idle_since = asyncio.get_running_loop().time()
+            return voice
         if voice.channel != channel:
             if self.player(guild).busy:
                 raise MusicError(f"I'm already playing in {voice.channel.mention}.")
             await voice.move_to(channel)
+            self.player(guild).idle_since = asyncio.get_running_loop().time()
+        self.player(guild)
         return voice
 
     def control_player(self, interaction: discord.Interaction) -> GuildPlayer:

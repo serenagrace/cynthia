@@ -4,6 +4,7 @@ import os
 import time
 from types import SimpleNamespace
 
+import pytest
 from aiohttp import web
 
 import cynthia.utils.twitchapi as twitchapi
@@ -167,6 +168,12 @@ def test_twitch_api_refreshes_an_expired_token_and_updates_the_channel(
             status=202,
         )
 
+    async def get_clips(request):
+        assert request.query["id"] == "Clip"
+        return web.json_response(
+            {"data": [{"id": "Clip", "url": "https://clips.twitch.tv/Clip"}]}
+        )
+
     async def streams(request):
         live = {"serena": [{"type": "live", "title": "Hi"}], "tester": [{"type": ""}]}
         return web.json_response({"data": live.get(request.query["user_login"], [])})
@@ -179,6 +186,7 @@ def test_twitch_api_refreshes_an_expired_token_and_updates_the_channel(
         app.router.add_get("/helix/games", games)
         app.router.add_patch("/helix/channels", channels)
         app.router.add_post("/helix/clips", clips)
+        app.router.add_get("/helix/clips", get_clips)
         runner = web.AppRunner(app)
         await runner.setup()
         site = web.TCPSite(runner, "127.0.0.1", 0)
@@ -211,6 +219,7 @@ def test_twitch_api_refreshes_an_expired_token_and_updates_the_channel(
     assert (found, missing) == ("999", None)
     assert seen["live"] == [{"type": "live", "title": "Hi"}, None, None]
     assert clip["edit_url"] == "https://twitch.tv/x/clip/Clip"
+    assert clip["url"] == "https://clips.twitch.tv/Clip"
     assert seen["clip"] == {"broadcaster_id": "42", "title": "Shiny Cresselia!"}
     assert seen["refresh"] == {
         "client_id": "client",
@@ -228,6 +237,49 @@ def test_twitch_api_refreshes_an_expired_token_and_updates_the_channel(
     assert saved["user_id"] == "42"
     assert saved["scopes"] == ["clips:edit"]
     assert os.stat(stored).st_mode & 0o777 == 0o600
+
+
+def test_create_clip_waits_for_publication(tmp_path, monkeypatch):
+    from unittest.mock import AsyncMock, call
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(twitchapi, "CLIP_POLL_SECONDS", 0)
+    api = TwitchAPI("client", None)
+    accepted = {"id": "pending", "edit_url": "https://example.com/edit"}
+    published = {"id": "pending", "url": "https://clips.twitch.tv/pending"}
+    api._helix = AsyncMock(
+        side_effect=[
+            {"data": [accepted]},
+            {"data": []},
+            {"data": [published]},
+        ]
+    )
+
+    clip = asyncio.run(api.create_clip(title="Shiny found!"))
+
+    assert clip["url"] == published["url"]
+    assert api._helix.await_args_list == [
+        call("POST", "clips", params={"broadcaster_id": "", "title": "Shiny found!"}),
+        call("GET", "clips", params={"id": "pending"}),
+        call("GET", "clips", params={"id": "pending"}),
+    ]
+
+
+def test_create_clip_reports_unconfirmed_publication(tmp_path, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(twitchapi, "CLIP_TIMEOUT_SECONDS", 0)
+    api = TwitchAPI("client", None)
+    api._helix = AsyncMock(
+        side_effect=[
+            {"data": [{"id": "failed", "edit_url": "https://example.com/edit"}]},
+            {"data": []},
+        ]
+    )
+
+    with pytest.raises(twitchapi.TwitchAPIError, match="failed.*not confirmed"):
+        asyncio.run(api.create_clip())
 
 
 def test_clipping_needs_a_new_authorization_without_the_clip_scope(
@@ -335,7 +387,11 @@ def test_cog_clips_a_new_shiny_once_it_reaches_the_live_stream(tmp_path):
     class FakeAPI:
         async def create_clip(self, title=None, duration=None):
             clips.append(title)
-            return {"id": "c", "edit_url": "https://twitch.tv/x/clip/c"}
+            return {
+                "id": "c",
+                "edit_url": "https://twitch.tv/x/clip/c/edit",
+                "url": "https://twitch.tv/x/clip/c",
+            }
 
     uns = SimpleNamespace(nxbt_daemon_stop=True)
     cog = make_cog(tmp_path, None, hunt="cresselia", api=FakeAPI())
