@@ -11,6 +11,7 @@ class Defaults:
         "ELGATO_USB_ID": None,
         "SYNC_GUILD_ID": None,
         "STATUS_HOSTS": None,
+        "CYPI_PASSPHRASE": None,
         "YTDL_COOKIES_FILE": None,
         # obs-websocket (OBS 28+): Tools > WebSocket Server Settings
         "OBS_WS_HOST": None,
@@ -31,6 +32,14 @@ class Defaults:
         "owner": None,
         # restart the looping macro 5s after an encounter
         "encounter_reset": True,
+        # CyPi discovery shares the command port number over UDP.
+        "cypi_enabled": True,
+        "cypi_auto_connect": True,
+        "cypi_command_port": 3140,
+        "cypi_macro_port": 3141,
+        "cypi_discovery_timeout": 1.0,
+        "cypi_discovery_interval": 2.0,
+        "cypi_heartbeat_interval": 1.0,
         # systemd units checked by the /status command
         "status_services": ["cynthia.service"],
         # send the video feed to OBS (over UDP) while OBS is running

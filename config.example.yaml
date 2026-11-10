@@ -10,6 +10,15 @@ status_services:
   - cynthia.service
 # Restart the looping macro 5 seconds after each encounter
 encounter_reset: true
+# CyPi auto-discovery uses UDP on the command port; TCP carries both channels.
+cypi_enabled: true
+# Automatically bind CYNX USB at startup; discovery/manual connect still work if false.
+cypi_auto_connect: true
+cypi_command_port: 3140
+cypi_macro_port: 3141
+cypi_heartbeat_interval: 1.0
+cypi_discovery_timeout: 1.0
+cypi_discovery_interval: 2.0
 # Twitch automation (all durations are independent; set stop/restart to 0 to disable)
 twitch_restart_hours: 24
 twitch_no_signal_stop_minutes: 10

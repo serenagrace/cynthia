@@ -1,6 +1,33 @@
 import nxbt
+import pytest
 
 from cynthia.utils.nxbt_utils import DURATIONS, Input, Macro
+
+
+@pytest.mark.parametrize(
+    "score,age,skip", [(1.0, 0, True), (0.97, 0, False), (1.0, 5, False)]
+)
+def test_disconnect_skips_navigation_only_on_fresh_change_grip_order(
+    monkeypatch, score, age, skip
+):
+    import asyncio
+    import time
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, Mock
+
+    from cynthia.utils import nxbt_utils
+
+    cleanup = SimpleNamespace(play=AsyncMock())
+    monkeypatch.setattr(nxbt_utils.Macro, "get", Mock(return_value=cleanup))
+    monkeypatch.setattr(nxbt_utils.asyncio, "sleep", AsyncMock())
+    nx = SimpleNamespace(remove_controller=Mock())
+    uns = SimpleNamespace(
+        cv_frame_time=time.time() - age,
+        ssim_scores=[("change_grip_order", score)],
+    )
+    assert asyncio.run(nxbt_utils.nxbt_disconnect(nx, 0, uns=uns))
+    assert cleanup.play.await_count == int(not skip)
+    nx.remove_controller.assert_called_once_with(0)
 
 
 def test_macro_parser_maps_buttons_and_durations_without_controller():

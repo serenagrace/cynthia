@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, Mock
 
 import discord
 import pytest
+from discord.ext import commands
 
 from cynthia.bot.applications.tree import CommandTree
 from cynthia.bot.bot import Bot
@@ -76,6 +77,34 @@ def test_setup_loads_commands_then_starts_the_daemon_monitor():
         assert calls == ["cogs", "tree", "monitor"]
         await bot.dman.notify("frozen", alert=True)
         bot.messenger.msg_owner.assert_awaited_once_with("frozen", alert=True)
+
+    asyncio.run(run())
+
+
+def test_shutdown_unloads_shared_state_readers_before_destroying_the_manager():
+    async def run():
+        events = []
+        state = SimpleNamespace(alive=True)
+
+        class Reader(commands.Cog):
+            async def cog_unload(self):
+                assert state.alive
+                events.append("unload")
+
+        bot = Bot.__new__(Bot)
+        commands.Bot.__init__(bot, command_prefix="!", intents=discord.Intents.none())
+        bot._dman_monitor_task = None
+        bot.messenger = SimpleNamespace(msg_owner=AsyncMock())
+
+        async def cleanup(_):
+            state.alive = False
+            events.append("manager")
+
+        bot.onexit = {"dman": cleanup}
+        await bot.add_cog(Reader())
+        await bot.close()
+        assert events == ["unload", "manager"]
+        assert bot.is_closed()
 
     asyncio.run(run())
 

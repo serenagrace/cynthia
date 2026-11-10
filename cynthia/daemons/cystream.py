@@ -19,6 +19,7 @@ import uvicorn
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, PlainTextResponse, StreamingResponse
 
+from cynthia.site.homepage import register_homepage_api
 from cynthia.utils.obslayout import OBS_SYNC_MAX_DELAY_MS, overlay_delay_ms
 from cynthia.utils.streamcfg import CV_FPS, setting, size_for
 from cynthia.utils.twitchchat import PUBLIC_FIELDS, TwitchChat, pane_messages
@@ -306,6 +307,7 @@ def create_app(
     app.state.viewers = viewers
     app.state.latest = latest
     app.state.cache = cache
+    register_homepage_api(app, ns, uns, ring, twitch_channel)
 
     async def frame_generator():
         """Yield newly encoded multipart frames to a streaming response."""

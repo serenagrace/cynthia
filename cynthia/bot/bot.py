@@ -4,6 +4,7 @@ import asyncio
 import importlib.resources
 import logging
 import time
+from types import SimpleNamespace
 
 import discord
 from discord.ext import commands
@@ -275,6 +276,10 @@ class Bot(commands.Bot):
             except asyncio.CancelledError:
                 pass
             self._dman_monitor_task = None
+        for extension in tuple(self.extensions):
+            await self.unload_extension(extension)
+        for name in tuple(self.cogs):
+            await self.remove_cog(name)
         if self.onexit is not None:
             exit_tasks = self.onexit.values()
             self.onexit = None
@@ -316,7 +321,12 @@ class _DisabledDMan:
     def __init__(self):
         """Initialize empty daemon state for test-mode operation."""
         self.running_daemons = {}
-        self.uns = Namespace({"nxbt_daemon_stop": False, "nxbt_connection_lost": False})
+        self.uns = SimpleNamespace(
+            nxbt_daemon_stop=False,
+            nxbt_connection_lost=False,
+            controller_notice="",
+            controller_error="",
+        )
 
     async def stop_daemons(self):
         """Match the daemon manager shutdown API without starting daemons."""

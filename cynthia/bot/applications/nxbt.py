@@ -14,10 +14,52 @@ from cynthia.utils.auth import (
     nxbt_permission,
     privileged_only,
 )
+from cynthia.utils.cypi import CyPiError
 from cynthia.utils.embeds import make_embed
 from cynthia.utils.encounters import encounter_log_name
 from cynthia.utils.nxbt_utils import Input, Macro
 from cynthia.utils.onmessage import OnMessage
+
+
+async def connect_controller(interaction, backend=None):
+    """Connect a requested transport without replacing an already selected one."""
+    await interaction.response.defer()
+    nxbt_daemon = interaction.client.dman.running_daemons["NXBTDaemon"]
+    if nxbt_daemon.connected and (
+        backend is None or getattr(nxbt_daemon, "backend", None) == backend
+    ):
+        await interaction.followup.send("Already connected to Nintendo Switch!")
+        return
+
+    success = (
+        await nxbt_daemon.connect()
+        if backend is None
+        else await nxbt_daemon.connect(backend=backend)
+    )
+    if not success:
+        name = "CyPi" if backend == "cypi" else "controller"
+        await interaction.followup.send(
+            f"Could not connect the {name} to Nintendo Switch."
+        )
+        return
+    name = getattr(nxbt_daemon, "backend", "")
+    via = {"cypi": " via CyPi USB", "nxbt": " via Bluetooth"}.get(name, "")
+    await interaction.followup.send(f"Connected to Nintendo Switch{via}!")
+
+
+async def disconnect_controller(interaction, backend=None):
+    """Disconnect the selected transport, or an explicitly named backend."""
+    await interaction.response.defer(thinking=False, ephemeral=True)
+    nxbt_daemon = interaction.client.dman.running_daemons["NXBTDaemon"]
+    success = (
+        await nxbt_daemon.disconnect()
+        if backend is None
+        else await nxbt_daemon.disconnect(backend=backend)
+    )
+    if not success:
+        await interaction.followup.send("Controller disconnect failed.")
+        return
+    await interaction.followup.send("Disconnected from Nintendo Switch.")
 
 
 @app_commands.command()
@@ -25,18 +67,8 @@ from cynthia.utils.onmessage import OnMessage
 @privileged_only()
 @app_commands.default_permissions(administrator=True)
 async def connect(interaction: discord.Interaction):
-    """Connect the NXBT daemon to the Nintendo Switch."""
-    await interaction.response.defer()
-    nxbt_daemon = interaction.client.dman.running_daemons["NXBTDaemon"]
-    if nxbt_daemon.connected:
-        await interaction.followup.send("Already connected to Nintendo Switch!")
-        return
-
-    success = await nxbt_daemon.connect()
-    if not success:
-        await interaction.followup.send("Connection timed out.")
-        return
-    await interaction.followup.send("Connected to Nintendo Switch!")
+    """Connect using CyPi when available, retaining an active Bluetooth controller."""
+    await connect_controller(interaction)
 
 
 @app_commands.command()
@@ -44,18 +76,102 @@ async def connect(interaction: discord.Interaction):
 @nxbt_permission()
 @app_commands.default_permissions(administrator=True)
 async def disconnect(interaction: discord.Interaction):
-    """Disconnect the NXBT daemon from the Nintendo Switch."""
-    await interaction.response.defer(thinking=False, ephemeral=True)
-    nxbt_daemon = interaction.client.dman.running_daemons["NXBTDaemon"]
-    if not nxbt_daemon.connected:
-        await interaction.followup.send("Disconnected from Nintendo Switch.")
-        return
+    """Disconnect the active Nintendo Switch controller."""
+    await disconnect_controller(interaction)
 
-    success = await nxbt_daemon.disconnect()
-    if not success:
-        await interaction.followup.send("Disconnect Failed.")
-        return
-    await interaction.followup.send("Disconnected from Nintendo Switch.")
+
+nxbt_group = app_commands.Group(
+    name="nxbt", description="Bluetooth controller control."
+)
+cynx_group = app_commands.Group(
+    name="cynx", description="CyPi wired controller control."
+)
+
+
+@nxbt_group.command(name="connect")
+@daemon_running("NXBTDaemon")
+@privileged_only()
+async def nxbt_connect_command(interaction: discord.Interaction):
+    """Connect explicitly using Bluetooth."""
+    await connect_controller(interaction, "nxbt")
+
+
+@nxbt_group.command(name="disconnect")
+@daemon_running("NXBTDaemon")
+@nxbt_permission()
+async def nxbt_disconnect_command(interaction: discord.Interaction):
+    """Disconnect only the Bluetooth controller."""
+    await disconnect_controller(interaction, "nxbt")
+
+
+@cynx_group.command(name="connect")
+@daemon_running("NXBTDaemon")
+@privileged_only()
+async def cynx_connect_command(interaction: discord.Interaction):
+    """Connect explicitly using the discovered CyPi's USB controller."""
+    await connect_controller(interaction, "cypi")
+
+
+@cynx_group.command(name="disconnect")
+@daemon_running("NXBTDaemon")
+@nxbt_permission()
+async def cynx_disconnect_command(interaction: discord.Interaction):
+    """Return to Change Grip/Order and disconnect CyPi USB."""
+    await disconnect_controller(interaction, "cypi")
+
+
+@cynx_group.command(name="status")
+@daemon_running("CyPiDaemon")
+@nxbt_permission()
+async def cynx_status_command(interaction: discord.Interaction):
+    """Show CyPi version, uptime, network, and wired-controller state."""
+    await interaction.response.defer()
+    daemon = interaction.client.dman.running_daemons["CyPiDaemon"]
+    if daemon.ns.available:
+        try:
+            state = await daemon.command("status")
+        except (OSError, CyPiError) as error:
+            raise app_commands.CheckFailure(f"CyPi status failed: {error}") from error
+    else:
+        state = getattr(interaction.client.dman.uns, "cypi_status", {})
+    embed = make_embed(
+        "CyPi status",
+        fields=[
+            ("Network", "Connected" if daemon.ns.available else "Disconnected"),
+            ("Version", state.get("version", "Unknown")),
+            ("Pi uptime", f"{state.get('uptime', 0):.0f} seconds"),
+            ("USB detected", str(bool(state.get("usb_detected")))),
+            ("Controller spoofing", str(bool(state.get("spoofing")))),
+            ("Switch connected", str(bool(state.get("switch_connected")))),
+        ],
+    )
+    await interaction.followup.send(embed=embed)
+
+
+async def cynx_lifecycle(interaction, command):
+    await interaction.response.defer(ephemeral=True)
+    daemon = interaction.client.dman.running_daemons["CyPiDaemon"]
+    try:
+        await daemon.command(command)
+    except (OSError, CyPiError) as error:
+        raise app_commands.CheckFailure(f"CyPi {command} failed: {error}") from error
+    await interaction.followup.send(f"CyPi {command} requested.", ephemeral=True)
+
+
+@cynx_group.command(name="reboot")
+@daemon_running("CyPiDaemon")
+@is_owner()
+async def cynx_reboot_command(interaction: discord.Interaction):
+    """Reboot the Pi."""
+    await cynx_lifecycle(interaction, "reboot")
+
+
+@cynx_group.command(name="restart")
+@daemon_running("CyPiDaemon")
+@is_owner()
+async def cynx_restart_command(interaction: discord.Interaction):
+    """Restart the cynx service on the Pi."""
+    await cynx_lifecycle(interaction, "restart")
 
 
 @app_commands.command()
@@ -89,7 +205,7 @@ async def switch(interaction: discord.Interaction, action: app_commands.Choice[s
     await interaction.response.defer(thinking=False, ephemeral=True)
     nxbt_daemon = interaction.client.dman.running_daemons["NXBTDaemon"]
     if not nxbt_daemon.connected:
-        await interaction.response.send_message(
+        await interaction.followup.send(
             "Not connected to Nintendo Switch. Use /connect to connect."
         )
         return
@@ -353,6 +469,8 @@ async def clear_hunt(interaction: discord.Interaction):
 __application__ = (
     connect,
     disconnect,
+    nxbt_group,
+    cynx_group,
     switch,
     use_channel_as_input,
     stop_using_channel_as_input,

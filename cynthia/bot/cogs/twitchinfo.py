@@ -1,6 +1,7 @@
 """Cog that sets the Twitch title and category from the detected game and hunt."""
 
 import asyncio
+import contextlib
 import json
 import logging
 import time
@@ -91,10 +92,14 @@ class TwitchInfoCog(commands.Cog):
     async def cog_load(self):
         """Start watching the detected game."""
         self.check.start()
+        self.publish_live.start()
 
     async def cog_unload(self):
         """Stop watching."""
         self.check.cancel()
+        self.publish_live.cancel()
+        with contextlib.suppress(OSError, EOFError):
+            self.bot.dman.uns.homepage_twitch = {}
         if self.clip_task is not None:
             self.clip_task.cancel()
 
@@ -205,6 +210,28 @@ class TwitchInfoCog(commands.Cog):
             return bool((await asyncio.to_thread(obs.status))["streaming"])
         except Exception:
             return False
+
+    @tasks.loop(seconds=30)
+    async def publish_live(self):
+        """Publish expiring, Twitch-verified live state for the public homepage."""
+        channel = self.bot.env.get("TWITCH_CHANNEL", None)
+        state = {"channel": channel, "live": False, "checked_at": time.time()}
+        # Clear an earlier live result before awaiting network I/O.
+        self.bot.dman.uns.homepage_twitch = state
+        if not channel or self.api is None or not self.api.authorized:
+            return
+        try:
+            stream = await self.api.live_stream(channel)
+            state["live"] = bool(stream and stream.get("type") == "live")
+        except Exception:
+            logger.debug("Homepage Twitch live check failed.", exc_info=True)
+        state["checked_at"] = time.time()
+        self.bot.dman.uns.homepage_twitch = state
+
+    @publish_live.before_loop
+    async def before_publish_live(self):
+        """Wait for shared bot services to be ready."""
+        await self.bot.wait_until_ready()
 
     def clip_delay(self):
         """Seconds from a shiny to its clip: the input visualizer's delay plus a margin."""

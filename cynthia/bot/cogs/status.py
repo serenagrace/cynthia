@@ -1,15 +1,18 @@
 """Cog that updates Discord activity and publishes user status."""
 
+import asyncio
 import io
 import itertools
 import json
 import re
 import time
 import unicodedata
+from queue import Empty, Full
 
 import discord
 from discord.ext import commands, tasks
 
+from cynthia.utils.embeds import error_embed
 from cynthia.utils.encounters import (
     average_interval_ms,
     encounter_log_name,
@@ -64,6 +67,14 @@ class StatusCog(commands.Cog):
         """Start the periodic presence and user-status update tasks."""
         self.set_status.start()
         self.update_status.start()
+
+    async def cog_unload(self):
+        """Stop status readers before the daemon manager is shut down."""
+        loops = (self.set_status, self.update_status)
+        pending = [loop.get_task() for loop in loops if loop.get_task() is not None]
+        for loop in loops:
+            loop.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
 
     @tasks.loop(seconds=3.0)
     async def update_status(self):
@@ -128,10 +139,44 @@ class StatusCog(commands.Cog):
             activity = next(self.status_cycle)
         await self.bot.change_presence(activity=activity)
 
+    async def report_controller_events(self):
+        """Deliver controller alerts even when computer vision is unavailable."""
+        if not getattr(self.bot, "is_ready", lambda: True)():
+            return
+        if getattr(self.bot.dman.uns, "nxbt_connection_lost", False):
+            await self.bot.messenger.msg_owner(
+                getattr(self.bot.dman.uns, "controller_error", "")
+                or "Connection to the Nintendo Switch controller was lost!",
+                alert=True,
+            )
+            self.bot.dman.uns.nxbt_connection_lost = False
+        notice = getattr(self.bot.dman.uns, "controller_notice", "")
+        if notice:
+            await self.bot.messenger.msg_owner(notice, alert=True)
+            self.bot.dman.uns.controller_notice = ""
+        alerts = getattr(self.bot.dman, "cypi_alerts", None)
+        if alerts is not None:
+            for _ in range(3):
+                try:
+                    error = alerts.get_nowait()
+                except Empty:
+                    break
+                embed = error_embed(error["message"], title="CYNX Controller Error")
+                embed.set_footer(text="Use /cynx status to check the controller.")
+                try:
+                    await self.bot.messenger.msg_owner(embed, alert=True)
+                except (discord.HTTPException, discord.ClientException):
+                    try:
+                        alerts.put_nowait(error)
+                    except Full:
+                        pass
+                    break
+
     async def get_status(self):
         """Build Discord and rich-presence status from computer-vision state."""
         bot_activity = None
         user_activity = None
+        await self.report_controller_events()
 
         def tryload(bot):
             """Return the computer-vision daemon namespace when available."""
@@ -238,12 +283,6 @@ class StatusCog(commands.Cog):
         else:
             bot_activity = None
         shiny_stop = getattr(self.bot.dman.uns, "nxbt_daemon_stop", False)
-        connection_lost = getattr(self.bot.dman.uns, "nxbt_connection_lost", False)
-        if connection_lost:
-            await self.bot.messenger.msg_owner(
-                "Connection to NXBTDaemon lost!", alert=True
-            )
-            self.bot.dman.uns.nxbt_connection_lost = False
         if getattr(self.bot.dman.uns, "watchdog_triggered", False):
             self.bot.dman.uns.watchdog_triggered = False
             await self.bot.messenger.msg_owner(

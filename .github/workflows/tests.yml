@@ -37,3 +37,6 @@ jobs:
       # Live Discord checks need a real test bot and are skipped in CI
       - name: Run tests
         run: python -m pytest -m "not discord_live"
+
+      - name: Build distributions
+        run: python -m build

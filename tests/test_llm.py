@@ -920,6 +920,19 @@ def test_all_switch_turns_every_switch_off_and_back(tmp_path):
     assert cog.enabled("speak") and not cog.enabled("events")
 
 
+def test_event_watcher_can_start_with_the_disabled_test_daemon_manager():
+    from types import SimpleNamespace
+
+    from cynthia.bot.bot import _DisabledDMan
+    from cynthia.bot.cogs.llmchat import LLMChatCog
+
+    cog = LLMChatCog.__new__(LLMChatCog)
+    cog.bot = SimpleNamespace(dman=_DisabledDMan())
+    cog.counters = None
+    asyncio.run(cog.watch_events())
+    assert cog.counters == dict(shiny=False, watchdog=0, failsafe=0, encounter=0)
+
+
 @pytest.mark.parametrize("events", [None, False, True])
 @pytest.mark.parametrize("kind", ["shiny", "watchdog", "failsafe", "encounter", "idle"])
 def test_spontaneous_events_need_their_own_switch(events, kind):
