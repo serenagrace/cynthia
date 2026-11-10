@@ -45,8 +45,8 @@ def test_shutdown_keeps_transport_alive_until_controller_disconnect_finishes():
     events = []
     dman = DMan.__new__(DMan)
     nxbt = Mock(ns=SimpleNamespace(run=True, done=False))
-    cypi = Mock(ns=SimpleNamespace(run=True, done=False))
-    dman._DMan__running_daemons = {"CyPiDaemon": cypi, "NXBTDaemon": nxbt}
+    cynx = Mock(ns=SimpleNamespace(run=True, done=False))
+    dman._DMan__running_daemons = {"CyNXDaemon": cynx, "NXBTDaemon": nxbt}
     dman.ring, dman.native_ring, dman.audio_ring = Mock(), Mock(), Mock()
     dman.manager = Mock()
     dman.manager.shutdown.side_effect = lambda: events.append("manager")
@@ -54,20 +54,20 @@ def test_shutdown_keeps_transport_alive_until_controller_disconnect_finishes():
 
     def controller_alive():
         if not nxbt.ns.run and not nxbt.ns.done:
-            assert cypi.ns.run
+            assert cynx.ns.run
             events.append("disconnect")
             nxbt.ns.done = True
         return True
 
     def transport_alive():
-        if not cypi.ns.run and not cypi.ns.done:
+        if not cynx.ns.run and not cynx.ns.done:
             assert "NXBTDaemon" not in dman.running_daemons
             events.append("release")
-            cypi.ns.done = True
+            cynx.ns.done = True
         return True
 
     nxbt.process.is_alive.side_effect = controller_alive
-    cypi.process.is_alive.side_effect = transport_alive
+    cynx.process.is_alive.side_effect = transport_alive
     asyncio.run(dman.stop_daemons())
 
     assert events == ["stop", "disconnect", "release", "manager"]

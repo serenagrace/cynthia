@@ -55,7 +55,7 @@ QUICK_SETTINGS_WINDOW = 1.0
 QUICK_SETTINGS_POLL = 0.1
 QUICK_SETTINGS_RETRIES = 3
 HOME_TAP_MAX_DOWN = 0.5
-CYPI_CONNECT_CV_TIMEOUT = 10
+CYNX_CONNECT_CV_TIMEOUT = 10
 
 
 class Input:
@@ -479,26 +479,26 @@ def shows_change_grip_order(uns):
     return scores.get("change_grip_order", 0) > 0.98
 
 
-async def cypi_connect_setup(nx, controller, uns):
+async def cynx_connect_setup(nx, controller, uns):
     """Leave Change Grip/Order only when fresh CV data identifies that screen."""
     await asyncio.sleep(2)
-    deadline = time.monotonic() + CYPI_CONNECT_CV_TIMEOUT
+    deadline = time.monotonic() + CYNX_CONNECT_CV_TIMEOUT
     while True:
         scores = dict(getattr(uns, "ssim_scores", None) or [])
         frame_time = getattr(uns, "cv_frame_time", 0)
         if scores and frame_time and 0 <= time.time() - frame_time <= 2:
             if shows_change_grip_order(uns):
                 logger.info(
-                    "CYNX Change Grip/Order detected; running connection setup."
+                    "CyNX Change Grip/Order detected; running connection setup."
                 )
                 await Macro("A\nwait\nA\nwait\nB\nwait\nh").play(
                     nx, controller, uns=uns
                 )
                 return True
-            logger.info("CYNX setup skipped: CV is not on Change Grip/Order.")
+            logger.info("CyNX setup skipped: CV is not on Change Grip/Order.")
             return False
         if time.monotonic() >= deadline:
-            logger.warning("CV unavailable; skipping CYNX connection inputs.")
+            logger.warning("CV unavailable; skipping CyNX connection inputs.")
             return False
         await asyncio.sleep(0.1)
 

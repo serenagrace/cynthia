@@ -48,19 +48,93 @@ expect that name) and select exactly one Paddle build:
 python3.11 -m venv env
 source env/bin/activate
 python -m pip install --upgrade pip
-python -m pip install -e ".[dev,cpu]"
+python -m pip install -e ".[cpu]"
 ```
 
 On an NVIDIA host with a CUDA 12.6-compatible driver, use the GPU wheel instead:
 
 ```bash
-python -m pip install -e ".[dev,gpu]" \
+python -m pip install -e ".[gpu]" \
   --extra-index-url https://www.paddlepaddle.org.cn/packages/stable/cu126/
 ```
 
 Do not install both `cpu` and `gpu`. To switch an existing environment,
 uninstall its current Paddle package before installing the other extra. The
 bot can use GPU OCR with the GPU build and otherwise runs on CPU.
+
+### Optional Python packages
+
+Run these commands from the Cynthia checkout with `env` activated. Extras
+install Python packages, not operating-system programs or model weights.
+
+| Extra | Packages added | Install |
+| --- | --- | --- |
+| `cpu` | CPU PaddlePaddle OCR runtime | `python -m pip install -e ".[cpu]"` |
+| `gpu` | CUDA PaddlePaddle OCR runtime | Use the GPU command above, including Paddle's CUDA index. |
+| `dev` | Black, isort, pytest, and build | `python -m pip install -e ".[dev]"` |
+| `cyclient` | pypresence and requests for desktop Discord Rich Presence | `python -m pip install -e ".[cyclient]"` |
+
+Choose one OCR runtime, even when adding other extras. For a fresh CPU
+development environment with Rich Presence, install them together:
+
+```bash
+python -m pip install -e ".[cpu,dev,cyclient]"
+```
+
+`cyclient` runs on the machine with Discord desktop, which may differ from
+the bot host. To avoid installing the full Python 3.11 bot stack there,
+install only its two dependencies and run the standalone script:
+
+```bash
+python3 -m venv client-env
+client-env/bin/python -m pip install pypresence requests
+client-env/bin/python tools/cyclient.py
+```
+
+See [Rich Presence configuration](development.md#discord-rich-presence-client)
+for the server address. The standalone script is not limited to Python 3.11.
+
+### Optional system packages and services
+
+Install only the rows needed for the features you use. These are separate
+from `pip` extras.
+
+| Feature | Debian / Ubuntu | Arch Linux |
+| --- | --- | --- |
+| Discord music and capture encoding | `sudo apt install ffmpeg libopus0` | `sudo pacman -S ffmpeg opus` |
+| Capture-card inspection | `sudo apt install v4l-utils usbutils` | `sudo pacman -S v4l-utils usbutils` |
+| OBS streaming and recording | `sudo apt install obs-studio` | `sudo pacman -S obs-studio obs-studio-plugin-browser` |
+| Headless OBS display | `sudo apt install xvfb` | `sudo pacman -S xorg-server-xvfb` |
+| Sample tmux deployment | `sudo apt install tmux` | `sudo pacman -S tmux` |
+
+OBS needs its browser-source plugin for overlay panes and OBS 28+ for built-in
+obs-websocket. Debian/Ubuntu OBS builds differ; if Browser Source is missing,
+use an OBS distribution with browser support from the
+[official OBS installation guide](https://obsproject.com/kb/linux-installation).
+The OBS feed also needs an NVIDIA driver and FFmpeg's `h264_nvenc` encoder;
+installing FFmpeg alone does not provide suitable hardware or drivers.
+
+For optional WebRTC, install the `mediamtx` executable from the
+[official MediaMTX releases](https://github.com/bluenviron/mediamtx/releases).
+Download the Linux archive matching the host architecture, extract it, then
+install the extracted binary:
+
+```bash
+sudo install -m 755 mediamtx /usr/local/bin/mediamtx
+mediamtx --version
+```
+
+Cynthia starts and configures MediaMTX itself; do not start a second service
+on its ports. Restart Cynthia after adding the executable. Without MediaMTX,
+the viewer falls back to MJPEG. See [streaming](streaming.md) for ports.
+
+Ollama is a separate optional service, not a Python extra; see the
+[Ollama and voice installation commands](local-chat.md#install-ollama).
+Piper TTS is already included in Cynthia's Python dependencies; selecting
+and downloading a voice does not require another `pip` extra.
+Wired Switch control instead requires the separate
+[CyNX installation](https://github.com/serenagrace/cynx/blob/development/docs/installation.md)
+on the Raspberry Pi, not on the Cynthia host.
 
 ## Runtime files
 
@@ -87,7 +161,7 @@ variables override values from that file.
 | `SYNC_GUILD_ID` | No | Also sync slash commands to this guild for faster updates; global sync still occurs. |
 | `STATUS_HOSTS` | No | Comma-separated hosts checked by owner `/status`; defaults to Discord, GitHub, and Google. |
 | `ELGATO_USB_ID` | No | Capture card `vendor:product` ID for startup reset; empty disables reset. |
-| `CYPI_PASSPHRASE` | No | Optional shared passphrase for [cynx](cynx.md); never store it on the drive. |
+| `CYNX_PASSPHRASE` | No | Optional shared passphrase for [CyNX](cynx.md); never store it on the drive. |
 | `OBS_WS_HOST`, `OBS_WS_PORT`, `OBS_WS_PASSWORD` | No | OBS WebSocket address and password; defaults to localhost port 4455. |
 | `TWITCH_STREAM_KEY`, `OBS_STREAM_KEY` | No | Streaming key; `TWITCH_STREAM_KEY` takes precedence for `/twitch`. |
 | `TWITCH_CHANNEL` | No | Twitch channel used by the viewer's chat pane and related commands. |
@@ -113,7 +187,7 @@ Common settings include:
 | `silent` | Send ordinary bot responses silently where supported; alerts remain visible. |
 | `status_services` | systemd unit names checked by `/status`. |
 | `encounter_reset` | Restart the looping hunt macro after a detected encounter; defaults to enabled. |
-| `cypi_enabled`, `cypi_command_port`, `cypi_macro_port` | Enable and configure local cynx discovery and connections; see [cynx](cynx.md). |
+| `cynx_enabled`, `cynx_command_port`, `cynx_macro_port` | Enable and configure local CyNX discovery and connections; see [CyNX](cynx.md). |
 | `obs_feed`, `obs_feed_port`, `obs_fps`, `obs_height` | Configure the OBS capture feed. |
 | `web_fps`, `web_height`, `webrtc*`, `stream_delay_ms` | Configure the browser stream. CV remains capped at 30 fps. |
 | `obs_layout_file`, `obs_auto_sync`, `obs_feed_delay_ms`, `obs_overlay_lag_ms` | Choose OBS layout and feed/overlay timing. |

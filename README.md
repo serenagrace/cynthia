@@ -12,7 +12,7 @@ automation, game capture, and optional streaming and chat integrations.
 ## What it does
 
 - Control a Switch over Bluetooth with NXBT or wired USB through the
-  [cynx Raspberry Pi service](https://github.com/serenagrace/cynx).
+  [CyNX Raspberry Pi service](https://github.com/serenagrace/cynx).
 - Create and run macros, inspect game scenes, and automate supported hunts.
 - Serve a live capture feed and integrate it with OBS and Twitch.
 - Add Discord music playback, server utilities, and an optional local Ollama
@@ -48,8 +48,14 @@ bin/run.sh --config config.yaml --perms perms.yaml
 access. For GPU OCR, install the `gpu` extra instead of `cpu`; see
 [installation and configuration](docs/getting-started.md).
 
-For USB control, also install [cynx](https://github.com/serenagrace/cynx) and
+For USB control, also install [CyNX](https://github.com/serenagrace/cynx) and
 follow the [wired-controller setup guide](docs/cynx.md).
+
+Optional Python tools: `python -m pip install -e ".[dev]"` adds testing and
+formatting tools; `python -m pip install -e ".[cyclient]"` adds desktop Rich
+Presence dependencies. Neither replaces the required `cpu` or `gpu` choice.
+See [optional packages and services](docs/getting-started.md#optional-python-packages)
+for explicit OBS, WebRTC, Ollama, voice, and standalone desktop-client setup.
 
 ## Documentation
 

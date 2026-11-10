@@ -5,7 +5,7 @@
 ## Discovery and lifecycle
 
 `DMan` creates `Drive`, BGR/native video rings, an audio ring, manager-backed
-shared state and CyPi IPC queues before importing daemon modules. It scans
+shared state and CyNX IPC queues before importing daemon modules. It scans
 direct files in `cynthia/daemons/`, excluding `__init__`, `dman`, `daemon`,
 and `frames`; each imported module contributes its public `Daemon` subclasses.
 All discovered classes are instantiated during bot construction.

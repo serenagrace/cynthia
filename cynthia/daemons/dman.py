@@ -143,9 +143,9 @@ class DMan:
         self.notify = None
         self.manager = Manager()
         self.uns = self.manager.Namespace()
-        self.cypi_requests = Queue()
-        self.cypi_replies = self.manager.dict()
-        self.cypi_alerts = self.manager.Queue(100)
+        self.cynx_requests = Queue()
+        self.cynx_replies = self.manager.dict()
+        self.cynx_alerts = self.manager.Queue(100)
         self.uns.controller_backend = "none"
         init_settings(self.uns, self.context.config)
         self.load_daemons()
@@ -239,7 +239,7 @@ class DMan:
         daemons = [
             d for d in daemons if self.__running_daemons.get(d, None) is not None
         ]
-        if "NXBTDaemon" in daemons and "CyPiDaemon" in daemons:
+        if "NXBTDaemon" in daemons and "CyNXDaemon" in daemons:
             # NXBT needs the transport alive for its final disconnect.
             await self.stop_daemons(daemons=["NXBTDaemon"])
             daemons.remove("NXBTDaemon")

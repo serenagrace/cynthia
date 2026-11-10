@@ -4,8 +4,8 @@ from cynthia.utils.embeds import ERROR, error_embed
 
 
 def test_error_embed_formats_a_message_with_a_contextual_title():
-    embed = error_embed("USB disconnected.", title="CYNX Controller Error")
-    assert embed.title == "CYNX Controller Error"
+    embed = error_embed("USB disconnected.", title="CyNX Controller Error")
+    assert embed.title == "CyNX Controller Error"
     assert embed.description == "USB disconnected."
     assert embed.color.value == ERROR
     assert not embed.fields

@@ -26,7 +26,7 @@ files, never on the Drive.
 | Source | Role |
 | --- | --- |
 | `cynthia/utils/nxbt_utils.py` | Controller setup/cleanup, macro parsing and input execution support. |
-| `cynthia/utils/cypi.py` | CyPi discovery, authenticated clients, and step protocol. |
+| `cynthia/utils/cynx.py` | CyNX discovery, authenticated clients, and step protocol. |
 | `cynthia/utils/streamcfg.py` | Shared capture/stream configuration and no-signal checks. |
 | `cynthia/utils/obs.py`, `obslayout.py` | OBS websocket state and layout helpers. |
 | `cynthia/utils/music.py` | Per-guild music manager/player access. |
@@ -47,6 +47,6 @@ Prefer the established manager/service accessor for stateful integrations
 (such as `get_manager(client)` for music). Keep authorization at command or
 service boundaries, and do not add live credentials to tests. Focused tests
 are grouped by behavior: `test_context_storage.py`, `test_core.py`,
-`test_frames.py`, `test_cypi.py`, `test_nxbt_macros.py`, `test_streaming.py`,
+`test_frames.py`, `test_cynx.py`, `test_nxbt_macros.py`, `test_streaming.py`,
 `test_twitchinfo.py`, `test_music.py`, `test_insights.py`, and
 `test_cyclient.py`.

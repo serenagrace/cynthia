@@ -14,7 +14,7 @@ from cynthia.utils.auth import (
     nxbt_permission,
     privileged_only,
 )
-from cynthia.utils.cypi import CyPiError
+from cynthia.utils.cynx import CyNXError
 from cynthia.utils.embeds import make_embed
 from cynthia.utils.encounters import encounter_log_name
 from cynthia.utils.nxbt_utils import Input, Macro
@@ -37,13 +37,13 @@ async def connect_controller(interaction, backend=None):
         else await nxbt_daemon.connect(backend=backend)
     )
     if not success:
-        name = "CYNX" if backend == "cypi" else "controller"
+        name = "CyNX" if backend == "cynx" else "controller"
         await interaction.followup.send(
             f"Could not connect the {name} to Nintendo Switch."
         )
         return
     name = getattr(nxbt_daemon, "backend", "")
-    via = {"cypi": " via CYNX USB", "nxbt": " via Bluetooth"}.get(name, "")
+    via = {"cynx": " via CyNX USB", "nxbt": " via Bluetooth"}.get(name, "")
     await interaction.followup.send(f"Connected to Nintendo Switch{via}!")
 
 
@@ -67,7 +67,7 @@ async def disconnect_controller(interaction, backend=None):
 @privileged_only()
 @app_commands.default_permissions(administrator=True)
 async def connect(interaction: discord.Interaction):
-    """Connect using CYNX when available, retaining an active Bluetooth controller."""
+    """Connect using CyNX when available, retaining an active Bluetooth controller."""
     await connect_controller(interaction)
 
 
@@ -84,7 +84,7 @@ nxbt_group = app_commands.Group(
     name="nxbt", description="Bluetooth controller control."
 )
 cynx_group = app_commands.Group(
-    name="cynx", description="CYNX wired controller control."
+    name="cynx", description="CyNX wired controller control."
 )
 
 
@@ -108,34 +108,34 @@ async def nxbt_disconnect_command(interaction: discord.Interaction):
 @daemon_running("NXBTDaemon")
 @privileged_only()
 async def cynx_connect_command(interaction: discord.Interaction):
-    """Connect explicitly using the discovered CYNX USB controller."""
-    await connect_controller(interaction, "cypi")
+    """Connect explicitly using the discovered CyNX USB controller."""
+    await connect_controller(interaction, "cynx")
 
 
 @cynx_group.command(name="disconnect")
 @daemon_running("NXBTDaemon")
 @nxbt_permission()
 async def cynx_disconnect_command(interaction: discord.Interaction):
-    """Return to Change Grip/Order and disconnect CYNX USB."""
-    await disconnect_controller(interaction, "cypi")
+    """Return to Change Grip/Order and disconnect CyNX USB."""
+    await disconnect_controller(interaction, "cynx")
 
 
 @cynx_group.command(name="status")
-@daemon_running("CyPiDaemon")
+@daemon_running("CyNXDaemon")
 @nxbt_permission()
 async def cynx_status_command(interaction: discord.Interaction):
-    """Show CYNX version, uptime, network, and wired-controller state."""
+    """Show CyNX version, uptime, network, and wired-controller state."""
     await interaction.response.defer()
-    daemon = interaction.client.dman.running_daemons["CyPiDaemon"]
+    daemon = interaction.client.dman.running_daemons["CyNXDaemon"]
     if daemon.ns.available:
         try:
             state = await daemon.command("status")
-        except (OSError, CyPiError) as error:
-            raise app_commands.CheckFailure(f"CYNX status failed: {error}") from error
+        except (OSError, CyNXError) as error:
+            raise app_commands.CheckFailure(f"CyNX status failed: {error}") from error
     else:
-        state = getattr(interaction.client.dman.uns, "cypi_status", {})
+        state = getattr(interaction.client.dman.uns, "cynx_status", {})
     embed = make_embed(
-        "CYNX status",
+        "CyNX status",
         fields=[
             ("Network", "Connected" if daemon.ns.available else "Disconnected"),
             ("Version", state.get("version", "Unknown")),
@@ -150,16 +150,16 @@ async def cynx_status_command(interaction: discord.Interaction):
 
 async def cynx_lifecycle(interaction, command):
     await interaction.response.defer(ephemeral=True)
-    daemon = interaction.client.dman.running_daemons["CyPiDaemon"]
+    daemon = interaction.client.dman.running_daemons["CyNXDaemon"]
     try:
         await daemon.command(command)
-    except (OSError, CyPiError) as error:
-        raise app_commands.CheckFailure(f"CYNX {command} failed: {error}") from error
-    await interaction.followup.send(f"CYNX {command} requested.", ephemeral=True)
+    except (OSError, CyNXError) as error:
+        raise app_commands.CheckFailure(f"CyNX {command} failed: {error}") from error
+    await interaction.followup.send(f"CyNX {command} requested.", ephemeral=True)
 
 
 @cynx_group.command(name="reboot")
-@daemon_running("CyPiDaemon")
+@daemon_running("CyNXDaemon")
 @is_owner()
 async def cynx_reboot_command(interaction: discord.Interaction):
     """Reboot the Pi."""
@@ -167,7 +167,7 @@ async def cynx_reboot_command(interaction: discord.Interaction):
 
 
 @cynx_group.command(name="restart")
-@daemon_running("CyPiDaemon")
+@daemon_running("CyNXDaemon")
 @is_owner()
 async def cynx_restart_command(interaction: discord.Interaction):
     """Restart the cynx service on the Pi."""

@@ -20,7 +20,7 @@ The `Bot` is the integration root. It creates:
 - Health monitoring and cleanup handlers.
 
 The capture pipeline and integrations are daemons, including UVC capture, CV,
-OBS/video streaming, Bluetooth control, and optional CyPi communication.
+OBS/video streaming, Bluetooth control, and optional CyNX communication.
 Daemons communicate through shared buffers/namespaces and must stop when their
 manager namespace's `run` flag is cleared. `Bot.close()` signals daemons and
 waits for cleanup.
@@ -174,6 +174,11 @@ Install the optional dependencies:
 ```bash
 python -m pip install -e ".[cyclient]"
 ```
+
+That extra adds `pypresence` and `requests`, but installing the project also
+installs the full bot and enforces Python 3.11. On a separate desktop, install
+only `pypresence requests` in a virtual environment and run the standalone
+script instead; see [optional package installation](getting-started.md#optional-python-packages).
 
 Set `CYNTHIA_HOSTNAME` to the reachable hostname or IP and `CYNTHIA_PROTOCOL`
 to `https://` or `http://`. The same values are used to build video links.

@@ -3,7 +3,7 @@
 Cynthia's Switch integration separates controller transport from macro logic.
 The NXBT daemon owns the selected controller session; Cynthia parses and queues
 macros, evaluates scene conditions, and tracks playback. A Bluetooth adapter
-is used by NXBT. For wired control, see [CyPi and cynx](cynx.md).
+is used by NXBT. For wired control, see [CyNX](cynx.md).
 
 ## Choose a controller
 
@@ -11,7 +11,7 @@ Run the Switch's Change Grip/Order menu before connecting:
 
 | Command | Behavior |
 | --- | --- |
-| `/connect` | Use a discovered CyPi when available; retain an already active Bluetooth connection. |
+| `/connect` | Use a discovered CyNX when available; retain an already active Bluetooth connection. |
 | `/disconnect` | Disconnect the active controller. |
 | `/nxbt connect` / `/nxbt disconnect` | Explicit Bluetooth control. |
 | `/cynx connect` / `/cynx disconnect` | Explicit wired Pi control. |
@@ -64,7 +64,7 @@ Timing prefixes:
 | `(DOWN,UP)` | Set press and release timing in seconds, e.g. `(1.33,0.25) Bv`. |
 
 Default presses use 0.15 seconds down and 0.15 seconds up. `noblock` is
-accepted on a step for NXBT's nonblocking input behavior. The wired cynx
+accepted on a step for NXBT's nonblocking input behavior. The wired CyNX
 backend accepts the syntax but waits for every step to complete before sending
 the next; it does not overlap or buffer button inputs.
 

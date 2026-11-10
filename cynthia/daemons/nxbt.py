@@ -9,13 +9,13 @@ from queue import Empty
 
 import nxbt
 
-from cynthia.utils.cypi import (
-    CyPiController,
-    CyPiError,
-    CyPiStopped,
-    CyPiUnavailable,
+from cynthia.utils.cynx import (
+    CyNXController,
+    CyNXError,
+    CyNXStopped,
+    CyNXUnavailable,
 )
-from cynthia.utils.cypi import request as cypi_request
+from cynthia.utils.cynx import request as cynx_request
 from cynthia.utils.encounters import (
     DEFAULT_ENCOUNTER_LOG,
     START_MARKER,
@@ -26,7 +26,7 @@ from cynthia.utils.encounters import (
 from cynthia.utils.log import setup_logging
 from cynthia.utils.nxbt_utils import (
     Macro,
-    cypi_connect_setup,
+    cynx_connect_setup,
     load_macros,
     nxbt_connect,
     nxbt_disconnect,
@@ -40,7 +40,7 @@ logger.setLevel(logging.DEBUG)
 
 
 class NXBTDaemon(Daemon):
-    """Execute queued macros through CyPi USB or NXBT Bluetooth."""
+    """Execute queued macros through CyNX USB or NXBT Bluetooth."""
 
     POLL_RATE = 0.5
     GRACE_PERIOD = 5.0
@@ -78,8 +78,8 @@ class NXBTDaemon(Daemon):
 
     def __init__(self, dman):
         """Create daemon state, its work queue, and the worker process."""
-        self.cypi_requests = getattr(dman, "cypi_requests", None)
-        self.cypi_replies = getattr(dman, "cypi_replies", None)
+        self.cynx_requests = getattr(dman, "cynx_requests", None)
+        self.cynx_replies = getattr(dman, "cynx_replies", None)
 
         def loop(ns, uns, tqueue, macro_tree, drive):
             """Run the NXBT worker process until its shared run flag clears."""
@@ -88,7 +88,7 @@ class NXBTDaemon(Daemon):
             setup_logging()
             bluetooth = None
             nx = None
-            pi = CyPiController(self.cypi_requests, self.cypi_replies, uns)
+            pi = CyNXController(self.cynx_requests, self.cynx_replies, uns)
             controller = None
             playing_gen = None
             playing = None
@@ -99,48 +99,48 @@ class NXBTDaemon(Daemon):
             reset_due = None
             watchdog_timeout = NXBTDaemon.WATCHDOG_DEFAULT_TIMEOUT
             hunting_log = None
-            cypi_connect_count = None
+            cynx_connect_count = None
 
             def select_backend(name):
                 ns.backend = name
                 uns.controller_backend = name
 
-            async def finish_cypi_connect():
-                nonlocal cypi_connect_count
-                count = getattr(uns, "cypi_connect_count", 0)
-                if count == cypi_connect_count:
+            async def finish_cynx_connect():
+                nonlocal cynx_connect_count
+                count = getattr(uns, "cynx_connect_count", 0)
+                if count == cynx_connect_count:
                     return
                 try:
                     logger.info(
-                        "Checking CYNX connection setup (connection %s).", count
+                        "Checking CyNX connection setup (connection %s).", count
                     )
-                    await cypi_connect_setup(pi, 0, uns)
-                except CyPiStopped:
+                    await cynx_connect_setup(pi, 0, uns)
+                except CyNXStopped:
                     ns.pause = True
-                except (OSError, CyPiError) as error:
-                    logger.exception("CYNX connection setup failed")
+                except (OSError, CyNXError) as error:
+                    logger.exception("CyNX connection setup failed")
                     ns.pause = True
                     uns.controller_error = str(error)
                 finally:
-                    cypi_connect_count = count
+                    cynx_connect_count = count
 
             async def connect_backend(name):
                 nonlocal nx, bluetooth, controller
                 select_backend(name)
-                if name == "cypi":
-                    result = await cypi_request(
-                        self.cypi_requests, self.cypi_replies, "connect", timeout=20
+                if name == "cynx":
+                    result = await cynx_request(
+                        self.cynx_requests, self.cynx_replies, "connect", timeout=20
                     )
                     nx, controller = pi, 0
                     connected = bool(result.get("switch_connected"))
                     if connected:
-                        await finish_cypi_connect()
+                        await finish_cynx_connect()
                     return connected
-                if getattr(uns, "cypi_network_connected", False) and (
-                    getattr(uns, "cypi_status", {}).get("spoofing")
+                if getattr(uns, "cynx_network_connected", False) and (
+                    getattr(uns, "cynx_status", {}).get("spoofing")
                 ):
-                    await cypi_request(
-                        self.cypi_requests, self.cypi_replies, "disconnect", timeout=20
+                    await cynx_request(
+                        self.cynx_requests, self.cynx_replies, "disconnect", timeout=20
                     )
                 if bluetooth is None:
                     bluetooth = nxbt.Nxbt()
@@ -150,9 +150,9 @@ class NXBTDaemon(Daemon):
 
             async def disconnect_backend():
                 nonlocal controller
-                if ns.backend == "cypi":
-                    await cypi_request(
-                        self.cypi_requests, self.cypi_replies, "disconnect", timeout=20
+                if ns.backend == "cynx":
+                    await cynx_request(
+                        self.cynx_requests, self.cynx_replies, "disconnect", timeout=20
                     )
                     controller = None
                     return True
@@ -163,7 +163,7 @@ class NXBTDaemon(Daemon):
                 nonlocal controller, playing_gen
                 ns.connected = False
                 sync_hunt_marker()
-                ready_at = max(ready_at, getattr(uns, "cypi_fallback_ready_at", 0))
+                ready_at = max(ready_at, getattr(uns, "cynx_fallback_ready_at", 0))
                 while ns.run and time.monotonic() < ready_at:
                     if ns.stop or ns.disconnect:
                         return False
@@ -178,7 +178,7 @@ class NXBTDaemon(Daemon):
                 ns.connected = success
                 if success:
                     uns.controller_notice = (
-                        "CYNX disconnected; resumed controller playback over Bluetooth."
+                        "CyNX disconnected; resumed controller playback over Bluetooth."
                     )
                     uns.nxbt_connection_lost = False
                     uns.controller_error = ""
@@ -190,7 +190,7 @@ class NXBTDaemon(Daemon):
                 controller = None
                 uns.nxbt_connection_lost = True
                 uns.controller_error = (
-                    "CYNX disconnected and Bluetooth fallback failed."
+                    "CyNX disconnected and Bluetooth fallback failed."
                 )
                 return False
 
@@ -231,7 +231,7 @@ class NXBTDaemon(Daemon):
                         return True
                     try:
                         success = await disconnect_backend()
-                    except (OSError, CyPiError):
+                    except (OSError, CyNXError):
                         logger.exception("Controller disconnect failed")
                         success = False
                     if success:
@@ -246,8 +246,8 @@ class NXBTDaemon(Daemon):
                     name = ns.requested_backend
                     if name == "auto":
                         name = (
-                            "cypi"
-                            if getattr(uns, "cypi_network_connected", False)
+                            "cynx"
+                            if getattr(uns, "cynx_network_connected", False)
                             else "nxbt"
                         )
                     try:
@@ -274,24 +274,24 @@ class NXBTDaemon(Daemon):
 
                 if (
                     not ns.connected
-                    and ns.allow_auto_cypi
-                    and getattr(uns, "cypi_network_connected", False)
-                    and getattr(uns, "cypi_switch_connected", False)
+                    and ns.allow_auto_cynx
+                    and getattr(uns, "cynx_network_connected", False)
+                    and getattr(uns, "cynx_switch_connected", False)
                 ):
                     nx, controller = pi, 0
-                    select_backend("cypi")
-                    await finish_cypi_connect()
+                    select_backend("cynx")
+                    await finish_cynx_connect()
                     ns.connected = True
 
                 # Checked before the pause gate so drops are noticed while paused
                 if ns.connected and controller is not None:
-                    if ns.backend == "cypi":
+                    if ns.backend == "cynx":
                         if ns.stop:
                             return False
-                        if getattr(uns, "cypi_reconnecting", False):
+                        if getattr(uns, "cynx_reconnecting", False):
                             await asyncio.sleep(0.1)
                             return True
-                        await finish_cypi_connect()
+                        await finish_cynx_connect()
                         if nx.state[controller]["state"] != "connected":
                             await fallback()
                             return True
@@ -393,7 +393,7 @@ class NXBTDaemon(Daemon):
                             steps_logger.debug(f"Playing {str(_input)}")
                             try:
                                 next_step = await _input.play(nx, controller, uns=uns)
-                            except CyPiUnavailable as error:
+                            except CyNXUnavailable as error:
                                 if not await fallback(error.ready_at):
                                     return
                                 next_step = None
@@ -403,7 +403,7 @@ class NXBTDaemon(Daemon):
                                     )
                             if next_step is not None:
                                 playing_gen = next_step.walk()
-                        except CyPiStopped:
+                        except CyNXStopped:
                             ns.playing = False
                             playing_gen = None
                         except StopIteration:
@@ -505,8 +505,8 @@ class NXBTDaemon(Daemon):
         self.ns.connected = False
         self.ns.backend = "none"
         self.ns.requested_backend = "auto"
-        self.ns.allow_auto_cypi = bool(
-            dman.context.config.get("cypi_auto_connect", True)
+        self.ns.allow_auto_cynx = bool(
+            dman.context.config.get("cynx_auto_connect", True)
         )
         self.uns.controller_backend = "none"
         self.uns.controller_error = ""
@@ -546,8 +546,8 @@ class NXBTDaemon(Daemon):
         self.ns.stop = True
         self.ns.pause = True
         self.ns.loop = False
-        if self.cypi_requests is not None:
-            self.cypi_requests.put({"id": None, "command": "stop"})
+        if self.cynx_requests is not None:
+            self.cynx_requests.put({"id": None, "command": "stop"})
 
     def unpause(self):
         """Resume playback and clear pending stop notifications."""
@@ -567,7 +567,7 @@ class NXBTDaemon(Daemon):
 
     async def connect(self, backend=None):
         """Request a controller connection and wait for its result."""
-        if backend is not None and backend not in ("cypi", "nxbt"):
+        if backend is not None and backend not in ("cynx", "nxbt"):
             raise ValueError("Unknown controller backend.")
         if self.ns.connected:
             if backend is None or self.ns.backend == backend:
@@ -576,7 +576,7 @@ class NXBTDaemon(Daemon):
             if not await self.disconnect():
                 return False
         self.ns.requested_backend = backend or "auto"
-        self.ns.allow_auto_cypi = backend != "nxbt"
+        self.ns.allow_auto_cynx = backend != "nxbt"
         self.ns.connect = True
         self.uns.nxbt_connect_failed = False
         self.uns.nxbt_connection_lost = False
@@ -595,22 +595,22 @@ class NXBTDaemon(Daemon):
 
     async def disconnect(self, backend=None):
         """Request a controller disconnection and wait for completion."""
-        if backend == "cypi" and self.ns.backend != "cypi":
+        if backend == "cynx" and self.ns.backend != "cynx":
             try:
-                await cypi_request(
-                    self.cypi_requests, self.cypi_replies, "disconnect", timeout=20
+                await cynx_request(
+                    self.cynx_requests, self.cynx_replies, "disconnect", timeout=20
                 )
                 return True
-            except (OSError, CyPiError):
+            except (OSError, CyNXError):
                 return False
         if backend == "nxbt" and self.ns.backend != "nxbt":
             return True
-        self.ns.allow_auto_cypi = False
+        self.ns.allow_auto_cynx = False
         self.stop()
         if (
-            self.ns.backend != "cypi" or not self.ns.connected
-        ) and self.cypi_requests is not None:
-            self.cypi_requests.put({"id": None, "command": "disconnect"})
+            self.ns.backend != "cynx" or not self.ns.connected
+        ) and self.cynx_requests is not None:
+            self.cynx_requests.put({"id": None, "command": "disconnect"})
         self.ns.disconnect = True
         try:
             async with asyncio.timeout(45):

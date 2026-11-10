@@ -118,7 +118,7 @@ host reboot was performed for the static-site deployment.
 - Owner `/status` checks the configured `status_services`, configured
   `STATUS_HOSTS` (or its default hosts), and drive availability.
 - `/cynx status` checks the companion Pi separately; see
-  [cynx diagnostics](cynx.md#troubleshooting).
+  [CyNX diagnostics](cynx.md#troubleshooting).
 - `systemctl status cynthia.service` shows service state.
 - `journalctl -u cynthia.service -n 100 --no-pager` shows service output.
 - `tmux attach -t cynthia` shows the sample deployment's windows.
@@ -171,7 +171,7 @@ Bluetooth devices while the bot runs. The drop-in is under `/run`; the stock
 - Do not upload secrets to the drive. The drive is for application state, not
   credentials.
 - Keep the control host and companion Pi on a trusted LAN. Do not expose
-  cynx command or macro listeners to the Internet; its optional passphrase is
+  CyNX command or macro listeners to the Internet; its optional passphrase is
   not encryption.
 - `bin/run.sh` runs as root through `sudo` for NXBT. Treat shell commands and
   host lifecycle controls as privileged capabilities, and grant command

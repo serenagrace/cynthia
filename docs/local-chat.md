@@ -7,11 +7,33 @@ server (`llm_url`, default `http://127.0.0.1:11434`).
 
 ## Install Ollama
 
-Install Ollama using its official installation instructions and fetch the
-default model:
+On Arch Linux, install Ollama and enable its service:
+
+```bash
+sudo pacman -S ollama
+sudo systemctl enable --now ollama.service
+```
+
+On Debian/Ubuntu, follow the
+[official Linux installation instructions](https://docs.ollama.com/linux).
+If using the official installer, download and inspect it before running it:
+
+```bash
+curl -fsSLo /tmp/ollama-install.sh https://ollama.com/install.sh
+```
+
+After reviewing `/tmp/ollama-install.sh`, run:
+
+```bash
+sh /tmp/ollama-install.sh
+sudo systemctl enable --now ollama.service
+```
+
+Then fetch the default model and verify that the server responds:
 
 ```bash
 ollama pull llama3.2:3b
+curl --fail http://127.0.0.1:11434/api/tags
 ```
 
 The 3B model with a 4096-token context uses about 2.5 GB of VRAM. To constrain
@@ -28,6 +50,13 @@ Environment="OLLAMA_KEEP_ALIVE=30m"
 The voice integration uses Piper TTS and an OBS source named `Cynthia Voice`.
 Piper inference runs on CPU. The voice is included in OBS output, not the
 WebRTC browser viewer.
+
+`piper-tts` is installed with Cynthia; no separate system Piper executable or
+Python extra is required. Use owner-only `/llm voices` to list voices and
+`/llm setvoice` to select one; `/llm tts` tests synthesis. Initial voice use
+downloads its model, so allow outbound access and space in the voice cache.
+OBS and its browser/media sources must be configured for stream playback;
+see [optional system packages](getting-started.md#optional-system-packages-and-services).
 
 ## Twitch authorization
 

@@ -11,7 +11,7 @@ class Defaults:
         "ELGATO_USB_ID": None,
         "SYNC_GUILD_ID": None,
         "STATUS_HOSTS": None,
-        "CYPI_PASSPHRASE": None,
+        "CYNX_PASSPHRASE": None,
         "YTDL_COOKIES_FILE": None,
         # obs-websocket (OBS 28+): Tools > WebSocket Server Settings
         "OBS_WS_HOST": None,
@@ -32,14 +32,14 @@ class Defaults:
         "owner": None,
         # restart the looping macro 5s after an encounter
         "encounter_reset": True,
-        # CyPi discovery shares the command port number over UDP.
-        "cypi_enabled": True,
-        "cypi_auto_connect": True,
-        "cypi_command_port": 3140,
-        "cypi_macro_port": 3141,
-        "cypi_discovery_timeout": 1.0,
-        "cypi_discovery_interval": 2.0,
-        "cypi_heartbeat_interval": 1.0,
+        # CyNX discovery shares the command port number over UDP.
+        "cynx_enabled": True,
+        "cynx_auto_connect": True,
+        "cynx_command_port": 3140,
+        "cynx_macro_port": 3141,
+        "cynx_discovery_timeout": 1.0,
+        "cynx_discovery_interval": 2.0,
+        "cynx_heartbeat_interval": 1.0,
         # systemd units checked by the /status command
         "status_services": ["cynthia.service"],
         # send the video feed to OBS (over UDP) while OBS is running
@@ -79,6 +79,8 @@ class Defaults:
         "twitch_info_confirm_seconds": 60,
         # detected game title -> Twitch category name or id, when they differ
         "twitch_categories": {},
+        # DM viewer chat to the owner, regardless of stream or local model state
+        "twitch_forward_chat": True,
         # serve the web viewer over WebRTC (needs the `mediamtx` binary); the page
         # falls back to MJPEG. Media flows over UDP and TCP `webrtc_media_port`;
         # list public IPs or hostnames in `webrtc_hosts` for viewers off the LAN

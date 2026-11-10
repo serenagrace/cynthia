@@ -17,7 +17,7 @@ bot; its FastAPI service does not host this documentation.
 
 ## Feature guides
 
-- [CyPi and cynx](cynx.md): wired Nintendo Switch control with the companion
+- [CyNX](cynx.md): wired Nintendo Switch control with the companion
   Raspberry Pi service, LAN discovery, acknowledgments, recovery, and setup.
 - [Switch control and macros](switch-control.md): controller transports,
   permissions, macro syntax, scene-aware hunting, and sample macros.

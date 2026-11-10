@@ -53,12 +53,12 @@ def make_status_cog(
     return StatusCog(bot), log_name
 
 
-def test_cypi_errors_are_forwarded_to_owner_once(tmp_path):
+def test_cynx_errors_are_forwarded_to_owner_once(tmp_path):
     from queue import Queue
 
     cog, _ = make_status_cog(tmp_path, hunt=None)
-    cog.bot.dman.cypi_alerts = Queue()
-    cog.bot.dman.cypi_alerts.put({"message": "USB host disconnected."})
+    cog.bot.dman.cynx_alerts = Queue()
+    cog.bot.dman.cynx_alerts.put({"message": "USB host disconnected."})
 
     async def run():
         await cog.get_status()
@@ -69,34 +69,34 @@ def test_cypi_errors_are_forwarded_to_owner_once(tmp_path):
     call = cog.bot.messenger.msg_owner.await_args
     embed = call.args[0]
     assert isinstance(embed, discord.Embed)
-    assert embed.title == "CYNX Controller Error"
+    assert embed.title == "CyNX Controller Error"
     assert embed.description == "USB host disconnected."
     assert "/cynx status" in embed.footer.text
     assert call.kwargs == {"alert": True}
 
 
-def test_cypi_error_waits_for_discord_connection(tmp_path):
+def test_cynx_error_waits_for_discord_connection(tmp_path):
     from queue import Queue
 
     cog, _ = make_status_cog(tmp_path, hunt=None)
-    cog.bot.dman.cypi_alerts = Queue()
-    cog.bot.dman.cypi_alerts.put({"message": "USB host disconnected."})
+    cog.bot.dman.cynx_alerts = Queue()
+    cog.bot.dman.cynx_alerts.put({"message": "USB host disconnected."})
     cog.bot.is_ready = lambda: False
     asyncio.run(cog.get_status())
     cog.bot.messenger.msg_owner.assert_not_awaited()
-    assert cog.bot.dman.cypi_alerts.qsize() == 1
+    assert cog.bot.dman.cynx_alerts.qsize() == 1
     cog.bot.is_ready = lambda: True
     asyncio.run(cog.get_status())
     cog.bot.messenger.msg_owner.assert_awaited_once()
 
 
-def test_cypi_errors_do_not_require_computer_vision(tmp_path):
+def test_cynx_errors_do_not_require_computer_vision(tmp_path):
     from queue import Queue
 
     cog, _ = make_status_cog(tmp_path, hunt=None)
     cog.bot.dman.running_daemons = {}
-    cog.bot.dman.cypi_alerts = Queue()
-    cog.bot.dman.cypi_alerts.put({"message": "Controller failed."})
+    cog.bot.dman.cynx_alerts = Queue()
+    cog.bot.dman.cynx_alerts.put({"message": "Controller failed."})
     asyncio.run(cog.get_status())
     cog.bot.messenger.msg_owner.assert_awaited_once()
     embed = cog.bot.messenger.msg_owner.await_args.args[0]
@@ -104,18 +104,18 @@ def test_cypi_errors_do_not_require_computer_vision(tmp_path):
     assert embed.description == "Controller failed."
 
 
-def test_cypi_error_embed_is_requeued_when_discord_delivery_fails(tmp_path):
+def test_cynx_error_embed_is_requeued_when_discord_delivery_fails(tmp_path):
     from queue import Queue
 
     cog, _ = make_status_cog(tmp_path, hunt=None)
-    cog.bot.dman.cypi_alerts = Queue()
-    cog.bot.dman.cypi_alerts.put({"message": "Controller failed."})
+    cog.bot.dman.cynx_alerts = Queue()
+    cog.bot.dman.cynx_alerts.put({"message": "Controller failed."})
     cog.bot.messenger.msg_owner.side_effect = discord.ClientException("Disconnected")
     asyncio.run(cog.report_controller_events())
-    assert cog.bot.dman.cypi_alerts.qsize() == 1
+    assert cog.bot.dman.cynx_alerts.qsize() == 1
     cog.bot.messenger.msg_owner.side_effect = None
     asyncio.run(cog.report_controller_events())
-    assert cog.bot.dman.cypi_alerts.empty()
+    assert cog.bot.dman.cynx_alerts.empty()
     assert isinstance(cog.bot.messenger.msg_owner.await_args.args[0], discord.Embed)
 
 

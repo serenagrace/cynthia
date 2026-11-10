@@ -12,6 +12,8 @@ from cynthia.bot.applications import cogs as cogs_app
 from cynthia.bot.applications import config as config_app
 from cynthia.bot.applications import control
 from cynthia.bot.applications import nxbt as nxbt_app
+from cynthia.bot.applications import twitch as twitch_app
+from cynthia.context.config import ConfigLoader
 from cynthia.context.perms import PermsLoader
 from cynthia.utils.namespace import Namespace
 
@@ -43,6 +45,50 @@ def make_interaction(tmp_path, *, user_id=10, guild_id=20):
         ),
         perms_file,
     )
+
+
+def test_twitch_chat_toggle_is_owner_only_and_persists(tmp_path):
+    async def run():
+        interaction, _ = make_interaction(tmp_path)
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text("owner: '10'\n")
+        loader = ConfigLoader(config_path)
+        interaction.client.config = Namespace(loader())
+        interaction.client.env = {"TWITCH_CHANNEL": "streamer"}
+        cog = SimpleNamespace(sync_chat_forwarding=Mock())
+        interaction.client.get_cog = lambda _: cog
+        for on in (False, True):
+            await twitch_app.notifychat.callback(interaction, on)
+            assert interaction.client.config["twitch_forward_chat"] is on
+            loader.save(interaction.client.config.dict())
+            assert ConfigLoader(config_path)()["twitch_forward_chat"] is on
+        assert cog.sync_chat_forwarding.call_count == 2
+        assert await twitch_app.twitch.interaction_check(interaction)
+        interaction.user.id = 99
+        with pytest.raises(app_commands.CheckFailure, match="Only the bot owner"):
+            await twitch_app.twitch.interaction_check(interaction)
+        assert not twitch_app.twitch.allowed_contexts.guild
+        assert twitch_app.twitch.allowed_contexts.dm_channel
+
+    asyncio.run(run())
+
+
+def test_twitch_chat_toggle_requires_a_channel_and_loaded_cog(tmp_path):
+    async def run():
+        interaction, _ = make_interaction(tmp_path)
+        interaction.client.config = Namespace({})
+        interaction.client.env = {}
+        cog = SimpleNamespace(sync_chat_forwarding=Mock())
+        interaction.client.get_cog = lambda _: cog
+        with pytest.raises(app_commands.CheckFailure, match="TWITCH_CHANNEL"):
+            await twitch_app.notifychat.callback(interaction, True)
+        assert "twitch_forward_chat" not in interaction.client.config
+        await twitch_app.notifychat.callback(interaction, False)
+        interaction.client.get_cog = lambda _: None
+        with pytest.raises(app_commands.CheckFailure, match="isn't loaded"):
+            await twitch_app.notifychat.callback(interaction, True)
+
+    asyncio.run(run())
 
 
 def test_simulated_command_allow_disallow_and_persistence(tmp_path):
