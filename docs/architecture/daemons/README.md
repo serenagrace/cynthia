@@ -24,7 +24,7 @@ supports snapshots for restartable workers.
 | [`webrtc.py` — `WebRTCDaemon`](webrtc.md) | Run demand-driven WebRTC output through MediaMTX. |
 | [`cystream.py` — `CYStream`](cystream.md) | Serve local video, audio, overlays, and status APIs. |
 | [`nxbt.py` — `NXBTDaemon`](nxbt.md) | Own the selected controller backend and macro playback. |
-| [`cypi.py` — `CyPiDaemon`](cypi.md) | Discover and manage the wired CyPi network session. |
+| [`cynx.py` — `CyNXDaemon`](cynx.md) | Discover and manage the wired CyNX network session. |
 
 `dman.py`, `daemon.py`, and `frames.py` are support modules rather than
 discovered daemon subclasses. They are documented separately because changes
@@ -49,6 +49,6 @@ Add configuration defaults in `cynthia/context/defaults.py`, expose runtime
 changes through the appropriate service/command, and document the setting in
 the feature guide. Add a focused test in `tests/`; process discovery and
 shutdown tests live in `tests/test_dman.py`, controller protocols in
-`tests/test_cypi.py` / `tests/test_nxbt_macros.py`, frame synchronization in
+`tests/test_cynx.py` / `tests/test_nxbt_macros.py`, frame synchronization in
 `tests/test_frames.py`, and capture/stream behavior in `tests/test_cv_scenes.py`
 and `tests/test_streaming.py`.

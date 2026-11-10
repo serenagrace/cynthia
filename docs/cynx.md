@@ -1,6 +1,6 @@
-# Wired Switch control with cynx
+# Wired Switch control with CyNX
 
-[cynx](https://github.com/serenagrace/cynx) is Cynthia's Raspberry Pi companion for
+[CyNX](https://github.com/serenagrace/cynx) is Cynthia's Raspberry Pi companion for
 wired Nintendo Switch input. Install and maintain the Pi from that repository.
 This guide covers the Cynthia side and the contract between the two services.
 
@@ -15,7 +15,7 @@ Discord commands, macros, and computer vision
      Command and heartbeat    Macro steps
           TCP 3140             TCP 3141
               \                /
-                   cynx / CyPi
+                      CyNX
                        |
                 USB-C gadget port
                        |
@@ -33,7 +33,7 @@ Discord credentials.
 
 ## Prepare the Pi
 
-Follow the [cynx installation instructions](https://github.com/serenagrace/cynx#installation)
+Follow the [CyNX installation instructions](https://github.com/serenagrace/cynx/blob/development/docs/installation.md)
 to configure Raspberry Pi OS, USB peripheral mode, and the systemd service.
 A Pi 4B uses its USB-C port for gadget data as well as power. A suitable powered
 data hub must connect upstream to the Switch dock and downstream to the Pi.
@@ -49,25 +49,33 @@ specific console and game before unattended automation.
 Add these values to Cynthia's `config.yaml`:
 
 ```yaml
-cypi_enabled: true
-cypi_auto_connect: true
-cypi_command_port: 3140
-cypi_macro_port: 3141
-cypi_heartbeat_interval: 1.0
-cypi_discovery_timeout: 1.0
-cypi_discovery_interval: 2.0
+cynx_enabled: true
+cynx_auto_connect: true
+cynx_command_port: 3140
+cynx_macro_port: 3141
+cynx_heartbeat_interval: 1.0
+cynx_discovery_timeout: 1.0
+cynx_discovery_interval: 2.0
 ```
 
-Configure the same command and macro port numbers in cynx's `config.yaml`.
+Configure the same command and macro port numbers in CyNX's `config.yaml`.
 Allow command TCP, macro TCP, and command-port UDP discovery only on the trusted
 LAN. Do not expose these listeners through an Internet-facing port forward.
 
-Set the same `CYPI_PASSPHRASE` in each project's working-directory `.env`.
+Set the same `CYNX_PASSPHRASE` in each project's working-directory `.env`.
 The real files are gitignored; they must never be copied to Cynthia's drive.
 Blank values on both endpoints disable authentication. This is shared-passphrase
 authentication over plaintext LAN TCP, not transport encryption. Use a private
 network or a separate secure tunnel when the LAN is not trusted.
 Restart both applications after changing their port or dotenv settings.
+
+Upgrade Cynthia and CyNX together: discovery and handshake responses now use
+`identity: "cynx"`, Cynthia's YAML settings use the `cynx_` prefix, and both
+working-directory dotenv files use `CYNX_PASSPHRASE`. No legacy aliases remain.
+Stop both services before renaming configuration keys and updating the
+companion, then restart both. Keep the existing port numbers and passphrase
+values. Hostnames do not need to change. To roll back, restore both previous
+versions and their matching configuration names together.
 
 The Pi accepts only its owning authenticated session's command and macro
 channels. `/cynx connect`, `/cynx status`, and `/cynx disconnect` use those
@@ -90,7 +98,7 @@ Pi has no independent video feed.
 
 ## Automatic connection and menu setup
 
-`cypi_auto_connect: true` enables startup USB connection. Set it to `false` in
+`cynx_auto_connect: true` enables startup USB connection. Set it to `false` in
 Cynthia's `config.yaml` to leave USB idle until `/cynx connect` or `/connect`
 is requested. Discovery and `/cynx status` still work. An explicitly requested
 connection remains eligible for normal reconnect recovery until disconnected.
@@ -101,7 +109,7 @@ worker waits for fresh CV results. Only a confident `change_grip_order` scene
 match runs `A`, wait, `A`, wait, `B`, wait, `HOME`, using the normal NXBT input
 timings. Other screens, stale frames, and unavailable CV never trigger these
 inputs. The sequence finishes before queued macros resume, while the separate
-CyPi daemon continues heartbeats.
+CyNX daemon continues heartbeats.
 
 ## Commands
 
@@ -112,7 +120,7 @@ CyPi daemon continues heartbeats.
 | `/cynx connect` | Explicitly select wired Pi control. Switching transports stops queued playback first. |
 | `/cynx disconnect` | Clear Pi playback, run the recovery menu sequence, and detach USB while retaining the authenticated network session. |
 | `/cynx status` | Show Pi availability, version, uptime, USB detection, spoofing, and Switch connection state. |
-| `/cynx restart` | Ask the Pi to restart cynx. Owner-only. |
+| `/cynx restart` | Ask the Pi to restart CyNX. Owner-only. |
 | `/cynx reboot` | Ask the Pi to reboot. Owner-only. |
 | `/nxbt connect` | Explicitly select Bluetooth, disconnecting an active Pi controller first. |
 | `/nxbt disconnect` | Disconnect Bluetooth without disconnecting an active Pi controller. |
@@ -157,7 +165,7 @@ pairing, and a console state from which normal setup can reopen the game.
 
 ## Logging and owner alerts
 
-cynx keeps a rotating local log at `logs/cynx.log` in its working directory and
+CyNX keeps a rotating local log at `logs/cynx.log` in its working directory and
 also writes service output to the systemd journal. The Pi remains diagnosable
 when Cynthia or the LAN is unavailable. Authentication values must not appear
 in either log.

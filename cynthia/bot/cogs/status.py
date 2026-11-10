@@ -154,14 +154,14 @@ class StatusCog(commands.Cog):
         if notice:
             await self.bot.messenger.msg_owner(notice, alert=True)
             self.bot.dman.uns.controller_notice = ""
-        alerts = getattr(self.bot.dman, "cypi_alerts", None)
+        alerts = getattr(self.bot.dman, "cynx_alerts", None)
         if alerts is not None:
             for _ in range(3):
                 try:
                     error = alerts.get_nowait()
                 except Empty:
                     break
-                embed = error_embed(error["message"], title="CYNX Controller Error")
+                embed = error_embed(error["message"], title="CyNX Controller Error")
                 embed.set_footer(text="Use /cynx status to check the controller.")
                 try:
                     await self.bot.messenger.msg_owner(embed, alert=True)

@@ -10,8 +10,10 @@ import aiohttp
 from discord.ext import commands, tasks
 
 from cynthia.daemons.cv import GAME_TITLES
+from cynthia.utils.embeds import TWITCH, make_embed
 from cynthia.utils.obslayout import overlay_delay_ms
 from cynthia.utils.twitchapi import TwitchAPI, TwitchAPIError, TwitchAuthError
+from cynthia.utils.twitchchat import TwitchChat
 
 logger = logging.getLogger(__name__)
 
@@ -88,11 +90,15 @@ class TwitchInfoCog(commands.Cog):
         # None until the first look, so a shiny already pending at startup isn't clipped
         self.shiny_seen = None
         self.clip_task = None
+        self.chat_task = None
+        self.forward_task = None
+        self.chat_queue = None
 
     async def cog_load(self):
         """Start watching the detected game."""
         self.check.start()
         self.publish_live.start()
+        self.sync_chat_forwarding()
 
     async def cog_unload(self):
         """Stop watching."""
@@ -102,6 +108,66 @@ class TwitchInfoCog(commands.Cog):
             self.bot.dman.uns.homepage_twitch = {}
         if self.clip_task is not None:
             self.clip_task.cancel()
+        pending = [
+            task for task in (self.chat_task, self.forward_task) if task is not None
+        ]
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+
+    def sync_chat_forwarding(self):
+        """Read chat for owner notifications independently of live state and LLMs."""
+        channel = (self.bot.env.get("TWITCH_CHANNEL", None) or "").strip().lstrip("#")
+        want = self.bot.config.get("twitch_forward_chat", True) and bool(channel)
+        running = self.chat_task is not None and not self.chat_task.done()
+        if want and not running:
+            self.chat_queue = asyncio.Queue(maxsize=500)
+            chat = TwitchChat(channel, listener=self.queue_chat)
+            self.chat_task = asyncio.create_task(chat.run())
+            self.forward_task = asyncio.create_task(self.forward_chat())
+        elif not want:
+            for task in (self.chat_task, self.forward_task):
+                if task is not None:
+                    task.cancel()
+            self.chat_task = self.forward_task = None
+            self.chat_queue = None
+
+    def queue_chat(self, kind, message):
+        """Queue new messages without blocking the IRC reader."""
+        if kind != "message" or not self.bot.config.get("twitch_forward_chat", True):
+            return
+        if self.chat_queue is None:
+            return
+        channel = (self.bot.env.get("TWITCH_CHANNEL", None) or "").strip().lstrip("#")
+        excluded = {channel.lower(), "streamelements"}
+        for api in (self.api, getattr(self.bot, "twitch_chat_api", None)):
+            if api is not None and api.login:
+                excluded.add(api.login.lower())
+        if message["login"].lower() in excluded:
+            return
+        try:
+            self.chat_queue.put_nowait(message)
+        except asyncio.QueueFull:
+            logger.warning("Twitch forwarding is behind; dropped a chat message.")
+
+    async def forward_chat(self):
+        """DM queued messages after Discord is ready, even while Twitch is offline."""
+        await self.bot.wait_until_ready()
+        while True:
+            message = await self.chat_queue.get()
+            if not self.bot.config.get("twitch_forward_chat", True):
+                continue
+            channel = (
+                (self.bot.env.get("TWITCH_CHANNEL", None) or "").strip().lstrip("#")
+            )
+            embed = make_embed(
+                f"Twitch chat: {message['user']}"[:256],
+                message["text"][:4096],
+                color=TWITCH,
+                url=f"https://twitch.tv/{channel}",
+            )
+            embed.set_footer(text=f"#{channel}")
+            await self.tell_owner(embed)
 
     def _load_state(self):
         """Read the last applied game and hunt from the drive."""

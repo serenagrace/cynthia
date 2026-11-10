@@ -3,7 +3,7 @@ import json
 import os
 import time
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from aiohttp import web
@@ -11,7 +11,9 @@ from aiohttp import web
 import cynthia.utils.twitchapi as twitchapi
 from cynthia.bot.cogs.twitchinfo import ChannelInfoTracker, TwitchInfoCog
 from cynthia.utils.drive import Drive
+from cynthia.utils.namespace import Namespace
 from cynthia.utils.twitchapi import TwitchAPI
+from cynthia.utils.twitchchat import TwitchChat
 
 
 def confirmed(tracker, game, hunt, start):
@@ -86,10 +88,165 @@ def test_unloading_after_daemon_shutdown_still_cancels_pending_clip(error):
     cog.check = SimpleNamespace(cancel=Mock())
     cog.publish_live = SimpleNamespace(cancel=Mock())
     cog.clip_task = SimpleNamespace(cancel=Mock())
+    cog.chat_task = cog.forward_task = None
     asyncio.run(cog.cog_unload())
     cog.check.cancel.assert_called_once()
     cog.publish_live.cancel.assert_called_once()
     cog.clip_task.cancel.assert_called_once()
+
+
+@pytest.mark.parametrize("live", [False, True])
+@pytest.mark.parametrize("enabled", [False, True])
+def test_chat_forwarding_uses_only_its_switch_and_excludes_accounts(
+    tmp_path, monkeypatch, live, enabled
+):
+    readers = []
+
+    async def read(chat):
+        readers.append(chat)
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(TwitchChat, "run", read)
+
+    async def run():
+        delivered = asyncio.Event()
+        messages = []
+
+        async def send(embed):
+            messages.append(embed)
+            if len(messages) == 2:
+                delivered.set()
+
+        bot = SimpleNamespace(
+            env={"TWITCH_CHANNEL": "#Streamer"},
+            config=Namespace({"twitch_forward_chat": enabled, "llm_enabled": False}),
+            drive=Drive(tmp_path),
+            messenger=SimpleNamespace(msg_owner=AsyncMock(side_effect=send)),
+            wait_until_ready=AsyncMock(),
+            obs=SimpleNamespace(status=Mock(return_value={"streaming": live})),
+        )
+        cog = TwitchInfoCog(bot)
+        cog.api = SimpleNamespace(login="owner")
+        bot.twitch_chat_api = SimpleNamespace(login="CyNtHiABoT", authorized=False)
+        cog.sync_chat_forwarding()
+        await asyncio.sleep(0)
+        message = {"login": "viewer", "user": "Viewer", "text": "hello"}
+        if enabled:
+            for login in (
+                "Streamer",
+                "OWNER",
+                "cynthiabot",
+                "StReAmElEmEnTs",
+                "nightbot",
+                "viewer",
+            ):
+                readers[0].handle(
+                    f":{login}!{login}@host PRIVMSG #streamer :@everyone hello"
+                )
+            readers[0].handle(":tmi.twitch.tv CLEARCHAT #streamer")
+            await asyncio.wait_for(delivered.wait(), 1)
+            assert [embed.title for embed in messages] == [
+                "Twitch chat: nightbot",
+                "Twitch chat: viewer",
+            ]
+            assert all(embed.description == "@everyone hello" for embed in messages)
+            assert all(embed.footer.text == "#Streamer" for embed in messages)
+        else:
+            assert not readers
+            cog.queue_chat("message", message)
+            await asyncio.sleep(0)
+            assert not messages
+        bot.obs.status.assert_not_called()
+        pending = [task for task in (cog.chat_task, cog.forward_task) if task]
+        bot.config.set("twitch_forward_chat", False)
+        cog.sync_chat_forwarding()
+        await asyncio.gather(*pending, return_exceptions=True)
+        assert all(task.cancelled() for task in pending)
+
+    asyncio.run(run())
+
+
+def test_chat_forwarding_toggle_discards_pending_messages_and_unloads(
+    tmp_path, monkeypatch
+):
+    async def read(chat):
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(TwitchChat, "run", read)
+
+    async def run():
+        ready = asyncio.Event()
+        delivered = asyncio.Event()
+        bot = SimpleNamespace(
+            env={"TWITCH_CHANNEL": "streamer"},
+            config=Namespace({}),
+            drive=Drive(tmp_path),
+            messenger=SimpleNamespace(
+                msg_owner=AsyncMock(side_effect=lambda _: delivered.set())
+            ),
+            wait_until_ready=ready.wait,
+            dman=SimpleNamespace(uns=SimpleNamespace()),
+        )
+        cog = TwitchInfoCog(bot)
+        cog.check = SimpleNamespace(start=Mock(), cancel=Mock())
+        cog.publish_live = SimpleNamespace(start=Mock(), cancel=Mock())
+        await cog.cog_load()
+        cog.queue_chat("message", {"login": "viewer", "user": "V", "text": "old"})
+        await asyncio.sleep(0)
+        bot.messenger.msg_owner.assert_not_awaited()
+        old_tasks = (cog.chat_task, cog.forward_task)
+        bot.config.set("twitch_forward_chat", False)
+        cog.sync_chat_forwarding()
+        await asyncio.gather(*old_tasks, return_exceptions=True)
+        bot.config.set("twitch_forward_chat", True)
+        cog.sync_chat_forwarding()
+        ready.set()
+        cog.queue_chat("message", {"login": "viewer", "user": "V", "text": "new"})
+        await asyncio.wait_for(delivered.wait(), 1)
+        assert bot.messenger.msg_owner.await_count == 1
+        assert bot.messenger.msg_owner.await_args.args[0].description == "new"
+        pending = (cog.chat_task, cog.forward_task)
+        await cog.cog_unload()
+        assert all(task.cancelled() for task in pending)
+
+    asyncio.run(run())
+
+
+def test_chat_forwarding_survives_a_failed_discord_delivery(tmp_path, monkeypatch):
+    async def read(chat):
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(TwitchChat, "run", read)
+
+    async def run():
+        delivered = asyncio.Event()
+
+        async def send(embed):
+            if embed.description == "first":
+                raise RuntimeError("Discord unavailable")
+            delivered.set()
+
+        bot = SimpleNamespace(
+            env={"TWITCH_CHANNEL": "streamer"},
+            config=Namespace({}),
+            drive=Drive(tmp_path),
+            wait_until_ready=AsyncMock(),
+            messenger=SimpleNamespace(msg_owner=AsyncMock(side_effect=send)),
+        )
+        cog = TwitchInfoCog(bot)
+        cog.sync_chat_forwarding()
+        for text in ("first", "second"):
+            cog.queue_chat(
+                "message", {"login": "viewer", "user": "Viewer", "text": text}
+            )
+        await asyncio.wait_for(delivered.wait(), 1)
+        assert bot.messenger.msg_owner.await_count == 2
+        pending = (cog.chat_task, cog.forward_task)
+        bot.config.set("twitch_forward_chat", False)
+        cog.sync_chat_forwarding()
+        await asyncio.gather(*pending, return_exceptions=True)
+
+    asyncio.run(run())
 
 
 def test_cog_only_detects_known_games_that_are_playing(tmp_path):

@@ -1,4 +1,4 @@
-"""Exercise CyPi framing, discovery, acknowledgments, and transport recovery."""
+"""Exercise CyNX framing, discovery, acknowledgments, and transport recovery."""
 
 import asyncio
 import json
@@ -7,12 +7,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from cynthia.utils.cypi import (
-    CyPiClient,
-    CyPiError,
-    CyPiRejected,
-    CyPiStopped,
-    CyPiUnavailable,
+from cynthia.utils.cynx import (
+    CyNXClient,
+    CyNXError,
+    CyNXRejected,
+    CyNXStopped,
+    CyNXUnavailable,
     discover,
     read_frame,
     write_frame,
@@ -57,7 +57,7 @@ class FakePi:
 
     def status(self):
         return {
-            "identity": "cypi",
+            "identity": "cynx",
             "protocol": 1,
             "session": self.session,
             "boot_id": "boot-one",
@@ -149,7 +149,7 @@ class FakePi:
 def test_two_channels_authenticate_and_wait_for_completion():
     async def run():
         async with FakePi() as pi:
-            client = CyPiClient(passphrase="test")
+            client = CyNXClient(passphrase="test")
             try:
                 await client.open("127.0.0.1", pi.command_port)
                 result = await client.play_step("(0.1,0.2) L R", 0.3)
@@ -166,10 +166,10 @@ def test_expired_command_session_cannot_remain_ready_and_block_rediscovery():
     async def run():
         published = []
         async with FakePi() as pi:
-            client = CyPiClient(passphrase="test", publish=published.append)
+            client = CyNXClient(passphrase="test", publish=published.append)
             await client.open("127.0.0.1", pi.command_port)
             pi.expired_session = True
-            with pytest.raises(CyPiUnavailable):
+            with pytest.raises(CyNXUnavailable):
                 await client.command("status")
             assert client.abandoned and not client.ready
             assert client.fallback_ready_at > 0
@@ -183,7 +183,7 @@ def test_blank_auth_and_no_buffering_even_for_concurrent_callers():
     async def run():
         async with FakePi(passphrase="") as pi:
             pi.completion_gate = asyncio.Event()
-            client = CyPiClient()
+            client = CyNXClient()
             tasks = []
             try:
                 await client.open("127.0.0.1", pi.command_port)
@@ -211,14 +211,14 @@ def test_usb_command_rejection_is_distinct_from_network_loss():
     async def run():
         async with FakePi() as pi:
             pi.reject_connect = True
-            client = CyPiClient(passphrase="test")
+            client = CyNXClient(passphrase="test")
             try:
                 await client.open("127.0.0.1", pi.command_port)
-                with pytest.raises(CyPiRejected, match="Switch is not awake"):
+                with pytest.raises(CyNXRejected, match="Switch is not awake"):
                     await client.command("connect")
                 assert client.ready
                 assert client.generation == 1
-                assert (await client.command("status"))["identity"] == "cypi"
+                assert (await client.command("status"))["identity"] == "cynx"
             finally:
                 await client.close()
 
@@ -228,7 +228,7 @@ def test_usb_command_rejection_is_distinct_from_network_loss():
 def test_lost_completion_ack_resumes_without_replaying_step():
     async def run():
         async with FakePi(drop_completed=True) as pi:
-            client = CyPiClient(passphrase="test")
+            client = CyNXClient(passphrase="test")
             try:
                 await client.open("127.0.0.1", pi.command_port)
                 await client.play_step("A", 0.1)
@@ -255,10 +255,10 @@ def test_lost_completion_ack_resumes_without_replaying_step():
 def test_invalid_ack_is_not_treated_as_a_success_or_replayed(event):
     async def run():
         async with FakePi(bad_event=event) as pi:
-            client = CyPiClient(passphrase="test")
+            client = CyNXClient(passphrase="test")
             try:
                 await client.open("127.0.0.1", pi.command_port)
-                with pytest.raises(CyPiError):
+                with pytest.raises(CyNXError):
                     await client.play_step("A", 0.1)
                 assert pi.executions == []
                 assert client.last_completed_id == 0
@@ -273,10 +273,10 @@ def test_explicit_stop_is_not_a_transport_failure():
         async with FakePi(
             bad_event={"event": "failed", "ok": False, "code": "stopped"}
         ) as pi:
-            client = CyPiClient(passphrase="test")
+            client = CyNXClient(passphrase="test")
             try:
                 await client.open("127.0.0.1", pi.command_port)
-                with pytest.raises(CyPiStopped):
+                with pytest.raises(CyNXStopped):
                     await client.play_step("A", 0.1)
                 assert client.generation == 1
                 assert not client.abandoned
@@ -291,10 +291,10 @@ def test_terminal_usb_failure_is_not_replayed_as_a_reconnectable_step():
         async with FakePi(
             bad_event={"event": "failed", "ok": False, "code": "usb_unavailable"}
         ) as pi:
-            client = CyPiClient(passphrase="test")
+            client = CyNXClient(passphrase="test")
             try:
                 await client.open("127.0.0.1", pi.command_port)
-                with pytest.raises(CyPiUnavailable) as error:
+                with pytest.raises(CyNXUnavailable) as error:
                     await client.play_step("A", 0.1)
                 assert client.generation == 1
                 assert client.abandoned
@@ -310,8 +310,8 @@ def test_terminal_usb_failure_is_not_replayed_as_a_reconnectable_step():
 def test_wrong_passphrase_closes_both_channels():
     async def run():
         async with FakePi() as pi:
-            client = CyPiClient(passphrase="wrong")
-            with pytest.raises(CyPiError, match="Authentication failed"):
+            client = CyNXClient(passphrase="wrong")
+            with pytest.raises(CyNXError, match="Authentication failed"):
                 await client.open("127.0.0.1", pi.command_port)
             assert not client.ready
             assert pi.executions == []
@@ -321,7 +321,7 @@ def test_wrong_passphrase_closes_both_channels():
 
 def test_reconnect_expiry_reports_completion_and_safe_takeover_deadline():
     async def run():
-        client = CyPiClient()
+        client = CyNXClient()
         client.host = "127.0.0.1"
         client.session = "lost-session"
         client.status = {
@@ -330,7 +330,7 @@ def test_reconnect_expiry_reports_completion_and_safe_takeover_deadline():
             "recovery_timeout": 0.1,
         }
         client.mark_lost("Disconnected")
-        with pytest.raises(CyPiUnavailable) as error:
+        with pytest.raises(CyNXUnavailable) as error:
             await client.recover()
         assert error.value.ready_at == client.fallback_ready_at
         assert client.abandoned
@@ -344,7 +344,7 @@ def test_bad_framing_is_rejected(data):
         reader = asyncio.StreamReader()
         reader.feed_data(data)
         reader.feed_eof()
-        with pytest.raises(CyPiError):
+        with pytest.raises(CyNXError):
             await read_frame(reader, 0.1)
 
     asyncio.run(run())
@@ -360,7 +360,7 @@ def test_split_frame_is_reassembled_and_oversized_frame_rejected():
         reader.feed_data(b"true}\n")
         assert await task == {"ok": True}
         reader.feed_data(b"x" * 17000 + b"\n")
-        with pytest.raises(CyPiError):
+        with pytest.raises(CyNXError):
             await read_frame(reader, 0.1)
 
     asyncio.run(run())
@@ -376,7 +376,7 @@ def test_discovery_checks_nonce_identity_and_protocol():
                 request = json.loads(data)
                 offer = {
                     "type": "cynx_offer",
-                    "identity": "cypi",
+                    "identity": "cynx",
                     "protocol": 1,
                     "nonce": request["nonce"],
                     "command_port": 3140,
@@ -410,8 +410,8 @@ def test_remote_input_preserves_raw_waits_and_does_not_swallow_timeout():
         step = Input([], 1, 2)
         await step.play(remote, 0)
         remote.play_input.assert_awaited_once_with(step)
-        remote.play_input.side_effect = CyPiUnavailable("No acknowledgment.")
-        with pytest.raises(CyPiUnavailable):
+        remote.play_input.side_effect = CyNXUnavailable("No acknowledgment.")
+        with pytest.raises(CyNXUnavailable):
             await step.play(remote, 0)
 
     asyncio.run(run())
@@ -447,11 +447,11 @@ def test_explicit_and_generic_connect_commands_select_the_right_backend():
             response=SimpleNamespace(defer=AsyncMock()),
             followup=SimpleNamespace(send=AsyncMock()),
         )
-        daemon.backend = "cypi"
+        daemon.backend = "cynx"
         await commands.cynx_connect_command.callback(interaction)
-        daemon.connect.assert_awaited_with(backend="cypi")
+        daemon.connect.assert_awaited_with(backend="cynx")
         interaction.followup.send.assert_awaited_with(
-            "Connected to Nintendo Switch via CYNX USB!"
+            "Connected to Nintendo Switch via CyNX USB!"
         )
         await commands.nxbt_connect_command.callback(interaction)
         daemon.connect.assert_awaited_with(backend="nxbt")
@@ -460,7 +460,7 @@ def test_explicit_and_generic_connect_commands_select_the_right_backend():
         await commands.connect.callback(interaction)
         daemon.connect.assert_not_awaited()
         await commands.cynx_disconnect_command.callback(interaction)
-        daemon.disconnect.assert_awaited_with(backend="cypi")
+        daemon.disconnect.assert_awaited_with(backend="cynx")
         await commands.nxbt_disconnect_command.callback(interaction)
         daemon.disconnect.assert_awaited_with(backend="nxbt")
 
@@ -474,7 +474,7 @@ def test_cynx_lifecycle_commands_are_owner_only_and_forward_requests():
         daemon = SimpleNamespace(command=AsyncMock(return_value={}))
         interaction = SimpleNamespace(
             client=SimpleNamespace(
-                dman=SimpleNamespace(running_daemons={"CyPiDaemon": daemon})
+                dman=SimpleNamespace(running_daemons={"CyNXDaemon": daemon})
             ),
             response=SimpleNamespace(defer=AsyncMock()),
             followup=SimpleNamespace(send=AsyncMock()),
@@ -487,7 +487,7 @@ def test_cynx_lifecycle_commands_are_owner_only_and_forward_requests():
             await command.callback(interaction)
             daemon.command.assert_awaited_with(name)
             interaction.followup.send.assert_awaited_with(
-                f"CYNX {name} requested.", ephemeral=True
+                f"CyNX {name} requested.", ephemeral=True
             )
 
     asyncio.run(run())
@@ -505,8 +505,8 @@ def test_cynx_status_uses_current_brand_for_live_and_cached_state(available):
     interaction = SimpleNamespace(
         client=SimpleNamespace(
             dman=SimpleNamespace(
-                running_daemons={"CyPiDaemon": daemon},
-                uns=SimpleNamespace(cypi_status=state),
+                running_daemons={"CyNXDaemon": daemon},
+                uns=SimpleNamespace(cynx_status=state),
             )
         ),
         response=SimpleNamespace(defer=AsyncMock()),
@@ -516,7 +516,7 @@ def test_cynx_status_uses_current_brand_for_live_and_cached_state(available):
     asyncio.run(commands.cynx_status_command.callback(interaction))
 
     embed = interaction.followup.send.await_args.kwargs["embed"]
-    assert embed.title == "CYNX status"
+    assert embed.title == "CyNX status"
     assert embed.fields[0].value == ("Connected" if available else "Disconnected")
     assert embed.fields[1].value == state["version"]
 
@@ -529,21 +529,21 @@ def test_cynx_command_failures_use_current_brand(name):
 
     daemon = SimpleNamespace(
         ns=SimpleNamespace(available=True),
-        command=AsyncMock(side_effect=CyPiError("Controller unavailable.")),
+        command=AsyncMock(side_effect=CyNXError("Controller unavailable.")),
     )
     interaction = SimpleNamespace(
         client=SimpleNamespace(
-            dman=SimpleNamespace(running_daemons={"CyPiDaemon": daemon})
+            dman=SimpleNamespace(running_daemons={"CyNXDaemon": daemon})
         ),
         response=SimpleNamespace(defer=AsyncMock()),
     )
     command = getattr(commands, f"cynx_{name}_command")
 
-    with pytest.raises(app_commands.CheckFailure, match=f"CYNX {name} failed:"):
+    with pytest.raises(app_commands.CheckFailure, match=f"CyNX {name} failed:"):
         asyncio.run(command.callback(interaction))
 
 
-@pytest.mark.parametrize("backend", ["none", "nxbt", "cypi"])
+@pytest.mark.parametrize("backend", ["none", "nxbt", "cynx"])
 def test_generic_disconnect_disables_pi_autoconnection_even_when_not_selected(backend):
     from queue import Queue
 
@@ -551,14 +551,14 @@ def test_generic_disconnect_disables_pi_autoconnection_even_when_not_selected(ba
 
     daemon = NXBTDaemon.__new__(NXBTDaemon)
     daemon.ns = SimpleNamespace(
-        backend=backend, connected=False, epoch=0, allow_auto_cypi=True
+        backend=backend, connected=False, epoch=0, allow_auto_cynx=True
     )
-    daemon.cypi_requests = Queue()
+    daemon.cynx_requests = Queue()
     assert asyncio.run(daemon.disconnect())
-    assert not daemon.ns.allow_auto_cypi
+    assert not daemon.ns.allow_auto_cynx
     requests = [
-        daemon.cypi_requests.get_nowait(),
-        daemon.cypi_requests.get_nowait(),
+        daemon.cynx_requests.get_nowait(),
+        daemon.cynx_requests.get_nowait(),
     ]
     assert [item["command"] for item in requests] == ["stop", "disconnect"]
 
@@ -601,10 +601,10 @@ def test_worker_bluetooth_fallback_preserves_the_uncompleted_step(
 
     events = []
     uns = SimpleNamespace(
-        cypi_network_connected=True,
-        cypi_switch_connected=True,
-        cypi_reconnecting=False,
-        cypi_fallback_ready_at=0,
+        cynx_network_connected=True,
+        cynx_switch_connected=True,
+        cynx_reconnecting=False,
+        cynx_fallback_ready_at=0,
     )
 
     def initialize(self, dman, *args, **kwargs):
@@ -622,8 +622,8 @@ def test_worker_bluetooth_fallback_preserves_the_uncompleted_step(
             button = step.input_list[0]
             events.append(("pi", button))
             if button == nxbt.Buttons.B:
-                uns.cypi_network_connected = False
-                raise CyPiUnavailable("Link failed", completed=completed)
+                uns.cynx_network_connected = False
+                raise CyNXUnavailable("Link failed", completed=completed)
 
     class Bluetooth:
         state = {0: {"state": "connected"}}
@@ -643,11 +643,11 @@ def test_worker_bluetooth_fallback_preserves_the_uncompleted_step(
     monkeypatch.setattr(worker.Daemon, "__init__", initialize)
     monkeypatch.setattr(worker.NXBTDaemon, "start", lambda *args, **kwargs: None)
     monkeypatch.setattr(worker.multiprocessing, "Queue", Queue)
-    monkeypatch.setattr(worker, "CyPiController", Pi)
+    monkeypatch.setattr(worker, "CyNXController", Pi)
     monkeypatch.setattr(worker.nxbt, "Nxbt", Bluetooth)
     monkeypatch.setattr(worker, "nxbt_connect", connect)
     monkeypatch.setattr(worker, "nxbt_disconnect", AsyncMock(return_value=True))
-    monkeypatch.setattr(worker, "cypi_connect_setup", AsyncMock())
+    monkeypatch.setattr(worker, "cynx_connect_setup", AsyncMock())
     monkeypatch.setattr(worker.os, "setpriority", lambda *args: None)
     dman = SimpleNamespace(
         uns=uns,
@@ -675,7 +675,7 @@ def test_worker_bluetooth_fallback_preserves_the_uncompleted_step(
 def test_network_daemon_keeps_heartbeat_alive_during_a_step(monkeypatch, repeat_event):
     from queue import Queue
 
-    from cynthia.daemons import cypi as daemon
+    from cynthia.daemons import cynx as daemon
 
     async def run():
         queue, replies, alerts = Queue(), {}, Queue()
@@ -700,7 +700,7 @@ def test_network_daemon_keeps_heartbeat_alive_during_a_step(monkeypatch, repeat_
             async def command(self, command):
                 statuses.append(command)
                 state = {
-                    "identity": "cypi",
+                    "identity": "cynx",
                     "network_connected": True,
                     "switch_connected": True,
                     "spoofing": True,
@@ -721,19 +721,19 @@ def test_network_daemon_keeps_heartbeat_alive_during_a_step(monkeypatch, repeat_
                 self.active_step = True
                 await release.wait()
                 self.active_step = False
-                raise CyPiStopped("Stopped")
+                raise CyNXStopped("Stopped")
 
             async def close(self):
                 self.ready = False
 
-        monkeypatch.setattr(daemon, "CyPiClient", Client)
+        monkeypatch.setattr(daemon, "CyNXClient", Client)
         runner = asyncio.create_task(
             daemon.run_client(
                 ns,
                 uns,
                 queue,
                 replies,
-                {"cypi_heartbeat_interval": 0.01},
+                {"cynx_heartbeat_interval": 0.01},
                 "test-passphrase",
                 alerts,
             )
@@ -748,7 +748,7 @@ def test_network_daemon_keeps_heartbeat_alive_during_a_step(monkeypatch, repeat_
                     await asyncio.sleep(0.01)
             assert replies["step"]["kind"] == "stopped"
             assert replies["stop"]["ok"]
-            assert uns.cypi_network_connected
+            assert uns.cynx_network_connected
             assert alerts.qsize() == 1
             assert alerts.get_nowait() == {"message": "USB [redacted] failed"}
         finally:
@@ -768,7 +768,7 @@ def test_network_daemon_releases_an_active_session_before_closing(
     from queue import Queue
     from unittest.mock import AsyncMock, Mock
 
-    from cynthia.daemons import cypi as daemon
+    from cynthia.daemons import cynx as daemon
 
     async def run():
         queue, replies, alerts = Queue(), {}, Queue()
@@ -808,7 +808,7 @@ def test_network_daemon_releases_an_active_session_before_closing(
             close=AsyncMock(side_effect=close),
             mark_lost=Mock(),
         )
-        monkeypatch.setattr(daemon, "CyPiClient", Mock(return_value=client))
+        monkeypatch.setattr(daemon, "CyNXClient", Mock(return_value=client))
         runner = asyncio.create_task(
             daemon.run_client(ns, uns, queue, replies, {}, "", alerts)
         )
@@ -835,21 +835,21 @@ def test_autoconnect_toggle_preserves_manual_connect_and_tracks_reconnects(
     from queue import Queue
     from unittest.mock import AsyncMock, Mock
 
-    from cynthia.daemons import cypi as worker
+    from cynthia.daemons import cynx as worker
 
     def initialize(self, dman, *args, **kwargs):
         self.ns, self.uns = SimpleNamespace(run=True), dman.uns
 
     monkeypatch.setattr(worker.Daemon, "__init__", initialize)
-    monkeypatch.setattr(worker.CyPiDaemon, "start", lambda self: None)
+    monkeypatch.setattr(worker.CyNXDaemon, "start", lambda self: None)
     dman = SimpleNamespace(
         uns=SimpleNamespace(controller_backend="none"),
-        cypi_requests=Queue(),
-        cypi_replies={},
-        cypi_alerts=Queue(),
-        context=SimpleNamespace(env={}, config={"cypi_auto_connect": auto_connect}),
+        cynx_requests=Queue(),
+        cynx_replies={},
+        cynx_alerts=Queue(),
+        context=SimpleNamespace(env={}, config={"cynx_auto_connect": auto_connect}),
     )
-    daemon = worker.CyPiDaemon(dman)
+    daemon = worker.CyNXDaemon(dman)
 
     async def run():
         bound = False
@@ -884,14 +884,14 @@ def test_autoconnect_toggle_preserves_manual_connect_and_tracks_reconnects(
             publish_state = publish
             return client
 
-        monkeypatch.setattr(worker, "CyPiClient", Mock(side_effect=make_client))
+        monkeypatch.setattr(worker, "CyNXClient", Mock(side_effect=make_client))
         runner = asyncio.create_task(
             worker.run_client(
                 daemon.ns,
                 dman.uns,
-                dman.cypi_requests,
-                dman.cypi_replies,
-                {"cypi_heartbeat_interval": 0.01},
+                dman.cynx_requests,
+                dman.cynx_replies,
+                {"cynx_heartbeat_interval": 0.01},
                 "",
             )
         )
@@ -900,15 +900,15 @@ def test_autoconnect_toggle_preserves_manual_connect_and_tracks_reconnects(
                 while statuses < 3:
                     await asyncio.sleep(0.01)
                 assert bound is auto_connect
-                assert dman.uns.cypi_connect_count == int(auto_connect)
-                dman.cypi_requests.put({"id": "manual", "command": "connect"})
-                while "manual" not in dman.cypi_replies:
+                assert dman.uns.cynx_connect_count == int(auto_connect)
+                dman.cynx_requests.put({"id": "manual", "command": "connect"})
+                while "manual" not in dman.cynx_replies:
                     await asyncio.sleep(0.01)
-                assert dman.cypi_replies["manual"]["ok"]
+                assert dman.cynx_replies["manual"]["ok"]
                 assert bound
-                assert dman.uns.cypi_connect_count == 1
+                assert dman.uns.cynx_connect_count == 1
                 bound = False
-                while dman.uns.cypi_connect_count < 2:
+                while dman.uns.cynx_connect_count < 2:
                     await asyncio.sleep(0.01)
                 assert bound
         finally:
@@ -919,7 +919,7 @@ def test_autoconnect_toggle_preserves_manual_connect_and_tracks_reconnects(
 
 
 @pytest.mark.parametrize("mode", ["manual", "startup", "reconnect"])
-def test_worker_finishes_each_cypi_connection_once(monkeypatch, tmp_path, mode):
+def test_worker_finishes_each_cynx_connection_once(monkeypatch, tmp_path, mode):
     from queue import Queue
 
     from cynthia.daemons import nxbt as worker
@@ -927,10 +927,10 @@ def test_worker_finishes_each_cypi_connection_once(monkeypatch, tmp_path, mode):
     from cynthia.utils.nxbt_utils import Macro
 
     uns = SimpleNamespace(
-        cypi_network_connected=True,
-        cypi_switch_connected=True,
-        cypi_reconnecting=False,
-        cypi_connect_count=1,
+        cynx_network_connected=True,
+        cynx_switch_connected=True,
+        cynx_reconnecting=False,
+        cynx_connect_count=1,
     )
 
     def initialize(self, dman, *args, **kwargs):
@@ -939,20 +939,20 @@ def test_worker_finishes_each_cypi_connection_once(monkeypatch, tmp_path, mode):
     calls = []
 
     async def setup(*args):
-        calls.append(uns.cypi_connect_count)
+        calls.append(uns.cynx_connect_count)
 
     async def tick(_):
         if mode == "reconnect" and calls == [1]:
-            uns.cypi_connect_count = 2
+            uns.cynx_connect_count = 2
         elif calls:
             daemon.ns.run = False
 
     monkeypatch.setattr(worker.Daemon, "__init__", initialize)
     monkeypatch.setattr(worker.NXBTDaemon, "start", lambda *a, **k: None)
     monkeypatch.setattr(worker.multiprocessing, "Queue", Queue)
-    monkeypatch.setattr(worker, "cypi_connect_setup", setup)
+    monkeypatch.setattr(worker, "cynx_connect_setup", setup)
     monkeypatch.setattr(
-        worker, "cypi_request", AsyncMock(return_value={"switch_connected": True})
+        worker, "cynx_request", AsyncMock(return_value={"switch_connected": True})
     )
     monkeypatch.setattr(worker.asyncio, "sleep", tick)
     monkeypatch.setattr(worker.os, "setpriority", lambda *args: None)
@@ -960,14 +960,14 @@ def test_worker_finishes_each_cypi_connection_once(monkeypatch, tmp_path, mode):
         uns=uns,
         manager=SimpleNamespace(dict=dict),
         drive=Drive(tmp_path),
-        context=SimpleNamespace(config={"cypi_auto_connect": mode != "manual"}),
+        context=SimpleNamespace(config={"cynx_auto_connect": mode != "manual"}),
     )
     old_tree = Macro._macro_tree
     try:
         daemon = worker.NXBTDaemon(dman)
         if mode == "manual":
             daemon.ns.connect = True
-            daemon.ns.requested_backend = "cypi"
+            daemon.ns.requested_backend = "cynx"
         daemon.loop(daemon.ns, uns, daemon.tqueue, Macro._macro_tree, dman.drive)
         assert calls == ([1, 2] if mode == "reconnect" else [1])
         assert daemon.ns.done
@@ -999,12 +999,12 @@ def test_connection_inputs_require_fresh_positive_cv(
     async def play_input(step):
         steps.append(step)
 
-    monkeypatch.setattr(nxbt_utils, "CYPI_CONNECT_CV_TIMEOUT", 0)
+    monkeypatch.setattr(nxbt_utils, "CYNX_CONNECT_CV_TIMEOUT", 0)
     monkeypatch.setattr(nxbt_utils.asyncio, "sleep", AsyncMock())
     monkeypatch.setattr(nxbt_utils.Macro, "_macro_tree", {})
     uns = SimpleNamespace(ssim_scores=scores, cv_frame_time=time.time() - age)
     played = asyncio.run(
-        nxbt_utils.cypi_connect_setup(
+        nxbt_utils.cynx_connect_setup(
             SimpleNamespace(play_input=play_input, state={0: {"state": "connected"}}),
             0,
             uns,

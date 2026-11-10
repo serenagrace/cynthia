@@ -10,7 +10,7 @@ every three seconds and Discord presence about every 15 seconds. When a Drive
 is available, it also writes status/activity files consumed by the local web
 service and overlays.
 
-It forwards owner-visible controller/CyPi and encounter alerts through the
+It forwards owner-visible controller/CyNX and encounter alerts through the
 bot's existing owner/channel services. It does not own capture, controller
 network sockets, or homepage rendering: those remain with the corresponding
 daemons and `cynthia/site/homepage.py`.

@@ -27,6 +27,26 @@ START_AUTH_WAIT_SECONDS = 300
 twitch = OwnerGroup(name="twitch", description="Stream to Twitch through OBS.")
 
 
+@twitch.command(
+    name="notifychat", description="Toggle Twitch chat DMs, live or offline."
+)
+@app_commands.describe(on="Forward viewer messages to your Discord DMs")
+async def notifychat(interaction: discord.Interaction, on: bool):
+    """Set owner notifications independently of streaming and model switches."""
+    cog = interaction.client.get_cog("TwitchInfoCog")
+    if cog is None:
+        raise app_commands.CheckFailure("The Twitch cog isn't loaded.")
+    if on and not channel(interaction):
+        raise app_commands.CheckFailure("Set `TWITCH_CHANNEL` in `.env` first.")
+    interaction.client.config.set("twitch_forward_chat", on)
+    cog.sync_chat_forwarding()
+    await interaction.response.send_message(
+        "Twitch chat forwarding on (live or offline)."
+        if on
+        else "Twitch chat forwarding off."
+    )
+
+
 class ChatPaneView(discord.ui.View):
     """Let the command's owner remove displayed messages without Twitch access."""
 

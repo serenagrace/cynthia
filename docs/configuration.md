@@ -22,7 +22,7 @@ permissions are described in [getting started](getting-started.md).
 `discord.com`, `github.com`, and `google.com`. The command's service checks
 require `systemctl` and a compatible host environment.
 
-Add `cypi` to `STATUS_HOSTS` to include the Pi hostname in reachability checks,
+Add the Pi's actual hostname to `STATUS_HOSTS` for reachability checks,
 while retaining any existing hosts. For this deployment, static-site health is
 checked through `nginx.service` in `status_services`; nginx serves the static
 site independently, so no separate website service unit is needed. Retain
@@ -30,21 +30,21 @@ existing service entries when adding `nginx.service`.
 
 ## Wired controller discovery
 
-These settings are used by Cynthia's CyPi daemon; ports must match the
-companion service configuration. See [CyPi and cynx](cynx.md) for network,
+These settings are used by Cynthia's CyNX daemon; ports must match the
+companion service configuration. See [CyNX](cynx.md) for network,
 authentication, and recovery details.
 
 | Key | Default | Description |
 | --- | --- | --- |
-| `cypi_enabled` | `true` | Enable automatic Pi discovery and status monitoring. |
-| `cypi_auto_connect` | `true` | Connect USB automatically at startup. Set `false` to require manual connect; discovery/status remain available. |
-| `cypi_command_port` | `3140` | TCP command/heartbeat port and UDP discovery port. |
-| `cypi_macro_port` | `3141` | TCP macro-step channel. |
-| `cypi_heartbeat_interval` | `1.0` | Delay between status heartbeats. Keep below the service heartbeat timeout. |
-| `cypi_discovery_timeout` | `1.0` | Wait interval for a discovery response, in seconds. |
-| `cypi_discovery_interval` | `2.0` | Delay between discovery attempts, in seconds. |
+| `cynx_enabled` | `true` | Enable automatic Pi discovery and status monitoring. |
+| `cynx_auto_connect` | `true` | Connect USB automatically at startup. Set `false` to require manual connect; discovery/status remain available. |
+| `cynx_command_port` | `3140` | TCP command/heartbeat port and UDP discovery port. |
+| `cynx_macro_port` | `3141` | TCP macro-step channel. |
+| `cynx_heartbeat_interval` | `1.0` | Delay between status heartbeats. Keep below the service heartbeat timeout. |
+| `cynx_discovery_timeout` | `1.0` | Wait interval for a discovery response, in seconds. |
+| `cynx_discovery_interval` | `2.0` | Delay between discovery attempts, in seconds. |
 
-The optional `CYPI_PASSPHRASE` is an environment variable, not a YAML key.
+The optional `CYNX_PASSPHRASE` is an environment variable, not a YAML key.
 Configure it in both working-directory `.env` files; a blank value on both
 ends disables authentication. It must not be stored on the drive.
 
@@ -97,6 +97,7 @@ The following YAML keys control behavior:
 | `twitch_auto_info` | `true` | Set channel title/category from a stable, recognized game and hunt after authorization. |
 | `twitch_info_confirm_seconds` | `60` | How long game/hunt state must remain stable before updating the channel. |
 | `twitch_categories` | `{}` | Mapping from detected game title to a Twitch category name or ID. |
+| `twitch_forward_chat` | `true` | DM viewer chat to the owner, live or offline. Toggle with owner-only `/twitch notifychat on:true` or `on:false`. |
 
 See [streaming](streaming.md#twitch-authorization-metadata-and-clips) for
 authorization, stored token files, title/category behavior, and clip scope.

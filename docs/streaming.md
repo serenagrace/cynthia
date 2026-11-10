@@ -131,6 +131,25 @@ Twitch chat overlay messages can be cleared from the pane with owner-only
 local model's memory. See [local chat](local-chat.md) for optional chat
 generation and separate bot-account authorization.
 
+## Twitch chat notifications
+
+With `TWITCH_CHANNEL` set, Cynthia forwards new viewer messages to the owner's
+Discord DMs by default. Messages from the channel owner, the authorized bot
+account, and StreamElements are excluded. Other bots are not excluded.
+
+Use owner-only `/twitch notifychat on:true` or `on:false` in DMs. The setting,
+`twitch_forward_chat`, is saved with the bot configuration on shutdown. When
+enabled, forwarding runs both live and offline; when disabled, nothing is
+forwarded, even while live. It is independent of every `/llm switch` and
+requires neither OBS nor Twitch authorization to read chat. Authorize the
+separate bot account with `/twitch botauth` so Cynthia knows which login to
+exclude.
+
+Notifications cover new messages only, not chat history. Disabling forwarding
+discards pending notifications; enabling it does not replay messages received
+while disabled. The in-memory queue holds 500 messages; overflow and failed
+Discord deliveries are logged, not retried.
+
 ## Access and proxying
 
 The local web service hosts the viewer and API. Do not expose it directly

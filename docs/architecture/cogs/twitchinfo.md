@@ -22,6 +22,13 @@ Shiny clipping waits for overlay delay so the saved clip includes the intended
 moment. That action has its own stream/OBS checks; do not conflate it with the
 Helix-based homepage live flag.
 
+The cog also owns an anonymous Twitch chat reader and a bounded notification
+worker. `twitch_forward_chat` controls both without consulting live state,
+OBS, or local-model switches. New messages from everyone except the channel
+owner, the authorized bot account, and StreamElements become owner DM embeds.
+The worker waits for Discord readiness; disabling or unloading cancels the
+reader and worker. Pending messages are not persisted or replayed.
+
 ## Extension and tests
 
 Keep API polling rate-limited and apply only stable values. If changing the

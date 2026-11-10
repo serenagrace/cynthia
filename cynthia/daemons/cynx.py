@@ -1,4 +1,4 @@
-"""Discover a CyPi, monitor its heartbeat, and own its two network channels."""
+"""Discover CyNX, monitor its heartbeat, and own its two network channels."""
 
 import asyncio
 import contextlib
@@ -7,12 +7,12 @@ import time
 from collections import deque
 from queue import Empty, Full
 
-from cynthia.utils.cypi import (
-    CyPiClient,
-    CyPiError,
-    CyPiRejected,
-    CyPiStopped,
-    CyPiUnavailable,
+from cynthia.utils.cynx import (
+    CyNXClient,
+    CyNXError,
+    CyNXRejected,
+    CyNXStopped,
+    CyNXUnavailable,
     request,
 )
 from cynthia.utils.log import setup_logging
@@ -42,7 +42,7 @@ async def run_client(ns, uns, queue, replies, settings, passphrase, alerts=None)
             message = error["message"]
             if passphrase:
                 message = message.replace(passphrase, "[redacted]")
-            logger.error("CYNX: %s", message)
+            logger.error("CyNX: %s", message)
             now = time.monotonic()
             if any(
                 previous == message and now - sent_at < 60
@@ -64,17 +64,17 @@ async def run_client(ns, uns, queue, replies, settings, passphrase, alerts=None)
         connected = bool(
             state.get("network_connected") and state.get("switch_connected")
         )
-        if connected and not getattr(uns, "cypi_switch_connected", False):
-            uns.cypi_connect_count = getattr(uns, "cypi_connect_count", 0) + 1
-        uns.cypi_status = state
-        uns.cypi_network_connected = state.get("network_connected", False)
-        uns.cypi_switch_connected = connected
-        uns.cypi_reconnecting = state.get("reconnecting", False)
-        uns.cypi_fallback_ready_at = state.get("fallback_ready_at", 0)
-        uns.cypi_error = state.get("error", "")
+        if connected and not getattr(uns, "cynx_switch_connected", False):
+            uns.cynx_connect_count = getattr(uns, "cynx_connect_count", 0) + 1
+        uns.cynx_status = state
+        uns.cynx_network_connected = state.get("network_connected", False)
+        uns.cynx_switch_connected = connected
+        uns.cynx_reconnecting = state.get("reconnecting", False)
+        uns.cynx_fallback_ready_at = state.get("fallback_ready_at", 0)
+        uns.cynx_error = state.get("error", "")
         ns.available = bool(state.get("network_connected"))
 
-    client = CyPiClient(settings, passphrase=passphrase, publish=publish)
+    client = CyNXClient(settings, passphrase=passphrase, publish=publish)
 
     async def handle(item, job_key):
         command = item["command"]
@@ -88,8 +88,8 @@ async def run_client(ns, uns, queue, replies, settings, passphrase, alerts=None)
                 elif command == "disconnect":
                     ns.want_connected = False
                 if not client.ready:
-                    raise CyPiUnavailable(
-                        "CYNX is not connected.",
+                    raise CyNXUnavailable(
+                        "CyNX is not connected.",
                         ready_at=client.fallback_ready_at,
                     )
                 fields = {}
@@ -99,7 +99,7 @@ async def run_client(ns, uns, queue, replies, settings, passphrase, alerts=None)
                     fields["skip_cleanup"] = True
                 result = await client.command(command, **fields)
             response = {"ok": True, "result": result}
-        except CyPiUnavailable as error:
+        except CyNXUnavailable as error:
             response = {
                 "ok": False,
                 "kind": "unavailable",
@@ -107,11 +107,11 @@ async def run_client(ns, uns, queue, replies, settings, passphrase, alerts=None)
                 "completed": error.completed,
                 "ready_at": error.ready_at,
             }
-        except CyPiStopped as error:
+        except CyNXStopped as error:
             response = {"ok": False, "kind": "stopped", "error": str(error)}
-        except (OSError, CyPiError, ValueError) as error:
+        except (OSError, CyNXError, ValueError) as error:
             if command == "step" and client.ready:
-                with contextlib.suppress(OSError, CyPiError):
+                with contextlib.suppress(OSError, CyNXError):
                     await client.command("stop")
             response = {"ok": False, "kind": "error", "error": str(error)}
         except asyncio.CancelledError:
@@ -120,7 +120,7 @@ async def run_client(ns, uns, queue, replies, settings, passphrase, alerts=None)
                 await client.close()
             return
         except Exception as error:
-            logger.exception("CYNX request failed")
+            logger.exception("CyNX request failed")
             response = {"ok": False, "kind": "error", "error": str(error)}
         finally:
             jobs.pop(job_key, None)
@@ -151,30 +151,30 @@ async def run_client(ns, uns, queue, replies, settings, passphrase, alerts=None)
                     state.get("recovering")
                     or state.get("connection_state") == "reconnecting"
                 ):
-                    client.mark_lost("CYNX reported an interrupted network session.")
+                    client.mark_lost("CyNX reported an interrupted network session.")
                     await client.recover()
                     continue
                 backend = getattr(uns, "controller_backend", "none")
                 if (
                     ns.want_connected
                     and not state.get("spoofing")
-                    and backend in ("none", "cypi")
+                    and backend in ("none", "cynx")
                 ):
                     await client.command("connect")
-                await asyncio.sleep(settings.get("cypi_heartbeat_interval", 1.0))
-            except CyPiUnavailable as error:
+                await asyncio.sleep(settings.get("cynx_heartbeat_interval", 1.0))
+            except CyNXUnavailable as error:
                 logger.debug("%s", error)
-                await asyncio.sleep(settings.get("cypi_discovery_interval", 2.0))
-            except CyPiRejected as error:
-                uns.cypi_error = str(error)
-                logger.debug("CYNX command could not complete: %s", error)
-                await asyncio.sleep(settings.get("cypi_discovery_interval", 2.0))
-            except (OSError, CyPiError, ValueError) as error:
+                await asyncio.sleep(settings.get("cynx_discovery_interval", 2.0))
+            except CyNXRejected as error:
+                uns.cynx_error = str(error)
+                logger.debug("CyNX command could not complete: %s", error)
+                await asyncio.sleep(settings.get("cynx_discovery_interval", 2.0))
+            except (OSError, CyNXError, ValueError) as error:
                 if generation != client.generation and client.ready:
                     continue
                 if client.session and not client.abandoned:
                     client.mark_lost(error)
-                    with contextlib.suppress(CyPiUnavailable):
+                    with contextlib.suppress(CyNXUnavailable):
                         await client.recover()
                 else:
                     publish(
@@ -185,7 +185,7 @@ async def run_client(ns, uns, queue, replies, settings, passphrase, alerts=None)
                             "fallback_ready_at": client.fallback_ready_at,
                         }
                     )
-                await asyncio.sleep(settings.get("cypi_discovery_interval", 2.0))
+                await asyncio.sleep(settings.get("cynx_discovery_interval", 2.0))
 
     heartbeat = asyncio.create_task(maintain())
     try:
@@ -214,7 +214,7 @@ async def run_client(ns, uns, queue, replies, settings, passphrase, alerts=None)
             job.cancel()
         await asyncio.gather(heartbeat, *list(jobs.values()), return_exceptions=True)
         if client.ready:
-            with contextlib.suppress(OSError, CyPiError):
+            with contextlib.suppress(OSError, CyNXError):
                 fields = {}
                 if shows_change_grip_order(uns):
                     fields["skip_cleanup"] = True
@@ -224,38 +224,38 @@ async def run_client(ns, uns, queue, replies, settings, passphrase, alerts=None)
         ns.done = True
 
 
-class CyPiDaemon(Daemon):
+class CyNXDaemon(Daemon):
     """Expose checked Pi commands while a child process handles discovery."""
 
     def __init__(self, dman):
         settings = {
             key: value
             for key, value in dman.context.config.items()
-            if key.startswith("cypi_")
+            if key.startswith("cynx_")
         }
-        self.requests = dman.cypi_requests
-        self.replies = dman.cypi_replies
-        self.alerts = dman.cypi_alerts
-        passphrase = dman.context.env.get("CYPI_PASSPHRASE", "") or ""
+        self.requests = dman.cynx_requests
+        self.replies = dman.cynx_replies
+        self.alerts = dman.cynx_alerts
+        passphrase = dman.context.env.get("CYNX_PASSPHRASE", "") or ""
         super().__init__(
             dman, self.requests, self.replies, settings, passphrase, self.alerts
         )
         self.ns.available = False
         self.ns.done = False
-        self.ns.want_connected = bool(settings.get("cypi_auto_connect", True))
-        self.uns.cypi_connect_count = 0
-        self.uns.cypi_network_connected = False
-        self.uns.cypi_switch_connected = False
-        self.uns.cypi_reconnecting = False
-        self.uns.cypi_fallback_ready_at = 0
-        self.uns.cypi_status = {}
-        self.uns.cypi_error = ""
+        self.ns.want_connected = bool(settings.get("cynx_auto_connect", True))
+        self.uns.cynx_connect_count = 0
+        self.uns.cynx_network_connected = False
+        self.uns.cynx_switch_connected = False
+        self.uns.cynx_reconnecting = False
+        self.uns.cynx_fallback_ready_at = 0
+        self.uns.cynx_status = {}
+        self.uns.cynx_error = ""
         self.start()
 
     @staticmethod
     def loop(ns, uns, queue, replies, settings, passphrase, alerts):
         setup_logging()
-        if not settings.get("cypi_enabled", True):
+        if not settings.get("cynx_enabled", True):
             while ns.run:
                 try:
                     item = queue.get_nowait()
@@ -263,7 +263,7 @@ class CyPiDaemon(Daemon):
                         replies[item["id"]] = {
                             "ok": False,
                             "kind": "unavailable",
-                            "error": "CYNX discovery is disabled in config.yaml.",
+                            "error": "CyNX discovery is disabled in config.yaml.",
                         }
                 except Empty:
                     pass
