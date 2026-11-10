@@ -183,7 +183,7 @@ class HomeGameTitle:
         current = normalize_game_title(self.title)
         branding = ("nintendo classics", "nintendo switch online")
         if (
-            not normalized
+            not any(char.isalpha() for char in normalized)
             or (len(normalized) >= 4 and normalized in current)
             or (len(normalized) >= 5 and any(normalized in item for item in branding))
         ):
@@ -641,14 +641,12 @@ class CV:
         cv2.imread(str(SCENES_DIR / "switch_home_screen.png")),
         y=720,
         h=200,
-        interval=1.0,
         reject=30,
     )
     afk_home_screen_scene = Scene(
         cv2.imread(str(SCENES_DIR / "switch_home_screen_afk.png")),
         y=720,
         h=200,
-        interval=1.0,
         reject=30,
     )
     boot_screen_scene = Scene(

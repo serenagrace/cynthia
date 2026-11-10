@@ -178,7 +178,7 @@ class NXBTDaemon(Daemon):
                 ns.connected = success
                 if success:
                     uns.controller_notice = (
-                        "CyPi disconnected; resumed controller playback over Bluetooth."
+                        "CYNX disconnected; resumed controller playback over Bluetooth."
                     )
                     uns.nxbt_connection_lost = False
                     uns.controller_error = ""
@@ -190,7 +190,7 @@ class NXBTDaemon(Daemon):
                 controller = None
                 uns.nxbt_connection_lost = True
                 uns.controller_error = (
-                    "CyPi disconnected and Bluetooth fallback failed."
+                    "CYNX disconnected and Bluetooth fallback failed."
                 )
                 return False
 

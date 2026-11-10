@@ -15,6 +15,22 @@ def test_change_grip_order_is_scored_without_matching_other_screens():
     assert scores["change_grip_order"] < 0.98
 
 
+@pytest.mark.parametrize("name", ["home", "afk_home"])
+def test_home_detection_does_not_reuse_a_match_after_leaving(monkeypatch, name):
+    from cynthia.daemons.cv import CV, _score_scenes
+
+    scene = getattr(CV, f"{name}_screen_scene")
+    monkeypatch.setattr(scene, "_last", None, raising=False)
+    frame = numpy.zeros((1080, 1920, 3), dtype=numpy.uint8)
+    frame[scene.y : scene.y + scene.h, scene.x : scene.x + scene.w] = scene.buffer
+
+    scores, _ = _score_scenes(frame, 0)
+    assert scores[name] > 0.9
+
+    scores, _ = _score_scenes(numpy.zeros_like(frame), 100_000_000)
+    assert scores[name] < 0.9
+
+
 def test_quick_settings_scene_matches_template():
     from cynthia.daemons.cv import CV
 

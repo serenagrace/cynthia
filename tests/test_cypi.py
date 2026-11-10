@@ -447,8 +447,12 @@ def test_explicit_and_generic_connect_commands_select_the_right_backend():
             response=SimpleNamespace(defer=AsyncMock()),
             followup=SimpleNamespace(send=AsyncMock()),
         )
+        daemon.backend = "cypi"
         await commands.cynx_connect_command.callback(interaction)
         daemon.connect.assert_awaited_with(backend="cypi")
+        interaction.followup.send.assert_awaited_with(
+            "Connected to Nintendo Switch via CYNX USB!"
+        )
         await commands.nxbt_connect_command.callback(interaction)
         daemon.connect.assert_awaited_with(backend="nxbt")
         daemon.connected, daemon.backend = True, "nxbt"
@@ -482,8 +486,61 @@ def test_cynx_lifecycle_commands_are_owner_only_and_forward_requests():
             assert len(command.checks) >= 2
             await command.callback(interaction)
             daemon.command.assert_awaited_with(name)
+            interaction.followup.send.assert_awaited_with(
+                f"CYNX {name} requested.", ephemeral=True
+            )
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize("available", [False, True])
+def test_cynx_status_uses_current_brand_for_live_and_cached_state(available):
+    from cynthia.bot.applications import nxbt as commands
+
+    state = {"version": "1.0", "uptime": 120, "switch_connected": True}
+    daemon = SimpleNamespace(
+        ns=SimpleNamespace(available=available),
+        command=AsyncMock(return_value=state),
+    )
+    interaction = SimpleNamespace(
+        client=SimpleNamespace(
+            dman=SimpleNamespace(
+                running_daemons={"CyPiDaemon": daemon},
+                uns=SimpleNamespace(cypi_status=state),
+            )
+        ),
+        response=SimpleNamespace(defer=AsyncMock()),
+        followup=SimpleNamespace(send=AsyncMock()),
+    )
+
+    asyncio.run(commands.cynx_status_command.callback(interaction))
+
+    embed = interaction.followup.send.await_args.kwargs["embed"]
+    assert embed.title == "CYNX status"
+    assert embed.fields[0].value == ("Connected" if available else "Disconnected")
+    assert embed.fields[1].value == state["version"]
+
+
+@pytest.mark.parametrize("name", ["status", "reboot", "restart"])
+def test_cynx_command_failures_use_current_brand(name):
+    from discord import app_commands
+
+    from cynthia.bot.applications import nxbt as commands
+
+    daemon = SimpleNamespace(
+        ns=SimpleNamespace(available=True),
+        command=AsyncMock(side_effect=CyPiError("Controller unavailable.")),
+    )
+    interaction = SimpleNamespace(
+        client=SimpleNamespace(
+            dman=SimpleNamespace(running_daemons={"CyPiDaemon": daemon})
+        ),
+        response=SimpleNamespace(defer=AsyncMock()),
+    )
+    command = getattr(commands, f"cynx_{name}_command")
+
+    with pytest.raises(app_commands.CheckFailure, match=f"CYNX {name} failed:"):
+        asyncio.run(command.callback(interaction))
 
 
 @pytest.mark.parametrize("backend", ["none", "nxbt", "cypi"])
