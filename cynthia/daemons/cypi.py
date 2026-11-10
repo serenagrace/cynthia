@@ -42,7 +42,7 @@ async def run_client(ns, uns, queue, replies, settings, passphrase, alerts=None)
             message = error["message"]
             if passphrase:
                 message = message.replace(passphrase, "[redacted]")
-            logger.error("CyPi: %s", message)
+            logger.error("CYNX: %s", message)
             now = time.monotonic()
             if any(
                 previous == message and now - sent_at < 60
@@ -89,7 +89,7 @@ async def run_client(ns, uns, queue, replies, settings, passphrase, alerts=None)
                     ns.want_connected = False
                 if not client.ready:
                     raise CyPiUnavailable(
-                        "CyPi is not connected.",
+                        "CYNX is not connected.",
                         ready_at=client.fallback_ready_at,
                     )
                 fields = {}
@@ -120,7 +120,7 @@ async def run_client(ns, uns, queue, replies, settings, passphrase, alerts=None)
                 await client.close()
             return
         except Exception as error:
-            logger.exception("CyPi request failed")
+            logger.exception("CYNX request failed")
             response = {"ok": False, "kind": "error", "error": str(error)}
         finally:
             jobs.pop(job_key, None)
@@ -151,7 +151,7 @@ async def run_client(ns, uns, queue, replies, settings, passphrase, alerts=None)
                     state.get("recovering")
                     or state.get("connection_state") == "reconnecting"
                 ):
-                    client.mark_lost("CyPi reported an interrupted network session.")
+                    client.mark_lost("CYNX reported an interrupted network session.")
                     await client.recover()
                     continue
                 backend = getattr(uns, "controller_backend", "none")
@@ -167,7 +167,7 @@ async def run_client(ns, uns, queue, replies, settings, passphrase, alerts=None)
                 await asyncio.sleep(settings.get("cypi_discovery_interval", 2.0))
             except CyPiRejected as error:
                 uns.cypi_error = str(error)
-                logger.debug("CyPi command could not complete: %s", error)
+                logger.debug("CYNX command could not complete: %s", error)
                 await asyncio.sleep(settings.get("cypi_discovery_interval", 2.0))
             except (OSError, CyPiError, ValueError) as error:
                 if generation != client.generation and client.ready:
@@ -263,7 +263,7 @@ class CyPiDaemon(Daemon):
                         replies[item["id"]] = {
                             "ok": False,
                             "kind": "unavailable",
-                            "error": "CyPi discovery is disabled in config.yaml.",
+                            "error": "CYNX discovery is disabled in config.yaml.",
                         }
                 except Empty:
                     pass

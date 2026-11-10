@@ -112,6 +112,16 @@ def test_new_selection_replaces_a_previous_scrolling_title_after_settling():
     assert reader.read("Unknown Game", 3) == "Unknown Game"
 
 
+@pytest.mark.parametrize("text", ["4\n4", "123", " - \n..."])
+@pytest.mark.parametrize("previous", ["", "Pokémon Brilliant Diamond", "Unknown Game"])
+def test_home_title_ignores_non_title_ocr(text, previous):
+    reader = HomeGameTitle()
+    if previous:
+        assert reader.read(previous, 0) == previous
+
+    assert reader.read(text, 1) == previous
+
+
 def test_scrape_text_falls_back_to_paddleocr_2x(monkeypatch):
     import numpy
 

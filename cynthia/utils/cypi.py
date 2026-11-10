@@ -42,17 +42,17 @@ async def read_frame(reader, timeout):
         try:
             line = await reader.readline()
         except (ValueError, asyncio.LimitOverrunError) as error:
-            raise CyPiError("CyPi response exceeds the frame limit.") from error
+            raise CyPiError("CYNX response exceeds the frame limit.") from error
     if not line:
-        raise ConnectionError("CyPi closed the connection.")
+        raise ConnectionError("CYNX closed the connection.")
     if len(line) > FRAME_LIMIT or not line.endswith(b"\n"):
-        raise CyPiError("Invalid CyPi response framing.")
+        raise CyPiError("Invalid CYNX response framing.")
     try:
         frame = json.loads(line)
     except (ValueError, UnicodeError) as error:
-        raise CyPiError("CyPi returned invalid JSON.") from error
+        raise CyPiError("CYNX returned invalid JSON.") from error
     if not isinstance(frame, dict):
-        raise CyPiError("CyPi response must be an object.")
+        raise CyPiError("CYNX response must be an object.")
     return frame
 
 
@@ -60,7 +60,7 @@ async def write_frame(writer, frame):
     """Write one bounded JSON frame without logging its authentication fields."""
     data = json.dumps(frame, separators=(",", ":"), allow_nan=False).encode() + b"\n"
     if len(data) > FRAME_LIMIT:
-        raise CyPiError("CyPi request exceeds the frame limit.")
+        raise CyPiError("CYNX request exceeds the frame limit.")
     writer.write(data)
     await writer.drain()
 
@@ -86,7 +86,7 @@ async def discover(port=3140, timeout=1.0, addresses=None):
                     if address.get("broadcast"):
                         addresses.add(address["broadcast"])
         except (OSError, ValueError, TimeoutError):
-            logger.debug("Using limited broadcast for CyPi discovery.")
+            logger.debug("Using limited broadcast for CYNX discovery.")
     nonce = secrets.token_hex(12)
     request = json.dumps(
         {"type": "cynx_discover", "protocol": PROTOCOL, "nonce": nonce}
@@ -212,7 +212,7 @@ class CyPiClient:
     async def _rpc(self, command, *, timeout=2, **fields):
         async with self._command_lock:
             if self.writer is None:
-                raise ConnectionError("CyPi command channel is closed.")
+                raise ConnectionError("CYNX command channel is closed.")
             reader, writer = self.reader, self.writer
             request_id = next(self._request_ids)
             async with asyncio.timeout(timeout):
@@ -221,33 +221,33 @@ class CyPiClient:
                 )
                 response = await read_frame(reader, timeout)
             if type(response.get("id")) is not int or response["id"] != request_id:
-                raise CyPiError("CyPi command acknowledgment ID does not match.")
+                raise CyPiError("CYNX command acknowledgment ID does not match.")
             if response.get("ok") is not True:
                 details = response.get("result") or {}
                 if response.get("code") == "session_expired":
                     self.last_completed_id = max(
                         self.last_completed_id, int(details.get("last_completed_id", 0))
                     )
-                    self.mark_lost("CyPi session expired.")
+                    self.mark_lost("CYNX session expired.")
                     self.abandoned = True
                     await self.close()
                     self._publish(
                         network_connected=False,
                         reconnecting=False,
-                        error="CyPi session expired.",
+                        error="CYNX session expired.",
                         fallback_ready_at=self.fallback_ready_at,
                     )
                     raise CyPiUnavailable(
-                        "CyPi session expired.", ready_at=self.fallback_ready_at
+                        "CYNX session expired.", ready_at=self.fallback_ready_at
                     )
                 raise CyPiRejected(
                     self._safe_error(
-                        response.get("error", "CyPi rejected the command.")
+                        response.get("error", "CYNX rejected the command.")
                     )
                 )
             result = response.get("result")
             if not isinstance(result, dict):
-                raise CyPiError("CyPi command result must be an object.")
+                raise CyPiError("CYNX command result must be an object.")
             return result
 
     async def open(self, host, command_port=None, *, resume=False, timeout=2):
@@ -269,12 +269,12 @@ class CyPiClient:
                 timeout=timeout,
             )
             if result.get("identity") != "cypi" or result.get("protocol") != PROTOCOL:
-                raise CyPiError("The discovered host is not a compatible CyPi.")
+                raise CyPiError("The discovered host is not a compatible CYNX.")
             session = result.get("session")
             if not isinstance(session, str) or not session:
-                raise CyPiError("CyPi did not assign a session.")
+                raise CyPiError("CYNX did not assign a session.")
             if resume and session != old_session:
-                raise CyPiUnavailable("CyPi lost the previous playback session.")
+                raise CyPiUnavailable("CYNX lost the previous playback session.")
             self.session = session
             self.macro_port = int(result.get("macro_port", self.macro_port))
             self.macro_reader, self.macro_writer = await asyncio.wait_for(
@@ -296,7 +296,7 @@ class CyPiClient:
                 or attached.get("ok") is not True
                 or (attached.get("result") or {}).get("session") != session
             ):
-                raise CyPiError("CyPi rejected the macro channel.")
+                raise CyPiError("CYNX rejected the macro channel.")
             if not resume:
                 self._step_id = 0
                 self.last_completed_id = 0
@@ -319,9 +319,9 @@ class CyPiClient:
             try:
                 return await self.open(host, port)
             except (OSError, CyPiError) as error:
-                logger.debug("CyPi offer from %s could not connect: %s", host, error)
+                logger.debug("CYNX offer from %s could not connect: %s", host, error)
                 await self.close()
-        raise CyPiUnavailable("No available CyPi found on the LAN.")
+        raise CyPiUnavailable("No available CYNX found on the LAN.")
 
     async def command(self, command, *, timeout=None, **fields):
         """Run an explicit command; lifecycle commands have a longer deadline."""
@@ -359,9 +359,9 @@ class CyPiClient:
                 return
             if self.abandoned:
                 raise CyPiUnavailable(
-                    "CyPi reconnect grace expired.", ready_at=self.fallback_ready_at
+                    "CYNX reconnect grace expired.", ready_at=self.fallback_ready_at
                 )
-            self.mark_lost("CyPi connection interrupted.")
+            self.mark_lost("CYNX connection interrupted.")
             deadline = self._failure_at + self.status.get("reconnect_grace", 5)
             while time.monotonic() < deadline:
                 try:
@@ -378,17 +378,17 @@ class CyPiClient:
             await self.close()
             self.abandoned = True
             logger.warning(
-                "CyPi session lost; waiting for recovery before Bluetooth takeover."
+                "CYNX session lost; waiting for recovery before Bluetooth takeover."
             )
             self._publish(
                 network_connected=False,
                 reconnecting=False,
                 host=self.host,
-                error="CyPi unavailable; waiting for safe Bluetooth takeover.",
+                error="CYNX unavailable; waiting for safe Bluetooth takeover.",
                 fallback_ready_at=self.fallback_ready_at,
             )
             raise CyPiUnavailable(
-                "CyPi reconnect grace expired.", ready_at=self.fallback_ready_at
+                "CYNX reconnect grace expired.", ready_at=self.fallback_ready_at
             )
 
     async def play_step(self, text, duration):
@@ -396,7 +396,7 @@ class CyPiClient:
         async with self._step_lock:
             if not self.ready or self.abandoned:
                 raise CyPiUnavailable(
-                    "CyPi is unavailable.", ready_at=self.fallback_ready_at
+                    "CYNX is unavailable.", ready_at=self.fallback_ready_at
                 )
             self.active_step = True
             self._step_id += 1
@@ -406,12 +406,12 @@ class CyPiClient:
                     generation = self.generation
                     try:
                         if self.session != session:
-                            raise CyPiUnavailable("CyPi playback session changed.")
+                            raise CyPiUnavailable("CYNX playback session changed.")
                         if self.last_completed_id >= step_id:
                             return {"completed": True, "id": step_id}
                         reader, writer = self.macro_reader, self.macro_writer
                         if reader is None or writer is None:
-                            raise ConnectionError("CyPi macro channel is closed.")
+                            raise ConnectionError("CYNX macro channel is closed.")
                         async with asyncio.timeout(2):
                             await write_frame(
                                 writer,
@@ -428,12 +428,12 @@ class CyPiClient:
                                 or response.get("session") != session
                             ):
                                 raise CyPiError(
-                                    "CyPi step acknowledgment does not match."
+                                    "CYNX step acknowledgment does not match."
                                 )
                             if response.get("ok") is not True:
                                 code = response.get("code")
                                 if code in ("stopped", "cancelled"):
-                                    raise CyPiStopped("CyPi playback was stopped.")
+                                    raise CyPiStopped("CYNX playback was stopped.")
                                 if code in (
                                     "interrupted",
                                     "session_expired",
@@ -441,19 +441,19 @@ class CyPiClient:
                                     "usb_disconnected",
                                     "not_connected",
                                 ):
-                                    self.mark_lost("CyPi interrupted the input.")
+                                    self.mark_lost("CYNX interrupted the input.")
                                     await self.close()
                                     self.abandoned = True
                                     self._publish(
                                         network_connected=False,
                                         reconnecting=False,
                                         fallback_ready_at=self.fallback_ready_at,
-                                        error="CyPi interrupted the input.",
+                                        error="CYNX interrupted the input.",
                                     )
-                                    raise CyPiUnavailable("CyPi interrupted the input.")
+                                    raise CyPiUnavailable("CYNX interrupted the input.")
                                 raise CyPiError(
                                     self._safe_error(
-                                        response.get("error", "CyPi rejected input.")
+                                        response.get("error", "CYNX rejected input.")
                                     )
                                 )
                             event = response.get("event")
@@ -464,7 +464,7 @@ class CyPiClient:
                                 return {"completed": True, "id": step_id}
                             else:
                                 raise CyPiError(
-                                    "Invalid CyPi step acknowledgment order."
+                                    "Invalid CYNX step acknowledgment order."
                                 )
                     except CyPiUnavailable:
                         raise
@@ -486,7 +486,7 @@ class CyPiClient:
 async def request(queue, replies, command, *, timeout=90, **fields):
     """Send an IPC request to the network daemon without sharing socket ownership."""
     if queue is None or replies is None:
-        raise CyPiUnavailable("CyPi daemon is not available.")
+        raise CyPiUnavailable("CYNX daemon is not available.")
     request_id = uuid.uuid4().hex
     queue.put({"id": request_id, "command": command, **fields})
     try:
@@ -501,13 +501,13 @@ async def request(queue, replies, command, *, timeout=90, **fields):
         kind = response.get("kind")
         if kind == "unavailable":
             raise CyPiUnavailable(
-                response.get("error", "CyPi is unavailable."),
+                response.get("error", "CYNX is unavailable."),
                 completed=response.get("completed", False),
                 ready_at=response.get("ready_at", 0),
             )
         if kind == "stopped":
             raise CyPiStopped(response.get("error", "Playback stopped."))
-        raise CyPiError(response.get("error", "CyPi command failed."))
+        raise CyPiError(response.get("error", "CYNX command failed."))
     return response.get("result", {})
 
 

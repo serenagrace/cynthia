@@ -4,5 +4,5 @@ from setuptools import find_packages, setup
 
 setup(
     name="cynthia",
-    version="1.9.0",
+    version="1.9.1",
 )
