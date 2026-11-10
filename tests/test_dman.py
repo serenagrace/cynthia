@@ -1,5 +1,4 @@
 import multiprocessing
-from multiprocessing.connection import wait
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -32,12 +31,47 @@ def test_reap_exited_real_process():
     dman._DMan__running_daemons = {"worker": daemon}
 
     try:
-        assert wait([process.sentinel], timeout=5)
+        process.join(timeout=5)
         dman.reap_exited_daemons()
         assert process.exitcode == 0
         assert daemon.ns.run is False
     finally:
         process.join()
+
+
+def test_shutdown_keeps_transport_alive_until_controller_disconnect_finishes():
+    import asyncio
+
+    events = []
+    dman = DMan.__new__(DMan)
+    nxbt = Mock(ns=SimpleNamespace(run=True, done=False))
+    cypi = Mock(ns=SimpleNamespace(run=True, done=False))
+    dman._DMan__running_daemons = {"CyPiDaemon": cypi, "NXBTDaemon": nxbt}
+    dman.ring, dman.native_ring, dman.audio_ring = Mock(), Mock(), Mock()
+    dman.manager = Mock()
+    dman.manager.shutdown.side_effect = lambda: events.append("manager")
+    nxbt.stop.side_effect = lambda: events.append("stop")
+
+    def controller_alive():
+        if not nxbt.ns.run and not nxbt.ns.done:
+            assert cypi.ns.run
+            events.append("disconnect")
+            nxbt.ns.done = True
+        return True
+
+    def transport_alive():
+        if not cypi.ns.run and not cypi.ns.done:
+            assert "NXBTDaemon" not in dman.running_daemons
+            events.append("release")
+            cypi.ns.done = True
+        return True
+
+    nxbt.process.is_alive.side_effect = controller_alive
+    cypi.process.is_alive.side_effect = transport_alive
+    asyncio.run(dman.stop_daemons())
+
+    assert events == ["stop", "disconnect", "release", "manager"]
+    assert not dman.running_daemons
 
 
 def test_stalled_daemons_detects_stale_frames_and_heartbeat():

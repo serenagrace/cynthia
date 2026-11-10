@@ -1,4 +1,18 @@
 import numpy
+import pytest
+
+
+def test_change_grip_order_is_scored_without_matching_other_screens():
+    from cynthia.daemons.cv import CV, _score_scenes
+
+    scene = CV.change_grip_order_scene
+    frame = numpy.zeros((1080, 1920, 3), dtype=numpy.uint8)
+    frame[scene.y : scene.y + scene.h, scene.x : scene.x + scene.w] = scene.buffer
+    scores, _ = _score_scenes(frame, 0)
+    assert scores["change_grip_order"] > 0.98
+    frame[:] = 0
+    scores, _ = _score_scenes(frame, 1_000_000_000)
+    assert scores["change_grip_order"] < 0.98
 
 
 def test_quick_settings_scene_matches_template():
@@ -47,7 +61,10 @@ def test_scene_reuses_score_within_interval_and_rejects_far_frames():
     assert scene.ssim_match(white, 1.0, now_ns=2e9) == 0.0  # rejected
 
 
-def test_cv_worker_preserves_encounter_state_and_releases_frames(monkeypatch, tmp_path):
+@pytest.mark.parametrize("final_scene", ["elgato_no_signal", "change_grip_order"])
+def test_cv_worker_preserves_encounter_state_and_releases_frames(
+    monkeypatch, tmp_path, final_scene
+):
     """Exercise the real worker orchestration without OCR, capture, or a child process."""
     import io
     from types import SimpleNamespace
@@ -66,7 +83,7 @@ def test_cv_worker_preserves_encounter_state_and_releases_frames(monkeypatch, tm
     monkeypatch.setattr(cv.os, "nice", lambda value: None)
     monkeypatch.setattr(cv.UVC, "frame_to_buffer", lambda frame: io.BytesIO(b"png"))
     monkeypatch.setattr(cv.CV, "scrape_text", lambda *a, **k: "Pokémon Shining Pearl")
-    scores = iter(("home", "home", "bdsp_tbox", "bdsp_tbox", "elgato_no_signal"))
+    scores = iter(("home", "home", "bdsp_tbox", "bdsp_tbox", final_scene))
     texts = iter(("A wild Pokémon appeared!", ""))
 
     def score(frame, stamp, **kwargs):

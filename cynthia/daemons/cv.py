@@ -7,6 +7,7 @@ import re
 import time
 import unicodedata
 from datetime import datetime
+from difflib import SequenceMatcher
 from pathlib import Path
 
 import cv2
@@ -75,6 +76,14 @@ def get_ocr():
 
 SCENES_DIR = Path(__file__).resolve().parent / "scenes"
 GAME_TITLES = {
+    "super nintendo entertainment system": "Super Nintendo Entertainment System",
+    "nintendo entertainment system": "Nintendo Entertainment System",
+    "nintendo 64": "Nintendo 64",
+    "game boy": "Game Boy",
+    "game boy advance": "Game Boy Advance",
+    "sega genesis": "SEGA Genesis",
+    "sega mega drive": "SEGA Mega Drive",
+    "nintendo gamecube": "Nintendo GameCube",
     "pokemon home": "Pokémon HOME",
     "pokemon let s go pikachu": "Pokémon: Let's Go, Pikachu!",
     "pokemon let s go eevee": "Pokémon: Let's Go, Eevee!",
@@ -105,15 +114,83 @@ def normalize_game_title(game):
 
 
 def canonical_game_title(game):
-    """Correct a recognized game title while preserving unknown OCR text."""
-    normalized = normalize_game_title(game)
+    """Resolve distinctive scrolling fragments without guessing shared suffixes."""
+    title = re.sub(
+        r"(?:\s*[-–—]\s*)?Nintendo\s+(?:Switch\s+Online|Class(?:i(?:cs?)?)?)\b",
+        "",
+        game,
+        flags=re.IGNORECASE,
+    ).strip(" -–—")
+    normalized = normalize_game_title(title)
+    if not normalized:
+        return ""
+    if normalized in GAME_TITLES:
+        return GAME_TITLES[normalized]
+    fragments = {
+        canonical
+        for alias, canonical in GAME_TITLES.items()
+        if len(normalized) >= 10 and normalized in alias
+    }
+    if len(fragments) > 1:
+        return title
+    if fragments:
+        return fragments.pop()
     match = process.extractOne(
         normalized,
         GAME_TITLES.keys(),
         scorer=fuzz.ratio,
         score_cutoff=85,
     )
-    return GAME_TITLES[match[0]] if match else game
+    if match:
+        return GAME_TITLES[match[0]]
+    contained = [
+        alias
+        for alias in GAME_TITLES
+        if re.search(rf"\b{re.escape(alias)}\b", normalized)
+    ]
+    if contained:
+        return GAME_TITLES[max(contained, key=len)]
+    scores = {}
+    for alias, canonical in GAME_TITLES.items():
+        length = SequenceMatcher(None, normalized, alias).find_longest_match().size
+        scores[canonical] = max(scores.get(canonical, 0), length)
+    ranked = sorted(scores, key=scores.get, reverse=True)
+    if scores[ranked[0]] >= 10 and scores[ranked[0]] - scores[ranked[1]] >= 3:
+        return ranked[0]
+    return title
+
+
+class HomeGameTitle:
+    """Keep scrolling text stable while allowing a new selection to settle."""
+
+    def __init__(self):
+        self.title = ""
+        self.pending = None
+        self.since = 0
+
+    def read(self, text, now):
+        """Resolve OCR at monotonic ``now``, allowing a new selection to settle."""
+        title = canonical_game_title(text)
+        if title in GAME_TITLES.values():
+            if not self.title or title == self.title:
+                self.title, self.pending = title, None
+            elif title != self.pending:
+                self.pending, self.since = title, now
+            elif now - self.since >= 0.8:
+                self.title, self.pending = title, None
+            return self.title
+        normalized = normalize_game_title(title)
+        current = normalize_game_title(self.title)
+        branding = ("nintendo classics", "nintendo switch online")
+        if (
+            not normalized
+            or (len(normalized) >= 4 and normalized in current)
+            or (len(normalized) >= 5 and any(normalized in item for item in branding))
+        ):
+            self.pending = None
+            return self.title
+        self.title, self.pending = title, None
+        return title
 
 
 def _window_stats(image):
@@ -176,6 +253,9 @@ def _score_scenes(frame, uns_time, *, check_quick_settings=False):
         small, SCENE_SCALE, frame, uns_time
     )
     scores["boot"] = CV.boot_screen_scene.ssim_match(
+        small, SCENE_SCALE, frame, uns_time
+    )
+    scores["change_grip_order"] = CV.change_grip_order_scene.ssim_match(
         small, SCENE_SCALE, frame, uns_time
     )
     scores["elgato_no_signal"] = CV.elgato_no_signal_scene.ssim_match(
@@ -345,6 +425,7 @@ class CVDaemon(Daemon):
                 last_seq = 0
                 last_preview = 0.0
                 last_cv_ns = 0
+                home_title = HomeGameTitle()
 
                 def finish_encounter(uns_time):
                     """Complete a pending encounter and publish its shiny-stop signal."""
@@ -363,13 +444,15 @@ class CVDaemon(Daemon):
                         while any(game.startswith(char) for char in no_start_chars):
                             game = game[1:].strip()
                         game = re.sub(r"^[a-zA-Z\-] ", "", game)
-                        game = canonical_game_title(game)
+                        game = home_title.read(game, time.monotonic())
                         if game:
                             embed.add_field(name="Selected Game:", value=game)
                             ns.game = game
                         ns.home = True
                         ns.playing = False
-                    if scene in ("elgato_no_signal"):
+                    else:
+                        home_title.title, home_title.pending = "", None
+                    if scene in ("elgato_no_signal", "change_grip_order"):
                         ns.home = False
                         ns.playing = False
                     if scene in ("boot", "boot2"):
@@ -544,6 +627,15 @@ class CV:
         w=640,
         h=120,
         grayscale=True,
+    )
+    change_grip_order_scene = Scene(
+        cv2.imread(str(SCENES_DIR / "switch_change_grip_order.png")),
+        x=480,
+        y=300,
+        w=1000,
+        h=80,
+        grayscale=True,
+        interval=0.5,
     )
     home_screen_scene = Scene(
         cv2.imread(str(SCENES_DIR / "switch_home_screen.png")),

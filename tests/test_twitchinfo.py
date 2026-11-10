@@ -3,6 +3,7 @@ import json
 import os
 import time
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 from aiohttp import web
@@ -72,6 +73,23 @@ def make_cog(tmp_path, ns, hunt=None, api=None, config=None):
     cog.api = api
     cog.tracker = ChannelInfoTracker(60)
     return cog
+
+
+@pytest.mark.parametrize("error", [BrokenPipeError, EOFError])
+def test_unloading_after_daemon_shutdown_still_cancels_pending_clip(error):
+    class ClosedNamespace:
+        def __setattr__(self, key, value):
+            raise error("Manager already stopped")
+
+    cog = TwitchInfoCog.__new__(TwitchInfoCog)
+    cog.bot = SimpleNamespace(dman=SimpleNamespace(uns=ClosedNamespace()))
+    cog.check = SimpleNamespace(cancel=Mock())
+    cog.publish_live = SimpleNamespace(cancel=Mock())
+    cog.clip_task = SimpleNamespace(cancel=Mock())
+    asyncio.run(cog.cog_unload())
+    cog.check.cancel.assert_called_once()
+    cog.publish_live.cancel.assert_called_once()
+    cog.clip_task.cancel.assert_called_once()
 
 
 def test_cog_only_detects_known_games_that_are_playing(tmp_path):

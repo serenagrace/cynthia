@@ -5,7 +5,7 @@ import importlib
 import logging
 import sys
 import time
-from multiprocessing import Manager
+from multiprocessing import Manager, Queue
 from pathlib import Path
 
 import numpy
@@ -143,6 +143,10 @@ class DMan:
         self.notify = None
         self.manager = Manager()
         self.uns = self.manager.Namespace()
+        self.cypi_requests = Queue()
+        self.cypi_replies = self.manager.dict()
+        self.cypi_alerts = self.manager.Queue(100)
+        self.uns.controller_backend = "none"
         init_settings(self.uns, self.context.config)
         self.load_daemons()
         self.run_daemons()
@@ -235,7 +239,13 @@ class DMan:
         daemons = [
             d for d in daemons if self.__running_daemons.get(d, None) is not None
         ]
+        if "NXBTDaemon" in daemons and "CyPiDaemon" in daemons:
+            # NXBT needs the transport alive for its final disconnect.
+            await self.stop_daemons(daemons=["NXBTDaemon"])
+            daemons.remove("NXBTDaemon")
         for _daemon in daemons:
+            if _daemon == "NXBTDaemon":
+                self.__running_daemons[_daemon].stop()
             self.__running_daemons[_daemon].ns.run = False
         try:
             async with asyncio.timeout(30):
@@ -245,7 +255,7 @@ class DMan:
                     for _daemon in daemons
                 ):
                     logger.debug(
-                        f"Still waiting for daemon(s) {list(filter(lambda k: self.__running_daemons[k].process.is_alive() and not getattr(self.__running_daemons[k].ns,'done', False), self.__running_daemons.keys()))} to close..."
+                        f"Still waiting for daemon(s) {list(filter(lambda k: self.__running_daemons[k].process.is_alive() and not getattr(self.__running_daemons[k].ns,'done', False), daemons))} to close..."
                     )
                     await asyncio.sleep(5)
         except TimeoutError:

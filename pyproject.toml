@@ -3,8 +3,8 @@ requires = ["setuptools >= 84.2.1"]
 build-backend = "setuptools.build_meta"
 [project]
 name="cynthia"
-version="1.8.3"
-description="Discord bot with Nintendo Switch (NXBT) automation and shiny-hunting video capture"
+version="1.9.0"
+description="Discord bot with wired and Bluetooth Nintendo Switch automation, capture, and streaming"
 readme="README.md"
 license="GPL-3.0-or-later"
 license-files=["LICENSE"]
@@ -40,11 +40,12 @@ dependencies = [
 # The GPU wheel is hosted on Paddle's own index; see README for the extra index URL.
 cpu = ["paddlepaddle==3.2.2"]
 gpu = ["paddlepaddle-gpu==3.2.2"]
-dev = ["black", "isort", "pytest"]
+dev = ["black", "isort", "pytest", "build"]
 cyclient = ["pypresence", "requests"]
 
 [project.urls]
 Homepage="https://github.com/serenagrace/cynthia"
+Documentation="https://serenegrace.io/docs/cynthia/"
 Issues="https://github.com/serenagrace/cynthia/issues"
 
 [project.scripts]
@@ -62,6 +63,7 @@ include-package-data = false
     "scenes/quick_settings_sleep.png",
     "scenes/roamer.png",
     "scenes/switch_boot_screen.png",
+    "scenes/switch_change_grip_order.png",
     "scenes/switch_home_screen.png",
     "scenes/switch_home_screen_afk.png",
 ]
@@ -82,7 +84,7 @@ skip = ["env", "build", "dist"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["discord_live: opt-in, read-only checks against the configured test bot"]
+markers = ["discord_live: opt-in checks with temporary changes to the configured test bot and guild"]
 filterwarnings = [
     "ignore:'audioop' is deprecated and slated for removal in Python 3\\.13:DeprecationWarning:discord\\.player",
     "ignore:pkg_resources is deprecated as an API:DeprecationWarning",

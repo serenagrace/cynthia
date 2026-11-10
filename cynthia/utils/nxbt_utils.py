@@ -55,6 +55,7 @@ QUICK_SETTINGS_WINDOW = 1.0
 QUICK_SETTINGS_POLL = 0.1
 QUICK_SETTINGS_RETRIES = 3
 HOME_TAP_MAX_DOWN = 0.5
+CYPI_CONNECT_CV_TIMEOUT = 10
 
 
 class Input:
@@ -81,6 +82,10 @@ class Input:
 
     async def play(self, nx, controller, uns=None):
         """Press the configured buttons on a controller."""
+        if hasattr(nx, "play_input"):
+            self._publish_pressed(uns)
+            await nx.play_input(self)
+            return None
         if not self.input_list:
             await asyncio.sleep(self.down_duration + self.up_duration)
             return None
@@ -362,7 +367,10 @@ class Macro:
     def walk(self):
         """Yield macro inputs in playback order."""
         for _input in self.input_list:
-            yield _input
+            if isinstance(_input, Macro):
+                yield from _input.walk()
+            else:
+                yield _input
 
     def __str__(self):
         """Serialize the macro as one input per line."""
@@ -462,15 +470,49 @@ async def nxbt_connect(nx, timeout=30):
     return (nx.state[controller]["state"] == "connected"), controller
 
 
-async def nxbt_disconnect(nx, controller):
+def shows_change_grip_order(uns):
+    """Require a fresh, confident CV match before skipping menu navigation."""
+    frame_time = getattr(uns, "cv_frame_time", 0)
+    if not frame_time or not 0 <= time.time() - frame_time <= 2:
+        return False
+    scores = dict(getattr(uns, "ssim_scores", None) or [])
+    return scores.get("change_grip_order", 0) > 0.98
+
+
+async def cypi_connect_setup(nx, controller, uns):
+    """Leave Change Grip/Order only when fresh CV data identifies that screen."""
+    await asyncio.sleep(2)
+    deadline = time.monotonic() + CYPI_CONNECT_CV_TIMEOUT
+    while True:
+        scores = dict(getattr(uns, "ssim_scores", None) or [])
+        frame_time = getattr(uns, "cv_frame_time", 0)
+        if scores and frame_time and 0 <= time.time() - frame_time <= 2:
+            if shows_change_grip_order(uns):
+                logger.info(
+                    "CYNX Change Grip/Order detected; running connection setup."
+                )
+                await Macro("A\nwait\nA\nwait\nB\nwait\nh").play(
+                    nx, controller, uns=uns
+                )
+                return True
+            logger.info("CYNX setup skipped: CV is not on Change Grip/Order.")
+            return False
+        if time.monotonic() >= deadline:
+            logger.warning("CV unavailable; skipping CYNX connection inputs.")
+            return False
+        await asyncio.sleep(0.1)
+
+
+async def nxbt_disconnect(nx, controller, *, uns=None):
     """Play cleanup inputs and remove a controller, if present."""
     if controller is not None:
-        try:
-            await asyncio.wait_for(
-                Macro.get("cleanup").play(nx, controller), timeout=15
-            )
-        except TimeoutError:
-            pass
+        if not shows_change_grip_order(uns):
+            try:
+                await asyncio.wait_for(
+                    Macro.get("cleanup").play(nx, controller), timeout=15
+                )
+            except TimeoutError:
+                pass
         await asyncio.sleep(1)
         try:
             await asyncio.wait_for(
